@@ -23,6 +23,11 @@ Read `CLAUDE.md` first.
      PC first with `RUN_RW=` (rt_pc rebuilt with `-I work/m3gen`). 3.95 refreshes a frame. **Next:** room in SDRAM
      for more hot code (docs/09 §4; DraculaX's pool needs a stack change, so not without the owner), then
      DraculaX's speed rounds (its docs/19 on).
+  7. **The EverDrive's FPGA** (docs/10): `fpga/` (the engine, krikzz's mapper with it, the Quartus kit, sims, the
+     ares patch). ares with the engine: `/home/claude/ares_android` branch `sapphire-ac-engine` (local, not pushed;
+     `fpga/ares/*.patch`), `ARES_ACE=1`. **Waiting on the owner:** `Sapphire\fpga\quartus\build_sapphire.bat`
+     (fit / timing / `mega-pro.rbf` into `fpga\quartus\out`). Carts: 14 MB EverDrive PRO + core (`EDCD=1 ACE=1`),
+     4 MB plain EverDrive (`EDCD=1`), 4 MB RAM cart; bank 31 never. Then: the HuC6280 core on the cart (step 2).
 
 ## 2. Where things live
 

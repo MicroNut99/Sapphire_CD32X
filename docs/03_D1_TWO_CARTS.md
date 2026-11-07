@@ -27,6 +27,11 @@ taken from Mednafen** (12 of 12).
 
 ## 2. The two layouts
 
+**The carts, as the owner set them (7 Nov 2026, docs/10):** the **14 MB EverDrive PRO with Sapphire's FPGA core**
+(the Arcade Card as hardware; there is no 14 MB EDCD without it), a **4 MB option for plain EverDrive carts**
+(krikzz's firmware, the card in software) and the 4 MB RAM cart. **Bank 31 is never used.** Page 0's
+`0x1C0000-0x1FFFFF` (in the free part below) is the engine's window on the 14 MB cart.
+
 The stack's maps: BootCamp docs/04 (the 4 MB RAM cart), docs/11 and ledger §16 (the 16 MB EverDrive: window 0
 = cart 0-2 MB, window 1 = cart 2-4 MB with pages 1-7 by command 68; banks 28-31 unusable, so pages 1-6).
 

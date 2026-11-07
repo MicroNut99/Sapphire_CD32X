@@ -12,6 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
+#ifdef RT_AC_FPGA
+#include "ac_engine.h"
+#endif
 static long cur_frame_any;                             /* (the frame now: RUN_TRACK_LOG, docs/69) */
 #ifdef HUC_MARKS
 #include "rt_spr.h"
@@ -870,6 +873,10 @@ int main(int argc, char **argv)
     if (getenv("RUN_WCLASS")) { rt_wclass_wr = wc_wr; rt_wclass_cd = wc_cd; atexit(wc_report); }
 #endif
     banks[0xF8] = malloc(8192); banks[0xF7] = malloc(2048);
+#ifdef RT_AC_FPGA
+    { extern const uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob;
+      if (getenv("RUN_ACE_LOG")) rt_ace_log = fopen(getenv("RUN_ACE_LOG"), "wb"); }   /* (docs/10: the engine's cart is the state's bytes) */
+#endif
     static Rt rt; rt_init(&rt, &st, banks);
     rt.on_idle = on_idle; quiet = getenv("RUN_QUIET") != 0;
     if (argc > 3 && getenv("RUN_DISC")) {                       /* the CD drive, as the PC host has it */
@@ -991,6 +998,18 @@ int main(int argc, char **argv)
            rt.cold_entries, rt.chained);
     printf("Arcade Card: %ld reads, %ld writes (%ld not made: its RAM read only), %ld reads of a region not here\n",
            rt.ac.reads, rt.ac.writes, rt.ac.ro_writes, rt.ac.misses);
+    {                                                           /* (docs/10: the card's registers at the end) */
+#ifdef RT_AC_FPGA
+        extern AcEngine rt_ace; const ArcadeCard *acp = &rt_ace.ac;
+        printf("Arcade Card engine (RT_AC_FPGA): %ld reads of a region not here\n", rt_ace.misses);
+        { extern FILE *rt_ace_log; if (rt_ace_log) fclose(rt_ace_log); }
+#else
+        const ArcadeCard *acp = &rt.ac;
+#endif
+        uint32_t w[19], h = 2166136261u; ac_state(acp, w);
+        for (int i = 0; i < 19; i++) h = (h ^ w[i]) * 16777619u;
+        printf("Arcade Card registers at the end: %08x\n", h);
+    }
     printf("banks written:");
     for (int b = 0; b < 256; b++) if (rt.bank_dirty[b] || (b == 0xF8)) printf(" %02X", b);
     printf("\n");

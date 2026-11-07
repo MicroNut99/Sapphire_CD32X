@@ -89,8 +89,9 @@ def pack(W, d, run, first, frames, out):
                      int(i0['speed']), int(i0['pc']), *[int(x) for x in i0['mpr']], vdc_t0, io_t0, len(masks),
                      (1 if adpcm else 0) | drive | ac)
     body = bytearray(); offs = []
-    for p in parts:
-        while (len(head) + len(body)) % 4: body.append(0)
+    for k, p in enumerate(parts):
+        while (len(head) + len(body)) % (256 if ac == 8 and k == 17 else 4): body.append(0)   # (docs/10: the card's
+        #   regions 256-byte aligned, as the EverDrive's Arcade Card engine addresses them)
         offs.append(len(head) + len(body)); body += p
     struct.pack_into('>%dI' % len(parts), head, 40, *offs)
     open(out, 'wb').write(bytes(head) + bytes(body))

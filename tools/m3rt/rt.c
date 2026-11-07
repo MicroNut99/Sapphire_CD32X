@@ -13,6 +13,9 @@
 #include <stdio.h>
 #endif
 #include "rt.h"
+#ifdef RT_AC_FPGA
+#include "ac_engine.h"
+#endif
 #ifdef RT_PROV
 void prov_vram(unsigned a);                         /* DIAG (docs/45, rt_pc.c): a VRAM word written */
 #define PROV_VRAM(a) prov_vram(a)
@@ -663,7 +666,64 @@ static void hw_write(Rt *r, uint32_t off, uint8_t v) { hw_write_(r, off, v); wai
 /* Sapphire: an Arcade Card write. Its registers always; its RAM (a data port's write) only where the 2 MB are ours:
    on the SH2 they are the cart's (the game never writes them in play: docs/02 §4), so ac_model counts the write
    (ac.ram_ro, set by RT_AC_RO builds) instead of making it */
+#ifndef RT_AC_FPGA
 static void ac_write_rt(Rt *r, uint32_t a, uint8_t v) { ac_write(&r->ac, a, v); }
+#define AC_READ(r, a) ac_read(&(r)->ac, a)
+#else
+/* RT_AC_FPGA (docs/10): the card is the EverDrive's engine (tools/m2host/ac_engine.h): each access one read of the
+   cart's engine window, past the cache; on the PC, the engine's model. r->ac keeps only the counts */
+#ifdef __32X__
+static inline uint8_t ace_rd(uint32_t off) { return (uint8_t)*(volatile uint16_t *)(0x22000000u + ACE_WINDOW + off); }
+#else
+#include <stdio.h>
+AcEngine rt_ace; const uint8_t *rt_ace_cart; FILE *rt_ace_log;   /* (RUN_ACE_LOG: each read, u32 offset u16 word, LE) */
+static inline uint8_t ace_rd(uint32_t off)
+{
+    const uint16_t w = ace_bus_read(&rt_ace, off);
+    if (rt_ace_log) { fwrite(&off, 4, 1, rt_ace_log); fwrite(&w, 2, 1, rt_ace_log); }
+    return (uint8_t)w;
+}
+#endif
+static uint8_t ac_read_fpga(Rt *r, uint32_t a)
+{
+    const unsigned g = a & 0xFF;
+    if ((a & 0x1F00) != 0x1A00 || (g >= 0x80 && g < 0xE0)) return 0xFF;   /* (as the card: nothing there) */
+    if (g < 0x80 && (g & 0xF) < 2) r->ac.reads++;
+    return ace_rd(ACE_RD_OFF(g));
+}
+static void ac_write_rt(Rt *r, uint32_t a, uint8_t v)
+{
+    const unsigned g = a & 0xFF;
+    if ((a & 0x1F00) != 0x1A00 || (g >= 0x80 && g < 0xE0)) return;          /* (the card ignores these: the engine's) */
+    if (g < 0x80 && (g & 0xF) < 2) { r->ac.writes++; r->ac.ro_writes++; }
+    ace_rd(ACE_WR_OFF(g, v));
+}
+#define AC_READ(r, a) ac_read_fpga(r, a)
+static void ace_load(Rt *r, const RtState *st)       /* the state's card into the engine */
+{
+    const uint32_t *s = st->ac_regs;
+    for (int p = 0; p < 4; p++) {
+        const unsigned q = p << 4; const uint32_t *w = s + p * 4;
+        ace_rd(ACE_WR_OFF(q | 9, 0));                /* (control 0 first: an offset write may add it to the base) */
+        for (int i = 0; i < 3; i++) ace_rd(ACE_WR_OFF(q | (2 + i), (w[0] >> 8 * i) & 0xFF));
+        ace_rd(ACE_WR_OFF(q | 5, w[1] & 0xFF)); ace_rd(ACE_WR_OFF(q | 6, (w[1] >> 8) & 0xFF));
+        ace_rd(ACE_WR_OFF(q | 7, w[2] & 0xFF)); ace_rd(ACE_WR_OFF(q | 8, (w[2] >> 8) & 0xFF));
+        ace_rd(ACE_WR_OFF(q | 9, w[3] & 0x7F));
+    }
+    for (int i = 0; i < 4; i++) ace_rd(ACE_WR_OFF(0xE0 + i, (s[16] >> 8 * i) & 0xFF));
+    ace_rd(ACE_WR_OFF(ACE_REG_SHIFT_RAW, s[17] & 0xF)); ace_rd(ACE_WR_OFF(ACE_REG_ROT_RAW, s[18] & 0xF));
+    for (int k = 0; k < 32; k++) {
+#ifdef __32X__
+        const uint32_t ca = (uint32_t)(uintptr_t)st->ac_reg[k] & 0x3FFFFF;   /* (the cart's address: the state is there) */
+#else
+        const uint32_t ca = (uint32_t)(st->ac_reg[k] - rt_ace_cart);
+#endif
+        const uint16_t u = st->ac_reg[k] ? (uint16_t)(ca >> 8) : ACE_NONE;
+        ace_rd(ACE_WR_OFF(ACE_REG_UNIT + 2 * k, u & 0xFF)); ace_rd(ACE_WR_OFF(ACE_REG_UNIT + 2 * k + 1, u >> 8));
+    }
+    (void)r;
+}
+#endif
 
 uint8_t rd_slow(Cpu *c, uint16_t a)
 {
@@ -671,9 +731,9 @@ uint8_t rd_slow(Cpu *c, uint16_t a)
     const uint8_t b = c->MPR[a >> 13];
     if (b == 0xF7) return r->bram[a & 0x7FF];
     if (b >= 0x40 && b <= 0x43)                     /* Sapphire: the Arcade Card's data ports through banks 40-43 */
-        return ac_read(&r->ac, ac_phys((uint32_t)b << 13 | (a & 0x1FFF)));
+        return AC_READ(r, ac_phys((uint32_t)b << 13 | (a & 0x1FFF)));
     if (b != 0xFF) return 0xFF;                     /* unmapped */
-    if ((a & 0x1F00) == 0x1A00) return ac_read(&r->ac, a & 0x1FFF);   /* its registers */
+    if ((a & 0x1F00) == 0x1A00) return AC_READ(r, a & 0x1FFF);   /* its registers */
     return hw_read(r, a, 0);
 }
 
@@ -1067,6 +1127,16 @@ void rt_init(Rt *r, const RtState *st, uint8_t *const ram_banks[256])
     io_clear(r);                                    /* (the times from the CPU's 0, the VDC's base: rt_vdc.c v32_load) */
     sched_frame(r, 0);
     r->irq_stale = 1;
+#ifdef RT_AC_FPGA
+    if (st->ac_regions) {                           /* (docs/10: the engine; the counts only in r->ac) */
+        static const uint32_t z[19]; const uint8_t *const none[32] = { 0 };
+        ac_start_regions(&r->ac, z, none);
+#ifndef __32X__
+        ace_reset(&rt_ace, rt_ace_cart);
+#endif
+        ace_load(r, st);
+    } else
+#endif
     if (st->ac_regions) ac_start_regions(&r->ac, st->ac_regs, st->ac_reg);   /* (docs/09: the regions read only) */
     else if (st->ac_regs) {                         /* Sapphire: the Arcade Card (its RAM where the state has it) */
         ac_start(&r->ac, st->ac_regs, (uint8_t *)st->ac_ram);

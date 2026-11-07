@@ -25,3 +25,5 @@ dxspeed/build/
 dxspeed/cd/
 saspeed/build/
 saspeed/cd/
+fpga/quartus/out/
+*.rbf

@@ -1,0 +1,197 @@
+From 8212bf8a29a4b374c0b9d033d85efce173445ef1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 15:36:17 -0800
+Subject: [PATCH] EverDrive PRO board: Sapphire CD32X's Arcade Card engine
+ (ARES_ACE=1)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ .../md/cartridge/board/arcade-card-engine.hpp | 125 ++++++++++++++++++
+ ares/md/cartridge/board/board.cpp             |   1 +
+ ares/md/cartridge/board/everdrive-pro.cpp     |  11 ++
+ 3 files changed, 137 insertions(+)
+ create mode 100644 ares/md/cartridge/board/arcade-card-engine.hpp
+
+diff --git a/ares/md/cartridge/board/arcade-card-engine.hpp b/ares/md/cartridge/board/arcade-card-engine.hpp
+new file mode 100644
+index 0000000..44e8469
+--- /dev/null
++++ b/ares/md/cartridge/board/arcade-card-engine.hpp
+@@ -0,0 +1,125 @@
++//Sapphire CD32X's Arcade Card engine (github.com/MicroNut99/Sapphire_CD32X: docs/10, fpga/ac_engine.sv): the PC
++//Engine's Arcade Card as hardware in the Mega EverDrive PRO's FPGA, beside krikzz's SSF mapper. Not part of
++//krikzz's firmware: only a cart whose mega-pro.rbf is Sapphire's has it. Here on the EverDrive board with
++//ARES_ACE=1 (a branch, not ares_android's main: BootCamp rule, the owner decides).
++//
++//Every access is a 16-bit read of cart 0x1C0000-0x1FFFFF (whatever bank window 3 maps). The address carries the
++//operation (Sapphire tools/m2host/ac_engine.h):
++//  + (r << 1)                        the card's register $1A00 + r: the low byte of the word read back
++//  + 0x20000 + (v << 9) + (r << 1)   v written to it
++//$1A80-$1ABF: region k's place in the 16 MB in 256-byte units, low then high byte (0xffff: not here, reads 0xff);
++//$1AC0 / $1AC1: the shift / rotate counts set raw. The card's RAM is read from the cart's memory through that
++//table, read only (a data port write steps the address). Behaviour: Mednafen's ArcadeCard, line for line.
++
++struct ArcadeCardEngine {
++  struct Port { n24 base; n16 offset, increment; n7 control; } port[4];
++  n32 latch;
++  n4 shiftBits, rotateBits;
++  n16 unit[32];
++
++  auto reset() -> void {
++    for(auto& p : port) p = {};
++    latch = 0; shiftBits = 0; rotateBits = 0;
++    for(auto& u : unit) u = 0xffff;
++  }
++
++  static auto index(const Port& p) -> u32 {
++    u32 i = p.base;
++    if(p.control.bit(1)) { i += p.offset; if(p.control.bit(3)) i += 0xff0000; }
++    return i & 0x1fffff;
++  }
++  static auto step(Port& p) -> void {
++    if(!p.control.bit(0)) return;
++    if(p.control.bit(4)) p.base = p.base + p.increment; else p.offset = p.offset + p.increment;
++  }
++  static auto addOffset(Port& p) -> void {
++    u32 b = p.base;
++    if(p.control.bit(3)) b += 0xff0000;
++    p.base = b + p.offset;
++  }
++
++  //a read of the window at offset off; ram: the cart's 16 MB as words, big-endian
++  template<typename Ram> auto access(u32 off, Ram& ram, u32 words) -> n16 {
++    u32 r = off >> 1 & 0xff;
++    if(!(off & 0x20000)) {
++      if(r < 0x80) {
++        auto& p = port[r >> 4 & 3];
++        switch(r & 15) {
++        case 0x0: case 0x1: {
++          u32 i = index(p); n8 v = 0xff;
++          if(unit[i >> 16] != 0xffff) {
++            u32 a = ((u32)unit[i >> 16] << 8) + (i & 0xffff);
++            u32 w = (a >> 1) & (words - 1);
++            if(a < 0xf80000) v = (a & 1) ? ram[w].byte(0) : ram[w].byte(1);  //bank 31 (battery RAM): never
++          }
++          step(p);
++          return v;
++        }
++        case 0x2: return p.base.byte(0);
++        case 0x3: return p.base.byte(1);
++        case 0x4: return p.base.byte(2);
++        case 0x5: return p.offset.byte(0);
++        case 0x6: return p.offset.byte(1);
++        case 0x7: return p.increment.byte(0);
++        case 0x8: return p.increment.byte(1);
++        case 0x9: return (n8)p.control;
++        }
++        return 0xff;
++      }
++      if(r >= 0xe0) {
++        switch(r & 0x1f) {
++        case 0x00: case 0x01: case 0x02: case 0x03: return (n8)(latch >> (r & 3) * 8);
++        case 0x04: return (n8)shiftBits;
++        case 0x05: return (n8)rotateBits;
++        case 0x1c: case 0x1d: return 0x00;
++        case 0x1e: return 0x10;
++        case 0x1f: return 0x51;
++        }
++      }
++      return 0xff;
++    }
++    n8 v = off >> 9;
++    if(r < 0x80) {
++      auto& p = port[r >> 4 & 3];
++      switch(r & 15) {
++      case 0x0: case 0x1: step(p); break;  //the card's RAM is read only here
++      case 0x2: p.base.byte(0) = v; break;
++      case 0x3: p.base.byte(1) = v; break;
++      case 0x4: p.base.byte(2) = v; break;
++      case 0x5: p.offset.byte(0) = v; if((p.control >> 5 & 3) == 1) addOffset(p); break;
++      case 0x6: p.offset.byte(1) = v; if((p.control >> 5 & 3) == 2) addOffset(p); break;
++      case 0x7: p.increment.byte(0) = v; break;
++      case 0x8: p.increment.byte(1) = v; break;
++      case 0x9: p.control = v & 0x7f; break;
++      case 0xa: if((p.control >> 5 & 3) == 3) addOffset(p); break;
++      }
++    } else if(r < 0xc0) {
++      if(r & 1) unit[r >> 1 & 31].byte(1) = v; else unit[r >> 1 & 31].byte(0) = v;
++    } else if(r == 0xc0) shiftBits = v & 15;
++    else if(r == 0xc1) rotateBits = v & 15;
++    else if(r >= 0xe0) {
++      switch(r & 0x1f) {
++      case 0x00: case 0x01: case 0x02: case 0x03:
++        latch = (latch & ~(0xffu << (r & 3) * 8)) | (u32)v << (r & 3) * 8; break;
++      case 0x04:
++        shiftBits = v & 15;
++        if(shiftBits) latch = shiftBits.bit(3) ? (u32)latch >> (16 - shiftBits) : (u32)latch << shiftBits;
++        break;
++      case 0x05:
++        rotateBits = v & 15;
++        if(rotateBits) {
++          u32 l = latch;
++          if(rotateBits.bit(3)) { u32 sa = 16 - rotateBits; latch = l >> sa | l << (32 - sa); }
++          else { u32 sa = rotateBits; latch = l << sa | ((l >> (32 - sa)) & ((1u << sa) - 1)); }
++        }
++        break;
++      }
++    }
++    return 0xffff;
++  }
++
++  auto serialize(serializer& s) -> void {
++    for(auto& p : port) { s(p.base); s(p.offset); s(p.increment); s(p.control); }
++    s(latch); s(shiftBits); s(rotateBits); s(unit);
++  }
++};
+diff --git a/ares/md/cartridge/board/board.cpp b/ares/md/cartridge/board/board.cpp
+index 0c3ed9f..10f4c75 100644
+--- a/ares/md/cartridge/board/board.cpp
++++ b/ares/md/cartridge/board/board.cpp
+@@ -8,6 +8,7 @@ namespace Board {
+ #include "realtec.cpp"
+ #include "game-genie.cpp"
+ #include "ram-cart.cpp"
++#include "arcade-card-engine.hpp"
+ #include "everdrive-pro.cpp"
+ #include "mega-32x.cpp"
+ #include "debugger.cpp"
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index c053564..7f6813f 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -86,6 +86,11 @@ struct EverDrivePro : Interface {
+   static constexpr u64 Window = Thread::Second / 1'000'000;  //1 us: a 68000 bus cycle is 0.5 us
+   static auto near(u64 a, u64 b) -> bool { return (a > b ? a - b : b - a) <= Window; }
+ 
++  //Sapphire CD32X's Arcade Card engine (arcade-card-engine.hpp): on with ARES_ACE=1, as a cart whose
++  //mega-pro.rbf is Sapphire's (krikzz's SSF mapper + the engine in cart 0x1C0000-0x1FFFFF)
++  ArcadeCardEngine ace;
++  boolean aceOn;
++
+   static constexpr u32 SaveBank = 31;
+ 
+   auto load() -> void override {
+@@ -157,6 +162,10 @@ struct EverDrivePro : Interface {
+   }
+ 
+   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
++    if(aceOn) {
++      n22 local = address;
++      if(local >= 0x1c0000) if(local < 0x200000) return ace.access(local - 0x1c0000, ram, ram.size());
++    }
+     u32 word = offset(address) >> 1;
+     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
+       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
+@@ -247,6 +256,8 @@ struct EverDrivePro : Interface {
+   }
+ 
+   auto power(bool reset) -> void override {
++    if(auto e = getenv("ARES_ACE")) aceOn = e[0] == '1';
++    ace.reset();
+     for(u32 n : range(8)) bank[n] = n;
+     mode32x = 0;
+     led = 0;
+-- 
+2.43.0
+

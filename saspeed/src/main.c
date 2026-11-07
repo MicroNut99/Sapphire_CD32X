@@ -102,7 +102,7 @@ void secondary(void)
 extern void CacheControl(int mode);
 
 #define COMM8_32   (*(volatile uint32_t *)0x20004028)
-#ifdef RT_CD_RING
+#if defined(RT_CD_RING) || defined(RT_POOL)
 static volatile int cdr_busy;                                 /* (docs/69: a sector read under way) */
 #endif
 #define COMM12_16  (*(volatile uint16_t *)0x2000402C)
@@ -728,7 +728,8 @@ static uint8_t base_ram[8192] __attribute__((aligned(16), section(".bss.place_ra
 #define CDR_N 16
 #define CDR_CART 0x140000u                                    /* (cart 0x140000-0x1BFFFF: past LEVEL01's resident slot) */
 static uint16_t cdr_tag[CDR_N]; static uint32_t cdr_misses, cdr_fail;
-#ifdef RT_POOL
+#endif
+#ifdef RT_POOL                                                 /* (Sapphire docs/09: with or without CDR=1) */
 /* POOL=1 (docs/72): the RAM banks the game writes, one at a time in an SDRAM slot; the slot's bank before goes back to
    its place in the cart through the frame buffer (the background list's area: free once a list has run) and the
    stack's command 101 (FBCART), 4 KB at a time; then the cache is purged (the cart's lines changed under it) */
@@ -780,6 +781,7 @@ static int pool_wb(const uint8_t *mem, uint8_t *home)
     return ok;
 }
 #endif
+#ifdef RT_CD_RING
 #ifdef CDR_LOG
 static uint32_t cdr_nlog;
 #endif

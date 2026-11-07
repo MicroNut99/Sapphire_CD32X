@@ -29,6 +29,11 @@ CCFLAGS  = -D__32X__ -m2 -mb -Os -ffunction-sections -falign-functions=16 -Wall 
 ifeq ($(RT_DIGEST),1)
 CCFLAGS += -DRT_DIGEST
 endif
+# ACE=1 (docs/10): the Arcade Card is the EverDrive PRO's engine (fpga/ac_engine.sv, Sapphire's mega-pro.rbf): each
+# access one read of cart 0x1C0000-0x1FFFFF past the cache; the 14 MB EDCD cart only (ares: ARES_ACE=1)
+ifeq ($(ACE),1)
+CCFLAGS += -DRT_AC_FPGA
+endif
 # SDRAM_BANKS=0x72,0x6A: those Super RAM banks in SDRAM (src/main.c, docs/38)
 ifneq ($(SDRAM_BANKS),)
 CCFLAGS += -DSDRAM_BANKS=$(SDRAM_BANKS)

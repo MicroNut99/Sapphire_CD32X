@@ -42,6 +42,11 @@ which the runtime doesn't model, as in DraculaX).
 ends stage 3's 600 frames with rt_pc's hash. To get there, the six RAM banks the game writes (68, 69, 6B, 74, 75, 85)
 had to be in SDRAM. It takes 3.95 32X refreshes a PC Engine frame (about 15 fps). Next: room in SDRAM for more hot
 code, then DraculaX's speed rounds.
+**The Arcade Card in the EverDrive's FPGA** ([docs/10](docs/10_THE_ARCADE_CARD_ON_THE_EVERDRIVE.md)): the carts are the 14 MB
+EverDrive PRO with Sapphire's FPGA core (krikzz's SSF mapper plus the card as hardware, `fpga/`), the 4 MB plain
+EverDrive and the 4 MB RAM cart (card in software); bank 31 is never used. The engine matches the PC model on
+every read (the game's 501,783 and 300,064 random ones). In ares the speed test is exact with it, in 1,625
+refreshes against 1,947 (2.71 a frame). Next: the Quartus build on the owner's PC, then the console.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
