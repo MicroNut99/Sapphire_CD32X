@@ -14,7 +14,11 @@ LBA 7220. With no input, the attract demo plays stages 1-4 whole. RAM `$0E15` is
 grid at LBA 3600. **The Arcade Card is never written in play**, so on the 32X it is the cart. The game's own
 writable RAM is ~40 KB. The code runs from Super RAM and is busy about 40 % of a frame. The background fits
 the Genesis' 4 palettes × 15 exactly on stages 3 and 4, at 96 / 88 % on stages 2 and 5, and at 63 % on
-stage 1. The owner's 4 MB / 14 MB decision (D1) has its numbers in docs/02 §8.
+stage 1. **D1, both carts** (the owner, 7 Nov 2026; [docs/03](docs/03_D1_TWO_CARTS.md)): the Arcade Card's six
+images (boot, stages 1-5) come to 113 regions of 64 KB, 17 of them shared. They are laid out for the 14 MB
+EverDrive (pages 0-6, a page a stage) and the 4 MB RAM cart (shared regions resident, a stage pack loaded at
+each stage). Every image rebuilt from either cart equals the game's own. Each stage has 832-1,216 KB left for
+its program.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
@@ -45,6 +49,7 @@ through ctypes).
 | `tools/m0_stage.py` | one stage from a demo state: captures, RAM / Arcade Card trackers, CD reads |
 | `tools/m0_discmatch.py` | which CD RAM / Super RAM / Arcade Card blocks are disc sectors verbatim |
 | `tools/m0_cpu.py` | where the code runs, interrupts, the hottest spans |
+| `tools/make_packs.py` | D1: the Arcade Card's images from the game, cut into 64 KB regions, laid out for the 14 MB and 4 MB carts, each image rebuilt and checked |
 | `tools/genesis_fit.py` | DraculaX's: does each screen's background fit the Genesis' 4 palettes of 15 |
 
 ## The Arcade Card, as the game uses it

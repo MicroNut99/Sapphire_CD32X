@@ -37,9 +37,10 @@ DraculaX_32X is the template: its `core/` (this repo's, plus the Arcade Card), i
 
 ## Decisions (the owner's)
 
-- **D1. The cart: 4 MB or 14 MB.** docs/02 §8 sets out both. 14 MB (EDCD, DraculaX D3: pages 0-6) puts every
-  stage's Arcade Card part in the cart once; 4 MB reloads a stage's part from the disc at its start, as the
-  original. **Open.**
+- **D1. The cart: both, 4 MB and 14 MB** (the owner, 7 Nov 2026). One game and runtime, two layouts
+  (docs/03): 14 MB (EDCD on the EverDrive, `CART=ED`, pages 0-6) copies everything in once and switches pages
+  at a stage's start; 4 MB loads the stage's pack into the level slot at its start, as the original. The
+  Arcade Card's regions are laid out for both and checked against the game.
 - **D2. Stage 1's background** (63 % fits 4 × 15): merge (DraculaX D2a), the 32X draws the far layer, or a
   palette change down the screen. **Open, after M1.**
 
@@ -48,6 +49,7 @@ DraculaX_32X is the template: its `core/` (this repo's, plus the Arcade Card), i
 | | What | Done when |
 |---|---|---|
 | **M0** | The reference and the measurements: Mednafen headless with the Arcade Card tracked, the demo states, CD reads, the Arcade Card's use, RAM, CPU, palette fit | **done 7 Nov 2026 (docs/02)** |
+| **D1** | **Both carts laid out: the Arcade Card's six images (boot, stages 1-5) in 113 regions of 64 KB, 17 shared; each image rebuilt from each cart equal to Mednafen's (12 of 12); 832-1,216 KB per stage left for its program** | **done 7 Nov 2026 (docs/03)** |
 | M0b | The raster log (line scroll, Sapphire's parallax), the code map (what in Super RAM is code, overlays per stage), the sound log, input record / replay of the demo | |
 | M1 | The rip on the PC; one stage 3 frame through commands 62-67 in ares, 0 pixels off | |
 | M2 | The recompiler on the PC (DraculaX's `m2_*`, the Arcade Card's ports added), every recording equal to Mednafen frame for frame | |
