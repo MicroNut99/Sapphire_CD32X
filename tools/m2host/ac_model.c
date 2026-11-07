@@ -8,7 +8,14 @@ void ac_start(ArcadeCard *ac, const uint32_t *s, uint8_t *ram)
         ac->port[i].increment = (uint16_t)s[i * 4 + 2]; ac->port[i].control = (uint8_t)s[i * 4 + 3];
     }
     ac->shift_latch = s[16]; ac->shift_bits = (uint8_t)s[17]; ac->rotate_bits = (uint8_t)s[18];
-    ac->ram = ram; ac->reads = ac->writes = 0; ac->ram_ro = 0; ac->ro_writes = 0;
+    ac->ram = ram; ac->reads = ac->writes = 0; ac->ram_ro = 0; ac->ro_writes = 0; ac->regions = 0; ac->misses = 0;
+}
+
+void ac_start_regions(ArcadeCard *ac, const uint32_t *s, const uint8_t *const reg[32])
+{
+    ac_start(ac, s, 0);
+    for (int i = 0; i < 32; i++) ac->reg[i] = reg[i];
+    ac->regions = 1; ac->ram_ro = 1;
 }
 
 void ac_state(const ArcadeCard *ac, uint32_t *s)
@@ -50,7 +57,11 @@ uint8_t ac_read(ArcadeCard *ac, uint32_t a)
     if ((a & 0xFF) < 0x80) {
         ACPort *p = &ac->port[(a >> 4) & 3];
         switch (a & 0xF) {
-        case 0x0: case 0x1: { const uint8_t r = ac->ram[ac_index(p)]; ac->reads++; ac_auto_increment(p); return r; }
+        case 0x0: case 0x1: {
+            const uint32_t i = ac_index(p); uint8_t r;
+            if (!ac->regions) r = ac->ram[i];
+            else { const uint8_t *g = ac->reg[i >> 16]; if (g) r = g[i & 0xFFFF]; else { r = 0xFF; ac->misses++; } }
+            ac->reads++; ac_auto_increment(p); return r; }
         case 0x2: return (uint8_t)p->base;
         case 0x3: return (uint8_t)(p->base >> 8);
         case 0x4: return (uint8_t)(p->base >> 16);

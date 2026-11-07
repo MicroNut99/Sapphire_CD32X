@@ -1067,7 +1067,8 @@ void rt_init(Rt *r, const RtState *st, uint8_t *const ram_banks[256])
     io_clear(r);                                    /* (the times from the CPU's 0, the VDC's base: rt_vdc.c v32_load) */
     sched_frame(r, 0);
     r->irq_stale = 1;
-    if (st->ac_regs) {                              /* Sapphire: the Arcade Card (its RAM where the state has it) */
+    if (st->ac_regions) ac_start_regions(&r->ac, st->ac_regs, st->ac_reg);   /* (docs/09: the regions read only) */
+    else if (st->ac_regs) {                         /* Sapphire: the Arcade Card (its RAM where the state has it) */
         ac_start(&r->ac, st->ac_regs, (uint8_t *)st->ac_ram);
 #ifdef RT_AC_RO
         r->ac.ram_ro = 1;

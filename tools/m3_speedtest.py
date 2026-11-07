@@ -11,7 +11,9 @@
    32 u32 frames   36 u32 flags (1: ADPCM RAM)   40 u32 offsets: base RAM (8 K), CD RAM (64 K), Super RAM (192 K),
       backup RAM (2 K), System Card ROM (256 K), ADPCM RAM (64 K), VRAM (32 K words), sprite table (256 words),
       colours (512 words), VDC registers (96 u32), CD unit (128 u32), pad masks (u16 a frame); flag 2 (docs/69): the
-      drive (parts 12-14); flag 4 (Sapphire docs/08): the Arcade Card's 19 registers and its 2 MB (parts 15, 16)
+      drive (parts 12-14); flag 4 (Sapphire docs/08): the Arcade Card's 19 registers and its 2 MB (parts 15, 16);
+      flag 8 (docs/09, AC_REGIONS=00,01,...): its registers, a table of 32 regions (offset or ~0), only those 64 KB
+      regions' bytes (parts 15-17)
     m3_speedtest.py select <gen dir> <window dir> <out dir>
         the generated code (tools/m2_recomp.py) cut down to the blocks of the banks the window starts with (as
         <traces>/m2gen/trace_check lists them): huc_ops.h, interp.c, huc_rt.c, those blk_*.c and a blocks.c of them
@@ -70,8 +72,17 @@ def pack(W, d, run, first, frames, out):
     if os.path.exists(ap2):
         a0 = open(ap2, 'rb').read()
         while len(parts) < 15: parts.append(b'')         # (no drive parts: empty)
-        parts += [np.frombuffer(a0[:76], dtype='<u4').astype('>u4').tobytes(), a0[76:76 + 0x200000]]
-        ac = 4
+        regs = os.environ.get('AC_REGIONS')              # (docs/09: only these 64 KB regions, e.g. 00,01,0a,...: flag 8)
+        if regs:
+            keep = sorted({int(x, 16) for x in regs.split(',')})
+            tab = [0xFFFFFFFF] * 32; body = b''
+            for k in keep:
+                tab[k] = len(body); body += a0[76 + k * 0x10000:76 + (k + 1) * 0x10000]
+            parts += [np.frombuffer(a0[:76], dtype='<u4').astype('>u4').tobytes(), struct.pack('>32I', *tab), body]
+            ac = 8
+        else:
+            parts += [np.frombuffer(a0[:76], dtype='<u4').astype('>u4').tobytes(), a0[76:76 + 0x200000]]
+            ac = 4
     head = bytearray(40 + 4 * len(parts))
     head[0:4] = b'DXS1'
     struct.pack_into('>I6BH8BiiII', head, 4, 1, int(i0['a']), int(i0['x']), int(i0['y']), int(i0['s']), int(i0['p']),

@@ -37,5 +37,12 @@ int rt_state_load(const uint8_t *b, RtState *st, void *(*alloc)(unsigned long))
     if (be32(b + 36) & 4) {                         /* (Sapphire docs/08: the Arcade Card, parts 15 and 16) */
         st->ac_regs = words(b + be32(b + 40 + 60), 19, 4, alloc); st->ac_ram = b + be32(b + 40 + 64);
     }
+    if (be32(b + 36) & 8) {                         /* (docs/09: its registers, a table of 32 regions, their bytes:
+                                                       parts 15-17; a region's offset in part 17, or ~0 = not here) */
+        st->ac_regs = words(b + be32(b + 40 + 60), 19, 4, alloc);
+        const uint8_t *t = b + be32(b + 40 + 64), *g = b + be32(b + 40 + 68);
+        for (int i = 0; i < 32; i++) { const uint32_t o = be32(t + 4 * i); st->ac_reg[i] = o == 0xFFFFFFFFu ? 0 : g + o; }
+        st->ac_regions = 1;
+    }
     return 1;
 }

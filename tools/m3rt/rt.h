@@ -35,6 +35,8 @@ typedef struct RtState {
                                                        state, the TOC, the disc's table - 0 when the state has none) */
     const uint32_t *ac_regs; const uint8_t *ac_ram; /* (flag 4, Sapphire docs/08: the Arcade Card's 19 registers and
                                                        2 MB; on the SH2 the 2 MB stay in the cart, read only) */
+    const uint8_t *ac_reg[32]; int ac_regions;      /* (flag 8, docs/09: instead of the 2 MB, the 64 KB regions a
+                                                       stage reads, 0 for the others) */
 } RtState;
 
 /* a bank's memory, writable, merged block and its slot (rt.c rec_set): what TAM's change reads, one cache line (docs/35) */

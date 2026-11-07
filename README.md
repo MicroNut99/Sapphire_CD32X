@@ -37,7 +37,11 @@ and Arcade Card is equal to Mednafen's.
 **M3 step 1** ([docs/08](docs/08_M3_THE_RUNTIME_ON_THE_PC.md)): DraculaX's 32X runtime, with the Arcade Card added, runs the game
 on the PC. Over 600 frames of stage 3 it stops at the same 777 waits as the exact host, with equal state at 767. At
 the other 10, one byte differs, because an interrupt lands on another instruction (the data port's wait states,
-which the runtime doesn't model, as in DraculaX). Next: the same runtime on the SH2 in ares.
+which the runtime doesn't model, as in DraculaX).
+**M3 step 2** ([docs/09](docs/09_M3_THE_SH2_EQUAL_TO_THE_PC.md)): the same runtime on the master SH2 in ares (console timing)
+ends stage 3's 600 frames with rt_pc's hash. To get there, the six RAM banks the game writes (68, 69, 6B, 74, 75, 85)
+had to be in SDRAM. It takes 3.95 32X refreshes a PC Engine frame (about 15 fps). Next: room in SDRAM for more hot
+code, then DraculaX's speed rounds.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

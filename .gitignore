@@ -23,3 +23,5 @@ __pycache__/
 # M3's speed test: built in the work tree (its cd/ files are game data)
 dxspeed/build/
 dxspeed/cd/
+saspeed/build/
+saspeed/cd/

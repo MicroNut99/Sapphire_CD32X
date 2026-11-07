@@ -16,14 +16,13 @@ Read `CLAUDE.md` first.
      `/home/claude/cd32x-bootcamp`); ledger §21b written (MicroNut99/docs `009a13a`, clone `/home/claude/docs`).
   4. **M2 done** (docs/06-07): the translation, our clock, and the host alone: the whole demo from power-on equal
      to Mednafen every frame (`work/tr/<window>`, `work/m2check`, `work/m2gen`, `work/m2`). 
-  5. **M3 step 1 done** (docs/08): `rt_pc` (`work/rtobj`, C from `work/m3gen`, state `work/sp/st3.bin`). **Next, M3
-     step 2:** DraculaX's `dxspeed/` for Sapphire: the Arcade Card reached through docs/03's 64 KB region table
-     (the 2.7 MB state does not fit the level slot), the SH2 build in ares (`ARES_32X_TIMING=console`), its hash
-     against `rt_pc`'s. DraculaX's `tools/m3_sh2.py` (the hot code as SH2 assembly) after that.
-     **Mind docs/08 §4:** a stage's whole translation is 1.61 MB at `-Os`; with its state and the card's regions it does not
-     fit the 4 MB cart, nor a 14 MB page. So step 2 starts from DraculaX's split (`m3_speedtest.py split`: the hot half
-     in SDRAM, the cold in the cart), and measures the cold half translated vs interpreted. `select` runs the checker
-     named by `M2CHECK` (default `work/m2check`).
+  5. **M3 step 1 done** (docs/08): `rt_pc` (`work/rtobj`, C from `work/m3gen`, state `work/sp/st3.bin`).
+  6. **M3 step 2 done** (docs/09): `saspeed/` in ares equal to `rt_pc` (hash `66AC699E`). Build tree `work/bc3`
+     (`cd32x/apply.sh`), state `work/sp/st3r.bin` (`AC_REGIONS`, 13 regions), code sets `work/sel_st3c` (all C) and
+     `work/sel_h200` (hot asm, `SPLIT_MIN=200`), `SDRAM_BANKS=0x68,0x69,0x6B,0x74,0x75,0x85`. Check a bank set on the
+     PC first with `RUN_RW=` (rt_pc rebuilt with `-I work/m3gen`). 3.95 refreshes a frame. **Next:** room in SDRAM
+     for more hot code (docs/09 §4; DraculaX's pool needs a stack change, so not without the owner), then
+     DraculaX's speed rounds (its docs/19 on).
 
 ## 2. Where things live
 

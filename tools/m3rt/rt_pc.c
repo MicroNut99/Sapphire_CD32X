@@ -850,6 +850,13 @@ int main(int argc, char **argv)
                                                                    them - read only - and a pool of n slots) */
 #endif
     for (int b = 0x68; b < 0x88; b++) banks[b] = malloc(8192);
+    if (getenv("RUN_RW")) {                                     /* (RUN_RW=68,69,85: only those RAM banks writable, as
+                                                                   the SH2 build's SDRAM_BANKS; the rest read only, in the
+                                                                   state - writes there counted, docs/09) */
+        for (int b = 0x68; b < 0x88; b++) banks[b] = 0;
+        for (const char *q = getenv("RUN_RW"); *q; ) { char *e; long b = strtol(q, &e, 16); if (e == q) break;
+            if (b >= 0x68 && b < 0x88) banks[b] = malloc(8192); q = *e ? e + 1 : e; }
+    }
 #ifdef RT_POOL
     if (getenv("RUN_POOL")) { static uint8_t *sl[RT_POOL_MAX]; const int n = atoi(getenv("RUN_POOL"));
         for (int k = 0; k < n && k < RT_POOL_MAX; k++) sl[k] = malloc(8192);
@@ -982,6 +989,8 @@ int main(int argc, char **argv)
            rt.frame, rt.block_entries, rt.interpreted, rt.irqs, rt.irq2s, rt.idles, rt.rematches, rt.vdc.t.steps,
            rt.ro_writes, rt.ro_write_bank, rt.unmodelled + rt.hw.unmodelled, rt.hw.why ? ": " : "", rt.hw.why ? rt.hw.why : "",
            rt.cold_entries, rt.chained);
+    printf("Arcade Card: %ld reads, %ld writes (%ld not made: its RAM read only), %ld reads of a region not here\n",
+           rt.ac.reads, rt.ac.writes, rt.ac.ro_writes, rt.ac.misses);
     printf("banks written:");
     for (int b = 0; b < 256; b++) if (rt.bank_dirty[b] || (b == 0xF8)) printf(" %02X", b);
     printf("\n");
