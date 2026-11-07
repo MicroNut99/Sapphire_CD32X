@@ -1,4 +1,4 @@
-# Pick-up notes for the next Claude session (7 Nov 2026, after docs/07)
+# Pick-up notes for the next Claude session (7 Nov 2026, after docs/08)
 
 Read `CLAUDE.md` first.
 
@@ -16,9 +16,11 @@ Read `CLAUDE.md` first.
      `/home/claude/cd32x-bootcamp`); the ledger's §21b (MicroNut99/docs) is still to write: no push access to
      docs was granted this session.
   4. **M2 done** (docs/06-07): the translation, our clock, and the host alone: the whole demo from power-on equal
-     to Mednafen every frame (`work/tr/<window>`, `work/m2check`, `work/m2gen`, `work/m2`). **Next: M3** as DraculaX's
-     docs/16 on: the translation for the SH2 (`tools/m3_sh2.py`), the 32X runtime (`tools/m3rt/`) and its speed
-     test (`dxspeed/`), with the Arcade Card in the cart (docs/03's layouts).
+     to Mednafen every frame (`work/tr/<window>`, `work/m2check`, `work/m2gen`, `work/m2`). 
+  5. **M3 step 1 done** (docs/08): `rt_pc` (`work/rtobj`, C from `work/m3gen`, state `work/sp/st3.bin`). **Next, M3
+     step 2:** DraculaX's `dxspeed/` for Sapphire: the Arcade Card reached through docs/03's 64 KB region table
+     (the 2.7 MB state does not fit the level slot), the SH2 build in ares (`ARES_32X_TIMING=console`), its hash
+     against `rt_pc`'s. DraculaX's `tools/m3_sh2.py` (the hot code as SH2 assembly) after that.
 
 ## 2. Where things live
 

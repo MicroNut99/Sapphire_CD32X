@@ -34,6 +34,10 @@ code is recompiled to C, with an Arcade Card model, and checked against Mednafen
 host build runs alone, with no trace, on the recorded inputs. The whole demo from power-on is 33,599 frames and 990
 million instructions: the boot's Arcade Card load, the intro, stages 1-4 and every load. Every frame's RAM, VRAM
 and Arcade Card is equal to Mednafen's.
+**M3 step 1** ([docs/08](docs/08_M3_THE_RUNTIME_ON_THE_PC.md)): DraculaX's 32X runtime, with the Arcade Card added, runs the game
+on the PC. Over 600 frames of stage 3 it stops at the same 777 waits as the exact host, with equal state at 767. At
+the other 10, one byte differs, because an interrupt lands on another instruction (the data port's wait states,
+which the runtime doesn't model, as in DraculaX). Next: the same runtime on the SH2 in ares.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
@@ -74,6 +78,7 @@ through ctypes).
 | `satest/`, `cd32x/apply.sh` | M1's test ROM (DraculaX's `dxtest`: the map by command 63, any size) and the build tree from a BootCamp checkout |
 | `tools/m2_code.py`, `m2_recomp.py`, `m2_trace.py`, `m2_tracedump.py`, `m2host/` | M2 (DraculaX's, for Sapphire's recordings and slots): the code blocks, HuC6280 → C, the trace checker; `m2host/ac_model.c`: the Arcade Card |
 | `tools/m2_run.py` | M2: the host build alone from a window, frame by frame against the recording (`--long` to its end) |
+| `tools/m3rt/`, `tools/m3_speedtest.py`, `tools/m3_build_rtpc.sh`, `tools/m3_cmp.py` | M3 (DraculaX's runtime, with the Arcade Card): `rt_pc`, the state file, the comparison with the exact host |
 | `tools/m0_replay.py`, `tools/m2_runs.py` | DraculaX's tools opening Sapphire's recordings |
 | `tools/genesis_fit.py` | DraculaX's: does each screen's background fit the Genesis' 4 palettes of 15 |
 

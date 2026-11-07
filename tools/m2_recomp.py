@@ -320,6 +320,11 @@ class Block:
         def jump_rel(tgt):                               # a target in this slot (a branch's): its label, or leave
             if tgt == off and m == 'BRA' and self.bank in SLOT:
                 return 'IDLE(l%04X, (uint16_t)(base + 0x%04X));' % (off, off)
+            if (m == 'BEQ' and tgt == off - 2 and tgt >= 0 and int(self.data[tgt]) == 0xA5 and self.bank in SLOT
+                    and tgt in self.labels_set()):
+                # Sapphire's wait (docs/08): LDA zp / BEQ back to it - the flag only an interrupt sets. Waiting:
+                # leave at the LDA, as a jump to itself does (the runtime skips to the next event)
+                return 'IDLE(l%04X, (uint16_t)(base + 0x%04X));' % (tgt, tgt)
             if 0 <= tgt < 0x2000 and tgt in self.labels_set():
                 # a branch back: the 32X build's time check (HUC_TIMED), so a loop can't run past an interrupt
                 return ('POLL((uint16_t)(base + 0x%04X)); ' % tgt if tgt <= off else '') + 'goto l%04X;' % tgt

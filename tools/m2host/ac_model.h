@@ -9,6 +9,8 @@ typedef struct {
     uint32_t shift_latch; uint8_t shift_bits, rotate_bits;
     uint8_t *ram;                                    /* 2 MB */
     long reads, writes;
+    int ram_ro; long ro_writes;                      /* ram_ro: the RAM is read only (the 32X's cart): a data write is
+                                                        counted, not made (the address still steps) */
 } ArcadeCard;
 void ac_start(ArcadeCard *ac, const uint32_t *state /* 19 x u32: core acstate_get */, uint8_t *ram);
 void ac_state(const ArcadeCard *ac, uint32_t *state);  /* the same 19 words */

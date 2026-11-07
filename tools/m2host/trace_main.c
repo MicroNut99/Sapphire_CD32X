@@ -441,9 +441,13 @@ static int run_boundary(Cpu *c, uint16_t pc)                  /* --run: an instr
     if (frame >= run_frames) { c->miss = 2; c->pc = pc; return 1; }
     ii++;
     const uint8_t op = RD_(c, pc), k = huc_class[op];
-    if (op == 0x4C && (RD_(c, (uint16_t)(pc + 1)) | RD_(c, (uint16_t)(pc + 2)) << 8) == pc && irqs_ours + irq2_ours != idle_irqs) {
+    if (((op == 0x4C && (RD_(c, (uint16_t)(pc + 1)) | RD_(c, (uint16_t)(pc + 2)) << 8) == pc)
+         || (op == 0xF0 && RD_(c, (uint16_t)(pc + 1)) == 0xFC && RD_(c, (uint16_t)(pc - 2)) == 0xA5
+             && RD_(c, (uint16_t)(0x2000 | RD_(c, (uint16_t)(pc - 1)))) == 0))   /* Sapphire's wait (docs/08): LDA zp /
+                                                          BEQ back, the flag still 0 (read: P's Z is kept lazily) */
+        && irqs_ours + irq2_ours != idle_irqs) {
         idle_irqs = irqs_ours + irq2_ours;             /* the game starts waiting after an interrupt (RUN_IDLE_HASH) */
-        if (getenv("RUN_IDLE_HASH")) printf("idle %ld frame %ld %08x\n", idle_n, frame, rt_hash(0));
+        if (getenv("RUN_IDLE_HASH")) printf("idle %ld frame %ld %08x at %02X:%04X\n", idle_n, frame, rt_hash(0), c->MPR[pc >> 13], op == 0xF0 ? pc - 2 : pc);
         if (getenv("RUN_DUMP_IDLE") && atol(getenv("RUN_DUMP_IDLE")) == idle_n) {   /* the state there, for a diff */
             FILE *f = fopen("idle_dump.bin", "wb");
             if (f) { fwrite(base_ram, 1, 8192, f); fwrite(cd_ram, 1, 65536, f); fwrite(super_ram, 1, 196608, f);
