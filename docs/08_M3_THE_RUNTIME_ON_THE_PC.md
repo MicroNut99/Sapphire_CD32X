@@ -55,7 +55,7 @@ As DraculaX's `dxspeed/`, with Sapphire's differences:
 
 | What (stage 3) | Size |
 |---|---|
-| The translated code for the window's 14 blocks (`m3_speedtest.py select`), SH2 `-Os`: the blocks 1,37 MB, `blocks.c`'s code / mask tables 230 KB, the interpreter 18 KB | **1.61 MB** |
+| The translated code for the window's 14 blocks (`m3_speedtest.py select`), SH2 `-Os`: the blocks 1.37 MB, `blocks.c`'s code / mask tables 230 KB, the interpreter 18 KB | **1.61 MB** |
 | The state without the card (RAM, System Card ROM 256 KB, ADPCM 64 KB, VRAM) | ~0.6 MB |
 | The Arcade Card's 64 KB regions the demo's play reads (stage 1-5: 16, 11, 13, 9, 10 regions) | 0.58-1.0 MB |
 | `GAME.32X` | ≤ 0.5 MB |
