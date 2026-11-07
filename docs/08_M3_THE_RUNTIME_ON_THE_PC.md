@@ -51,6 +51,23 @@ As DraculaX's `dxspeed/`, with Sapphire's differences:
 - **The wait skipped** saves the 57-63 % of the frame the game spends in it (docs/02 §6).
 - Then the speed test in ares (`ARES_32X_TIMING=console`), against the PC's hash.
 
+## 4. Measured for step 2: what a stage needs in the cart
+
+| What (stage 3) | Size |
+|---|---|
+| The translated code for the window's 14 blocks (`m3_speedtest.py select`), SH2 `-Os`: the blocks 1,37 MB, `blocks.c`'s code / mask tables 230 KB, the interpreter 18 KB | **1.61 MB** |
+| The state without the card (RAM, System Card ROM 256 KB, ADPCM 64 KB, VRAM) | ~0.6 MB |
+| The Arcade Card's 64 KB regions the demo's play reads (stage 1-5: 16, 11, 13, 9, 10 regions) | 0.58-1.0 MB |
+| `GAME.32X` | ≤ 0.5 MB |
+
+That is 3.3-3.7 MB a stage for the 4 MB cart's ~3.9 MB, before real play reads more of the card, and more than
+docs/03's 0.8-1.2 MB a page beside each stage's card part on the 14 MB cart. **The whole translation of a stage does
+not fit beside its data** (docs/03's estimate of the program's room was before this measurement). DraculaX met the
+same pressure and its answer is the way here too: only the hot code translated densely (its docs/18-20: the hot
+set as SH2 assembly in SDRAM, ~140 KB), the rest in the cart, smaller (the cold code translated at `-Os`, or
+interpreted from the game's own bytes, ~120 KB a stage), and `blocks.c`'s tables cut to what the runtime matches
+with. To measure in step 2: the hot set's size, then the cold code's either way.
+
 ## How to make it again
 
 ```

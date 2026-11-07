@@ -21,6 +21,10 @@ Read `CLAUDE.md` first.
      step 2:** DraculaX's `dxspeed/` for Sapphire: the Arcade Card reached through docs/03's 64 KB region table
      (the 2.7 MB state does not fit the level slot), the SH2 build in ares (`ARES_32X_TIMING=console`), its hash
      against `rt_pc`'s. DraculaX's `tools/m3_sh2.py` (the hot code as SH2 assembly) after that.
+     **Mind docs/08 §4:** a stage's whole translation is 1.61 MB at `-Os`; with its state and the card's regions it does not
+     fit the 4 MB cart, nor a 14 MB page. So step 2 starts from DraculaX's split (`m3_speedtest.py split`: the hot half
+     in SDRAM, the cold in the cart), and measures the cold half translated vs interpreted. `select` runs the checker
+     named by `M2CHECK` (default `work/m2check`).
 
 ## 2. Where things live
 

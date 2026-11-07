@@ -64,10 +64,10 @@ The stack's maps: BootCamp docs/04 (the 4 MB RAM cart), docs/11 and ledger §16 
 - **The same in both:** the recompiled game, the runtime, the Arcade Card's table format, the regions' bytes.
   The 14 MB build is the 4 MB build with the loads replaced by a page switch.
 - **Open (measure, not estimate):**
-  1. **The stage's program size.** DraculaX's per-stage programs and blocks run to ~2 MB with its sprite
-     cells; Sapphire's code is smaller (≤ 256 KB of HuC6280 code in Super / CD RAM) but its sprites are many.
-     If a stage's program and cells pass ~1 MB, the 4 MB build moves cells to the resident area or needs a
-     tighter stage pack; M2 / M3 measure it.
+  1. **The stage's program size: measured (docs/08 §4), too big as it stands.** Stage 3's whole translation is
+     1.61 MB of SH2 code at `-Os`, beside ~0.6 MB of state and 0.6-1.0 MB of the card: 3.3-3.7 MB on the 4 MB cart,
+     and more than a 14 MB page's 0.8-1.2 MB of room. The answer is DraculaX's (hot code dense in SDRAM, the rest
+     smaller in the cart), to be measured in M3 step 2.
   2. **The load times:** the 14 MB build's power-on copy (~7.2 MB) and the 4 MB build's per-stage load
      (0.8-1.2 MB plus the program), with the stack's `STREAM` / `CARTW` switches (DraculaX docs/64: 60 s → 12 s
      for its cart load). In ares, then on the console.

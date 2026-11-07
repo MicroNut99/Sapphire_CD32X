@@ -113,7 +113,7 @@ def disc_table(cue):
 
 
 def select(gen, d, out):
-    r = subprocess.run([os.path.join(TRACES, 'm2gen', 'trace_check'), d, '--run', '0'], capture_output=True, text=True,
+    r = subprocess.run([os.environ.get('M2CHECK', os.path.join(TRACES, 'm2check')), d, '--run', '0'], capture_output=True, text=True,
                        env=dict(os.environ, RUN_MASKS='/dev/null'))
     keys = {l.split()[3] for l in r.stdout.splitlines() if l.startswith('bank ')}
     also = os.environ.get('SELECT_ALSO')   # (docs/74: rt_pc RT_MATCH_LOG's 'matched <key>' lines over the window - the
