@@ -42,6 +42,9 @@ DraculaX_32X is the template: its `core/` (this repo's, plus the Arcade Card), i
   (docs/03): 14 MB (EDCD on the EverDrive, `CART=ED`, pages 0-6) copies everything in once and switches pages
   at a stage's start; 4 MB loads the stage's pack into the level slot at its start, as the original. The
   Arcade Card's regions are laid out for both and checked against the game.
+- **D3. The HUD (lines 203-223): on the Genesis with command 78's split, or drawn by the 32X.** Both are exact in
+  ares (docs/05). Command 78 needs a stack fix for the EDCD boot (docs/05 §3: no H interrupt in a cartridge
+  boot); the 32X way needs none. **Open.**
 - **D2. Stage 1's background** (63 % fits 4 × 15): merge (DraculaX D2a), the 32X draws the far layer, or a
   palette change down the screen. **Open, after M1.**
 
@@ -52,7 +55,7 @@ DraculaX_32X is the template: its `core/` (this repo's, plus the Arcade Card), i
 | **M0** | The reference and the measurements: Mednafen headless with the Arcade Card tracked, the demo states, CD reads, the Arcade Card's use, RAM, CPU, palette fit | **done 7 Nov 2026 (docs/02)** |
 | **D1** | **Both carts laid out: the Arcade Card's six images (boot, stages 1-5) in 113 regions of 64 KB, 17 shared; each image rebuilt from each cart equal to Mednafen's (12 of 12); 832-1,216 KB per stage left for its program** | **done 7 Nov 2026 (docs/03)** |
 | **M0b** | **The raster: one split at line 203, no line scroll. The code: a kernel in Super RAM 68-74 + a per-stage overlay in 75-77, no self-modifying code to speak of, the wait loop at `$68:045A` (busy 37-42 %). The sound: CD audio in play, ADPCM 8 / 16 kHz, PSG effects (the demo's music PSG). The demo (560 s) and stage 5 recorded and replayed from a fresh core, every frame's hash and the sound log equal** | **done 7 Nov 2026 (docs/04)**; open: stage 5 with real inputs, LBA 8244-11003 |
-| M1 | The rip on the PC; one stage 3 frame through commands 62-67 in ares, 0 pixels off | |
+| **M1** | **Test 1 done 7 Nov 2026 (docs/05): a frame of every stage re-rendered exactly (0 pixels against Mednafen), converted, and shown in ares through commands 63-66 / 78 and the 32X: 0 of 71,680 pixels off on all five, on the RAM cart and the EDCD boot (the HUD on the 32X there). Stage 1 merged to 4 × 15 (11 % of pixels a step off). Found: command 78 has no H interrupt in a cartridge boot.** Still to do: the rip of whole stages on the PC (the host showing every capture) | test 1 done |
 | M2 | The recompiler on the PC (DraculaX's `m2_*`, the Arcade Card's ports added), every recording equal to Mednafen frame for frame | |
 | M3 | The CD32X build: the runtime on the SH2, the sprites, the background, the play disc | |
 | M4 | Sound: CD audio, ADPCM, PSG | |
