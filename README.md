@@ -18,7 +18,11 @@ stage 1. **D1, both carts** (the owner, 7 Nov 2026; [docs/03](docs/03_D1_TWO_CAR
 images (boot, stages 1-5) come to 113 regions of 64 KB, 17 of them shared. They are laid out for the 14 MB
 EverDrive (pages 0-6, a page a stage) and the 4 MB RAM cart (shared regions resident, a stage pack loaded at
 each stage). Every image rebuilt from either cart equals the game's own. Each stage has 832-1,216 KB left for
-its program.
+its program. **M0b done** ([docs/04](docs/04_M0B_RASTER_CODE_SOUND_REPLAY.md)): one raster split at line 203
+(playfield / HUD) and no line scroll. The code is a kernel in Super RAM banks 68-74 plus a per-stage overlay in
+banks 75-77, with the wait loop at `$68:045A` (busy 37-42 %). Stage music is CD audio, plus ADPCM voices and
+PSG effects; the demo's music is the PSG's. The demo cycle (560 s) and stage 5 replay from a fresh core with
+every frame's hash and the sound log equal: M2's reference recordings.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
@@ -50,6 +54,9 @@ through ctypes).
 | `tools/m0_discmatch.py` | which CD RAM / Super RAM / Arcade Card blocks are disc sectors verbatim |
 | `tools/m0_cpu.py` | where the code runs, interrupts, the hottest spans |
 | `tools/make_packs.py` | D1: the Arcade Card's images from the game, cut into 64 KB regions, laid out for the 14 MB and 4 MB carts, each image rebuilt and checked |
+| `tools/m0b_run.py` | M0b: a recording (the demo from power-on, or a state + pokes) with every frame's hash, line log, stage, Arcade Card reads and the sound log; `verify` replays it from a fresh core |
+| `tools/m0_code.py`, `tools/huc6280.py` | M0b: the code map per stage (banks, disc sources, written code, the hottest spans disassembled; the disassembler is DraculaX's) |
+| `tools/m0_sound.py` | M0b: DraculaX's sound analyser on a recording or a stretch of it |
 | `tools/genesis_fit.py` | DraculaX's: does each screen's background fit the Genesis' 4 palettes of 15 |
 
 ## The Arcade Card, as the game uses it

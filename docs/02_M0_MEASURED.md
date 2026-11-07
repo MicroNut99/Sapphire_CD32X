@@ -85,20 +85,23 @@ contents were matched against the disc instead: **all but 28-32 KB of the CD and
 The game's own writable RAM is at most ~40 KB with base RAM (DraculaX: ~15 KB); 256 KB of SDRAM holds it.
 Which of it changes each frame is M0b's to measure.
 
-## 6. The CPU (`tools/m0_cpu.py`, 60 s of each stage)
+## 6. The CPU (`tools/m0_cpu.py`, 60 s inside each stage)
 
-| | Stage 1 | 2 | 3 | 4 |
-|---|---|---|---|---|
-| Code in Super RAM | 87.3 % | 89.3 % | 91.6 % | 88.8 % |
-| System Card ROM | 6.7 % | 5.2 % | 5.4 % | 5.3 % |
-| CD RAM / base RAM | 3.3 / 2.7 % | 2.4 / 3.1 % | 0 / 3.1 % | 3.2 / 2.7 % |
-| Interrupts | VDC only (~2 a frame) | | | |
-| Time in the 3 hottest 16-byte spans | 57 % | 61 % | 56 % | 57 % |
+*Corrected in docs/04 (7 Nov 2026): the first windows (`idle_170`, `265`, `390`, `490`) ran past the ends of
+stages 1, 2 and 4, about 70 s after each load, into the interlude. These are inside play: `idle_160`, `255`,
+`385`, `480`, and stage 5 from 1,300 frames after its index was written, for 3,000 frames.*
 
-- The code runs from RAM loaded off the disc (Super RAM, `$68:0450` the hottest span), so the recompiler
-  works on disc data, as DraculaX's overlays.
-- If the hottest spans are the wait loops (M0b confirms), the game is busy **39-44 % of a frame**: close to
-  DraculaX's 38-53 %.
+| | Stage 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| Code in Super RAM | 92.9 % | 92.2 % | 91.5 % | 92.8 % | 95.9 % |
+| System Card ROM | 4.6 % | 4.9 % | 5.3 % | 4.7 % | 1.8 % |
+| Base RAM | 2.6 % | 2.9 % | 3.1 % | 2.5 % | 2.3 % |
+| Interrupts | VDC only (~2 a frame) | | | | |
+| **The wait loop** (`$68:045A LDA $43 / BEQ`, the vertical blank's flag; docs/04 §2) | 59.3 % | 62.8 % | 57.6 % | 62.1 % | 76.4 % |
+
+- The code runs from RAM loaded off the disc (docs/04 §2: a kernel and a per-stage overlay), as DraculaX's.
+- **The game is busy 37-42 % of a frame** on stages 1-4 (DraculaX: 38-53 %); stage 5, played on the demo's
+  stage 1 inputs, 24 %.
 
 ## 7. The picture (`tools/genesis_fit.py`, the demo's captures every 10 frames)
 
@@ -146,5 +149,5 @@ python3 tools/m0_stage.py $W idle_140.st st1 88          # st2: idle_240 88, st3
 python3 tools/m0_stage.py $W idle_140.st st5 150 4       # stage 5: index 4 written into $0E15
 python3 tools/genesis_fit.py $W st1 st2 st3 st4 st5
 python3 tools/m0_discmatch.py $W "<Track 02.iso>" idle_200.st:st1 idle_300.st:st2 idle_420.st:st3 idle_520.st:st4 idle_140.st+4:st5
-python3 tools/m0_cpu.py $W idle_170.st:st1 idle_265.st:st2 idle_390.st:st3 idle_490.st:st4
+python3 tools/m0_cpu.py $W idle_160.st:st1 idle_255.st:st2 idle_385.st:st3 idle_480.st:st4 idle_140.st+4:st5:3000
 ```

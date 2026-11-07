@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""m0_cpu.py <work> <state>[+<stage poke>]:<name> ... - where the code runs and how busy the CPU is, 60 s of play.
+"""m0_cpu.py <work> <state>[+<stage poke>]:<name>[:<frames>] ... - where the code runs and how busy the CPU is, 60 s of play (or <frames>), inside the stage.
 
 From a demo state in play: instructions and cycles by physical bank (00-3F System Card ROM, 40-43 the Arcade
 Card's ports, 68-7F Super RAM, 80-87 CD RAM, F8 base RAM), interrupts by kind, System Card calls, and the
@@ -34,15 +34,16 @@ def main():
     L = h.lib; L.cpustat_addr.restype = C.POINTER(C.c_uint32)
     h.run(2)
     for arg in sys.argv[2:]:
-        spec, name = arg.split(':'); st, _, poke = spec.partition('+')
+        spec, name, *nf = arg.split(':'); st, _, poke = spec.partition('+')
+        nfr = int(nf[0]) if nf else 3600
         h.load_state(W + '/states/' + st)
         if poke:
-            h.ram()[0xE15] = int(poke); h.run(60 * 60)
+            h.ram()[0xE15] = int(poke); h.run(1300)          # past stage 5's load (docs/02 §4)
         ins = (C.c_uint32 * 256)(); cyc = (C.c_uint32 * 256)(); irq = (C.c_uint32 * 3)(); bios = (C.c_uint32 * 128)()
         L.cpustat_get(ins, cyc, irq, bios, 1)
         pa = L.cpustat_addr(1)
         arr = np.ctypeslib.as_array(pa, (1 << 21,)); arr[:] = 0
-        n = 3600; h.run(n)
+        n = nfr; h.run(n)
         L.cpustat_get(ins, cyc, irq, bios, 1)
         cy = np.array(cyc, np.float64); tot = cy.sum()
         by = collections.Counter()
