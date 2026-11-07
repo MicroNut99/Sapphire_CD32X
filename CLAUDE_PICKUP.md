@@ -11,11 +11,12 @@ Read `CLAUDE.md` first.
      build makes both (the 14 MB one `CART=ED`, pages switched; the 4 MB one loading `STGn.PAK`).
   2. **M0b done** (docs/04). Left from it: stage 5 recorded with real inputs to its end, and where LBA 8244-8819 /
      8956-11003 go (the later scenes, the ending). The reference recordings are `inp/demo.npz` and `inp/st5.npz`.
-  3. **M1 test 1 done** (docs/05): every stage's frame exact in ares, RAM cart and EDCD. **D3 open** (the HUD: the
-     Genesis split needs a stack fix on EDCD, docs/05 §3; or the 32X draws it). The owner was told about the
-     command 78 / MODE1 finding. Next in M1: the rip of whole stages on the PC.
-  4. **M2:** DraculaX's `tools/m2_*` and `m2host/` with the Arcade Card's ports in the CPU model's I/O map
-     (`$1A00-$1AFF`, banks 40-43).
+  3. **M1 done** (docs/05). D3: the HUD as Genesis sprites, built by the Sub-CPU in Word RAM in the port (a
+     stack command at M3). The VSPLIT / MODE1 fix is CD32X-BootCamp PR #1 (branch `vsplit-mode1`, clone at
+     `/home/claude/cd32x-bootcamp`); the ledger's §21b (MicroNut99/docs) is still to write: no push access to
+     docs was granted this session.
+  4. **M2 next:** DraculaX's `tools/m2_*` and `m2host/` with the Arcade Card's ports in the CPU model's I/O map
+     (`$1A00-$1AFF`, banks 40-43); the recordings are `inp/demo.npz`, `inp/st5.npz` (docs/04).
 
 ## 2. Where things live
 

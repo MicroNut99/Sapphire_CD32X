@@ -10,6 +10,7 @@
  *   63  the tiles from the cart into VRAM 0x0020 (tile 1 on), up to 1023 words a command
  *   62  the sprite table's first entry = 0 (no Genesis sprites), the H scroll of planes A and B
  *   63  the plane map, row by row (linear in VRAM from 0xE000), up to 1023 words a command
+ *   63  the Genesis sprite table, when the file has one (the HUD as sprites: D3)
  *   66  the V scroll of planes A and B
  *   65  display on
  * The 32X draws the sprites in front (PRI 1); its empty pixels carry the through bit (behind the plane).
@@ -39,6 +40,7 @@ typedef struct {
     uint16_t tiles, hscroll, vscroll, pad;
     uint32_t gcram, tile, map, zeros, cram32, layer, hs_table, vs_list;
     uint16_t mw, mh;                             /* the map's size in cells (SAF1) */
+    uint32_t spr_tab; uint16_t nspr;             /* Genesis sprites (the HUD, m1_testframe.py --hudspr): 4 words each */
 } Hdr;                                           /* pad = flags: bit 0 per-line scroll, bits 8-15 V split entries */
 
 static int failed;
@@ -278,6 +280,8 @@ int main(void)
     }
     cd_status(0x4E24);
     for (int i = 0; i < 4; i++) vram_word((uint16_t)(0xD000 + 2 * i), 0);   /* sprite 0: link 0, off screen */
+    if (h->nspr && !failed)                      /* D3: the HUD as Genesis sprites, over plane A */
+        gen(63, 0xD000, ((uint32_t)h->nspr * 4u << 22) | (CART_FILE + h->spr_tab), 1);
     {   /* the map: row by row is VRAM's own order from 0xE000 */
         uint32_t words = (uint32_t)h->mw * h->mh, off = CART_FILE + h->map;
         uint16_t dst = 0xE000;

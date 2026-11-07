@@ -1,4 +1,4 @@
-# 05 - M1 test 1: a frame of every stage on the Genesis plane + the 32X, RAM cart and EDCD (7 Nov 2026)
+# 05 - M1: every stage's frames on the Genesis plane + the 32X, the HUD as Genesis sprites, RAM cart and EDCD (7 Nov 2026)
 
 **What was tested:** one Mednafen frame of each stage drawn the REV way: the background on the Genesis' plane A
 through the BootCamp stack's Genesis picture commands, the sprites on the 32X in front. The test ROM is `satest/`
@@ -8,7 +8,7 @@ an **EDCD** boot (the EverDrive PRO, `--ramcart-type everdrive --ramcart-boot ED
 **Not tested:** on the console. A green ares run is never a console pass.
 **The boot stack: unchanged** (`check_boot.py`: 21 files as the kit ships them; built `GENPLANE=1 VSPLIT=1`).
 
-## 1. The frames, on the PC
+## 1. The frames, on the PC (test 1: one frame a stage)
 
 `tools/m1_capture.py` takes a frame from a demo state with VRAM, the sprite table and the colours as they were
 at the first display line (DraculaX's `dumpvid0`; the frame-end table already holds the next frame's sprites)
@@ -62,9 +62,11 @@ Every command answered (`4B10`).
   the 68000 runs from the Sega CD's vectors (a CD boot). In the cartridge boot (`MODE1`), the 68000's level 4
   vector is the cart's: `EDCD.32X` sends it to the RAM jump table at `0xFFFD0C`, which the launcher fills with
   `jmp 0xFFFDAE`, an `rte` (`edboot/edcd_md.s` step 2). So `hint_vs` never runs.
-- **Not changed:** the stack is off limits without the owner (CLAUDE.md rule 2). The likely fix (under
-  `OL_MODE1`, also write `hint_vs`'s address into the jump table at `0xFFFD0E`) was not built:
-  `check_boot.py` refuses a changed stack, as it should.
+- **Fixed at the owner's request (7 Nov 2026):** CD32X-BootCamp PR #1 (branch `vsplit-mode1`): under `OL_MODE1`,
+  inside the `DX-VSPLIT` block, `set_vs_line` also points the jump's target (`0xFFFD0E`) at `hint_vs`. The default
+  build and the CD boot's VSPLIT build are byte-identical to before. **This frame on the EDCD boot with the split:
+  0 of 71,680 pixels off** (was 3,233). Documented in the BootCamp's docs/03 and docs/12; the ledger's §21b
+  (MicroNut99/docs) is still to be written from docs/12's section.
 - This affects every game using VSPLIT on the EDCD boot (Dracula X's stage 8 bands; ledger §21).
 
 ## 4. What it means for the port
@@ -76,10 +78,64 @@ Every command answered (`4B10`).
   - (b) on the 32X: 256 × 21 opaque pixels, no H interrupt, no stack change. In the game it would be redrawn
     when the HUD changes (the scores, the lives); it took 10 more of the 32X's 256 colours on every stage here.
   
-  **D3** (the owner's) chooses.
+  **D3, the owner (7 Nov 2026):** first "the 32X is ok", then **"taking the status bar off the 32X is worth
+  gaining some fps. The Sega CD's 68000 and its Word RAM could build the status bar's tiles and sprite table,
+  so the SH2s wouldn't have to"**: the HUD as **Genesis sprites** (§7), built in the port by the Sub-CPU.
 - Stage 1's merge (11 % of pixels a step off) is as Dracula X's D2 (4.8-4.9 %); stage 5 fits exactly after all.
 
-## 5. The tools set up for this round (not in git: the container's)
+## 6. Every frame of every stage, on the PC (`tools/m1_checkall.py`)
+
+Every 10th frame of each stage's play (docs/04's windows), 1,864 frames, captured as §1 (VRAM also at the frame's
+end) and converted. Three things found and fixed in the converter on the way:
+- **The PC Engine's sprite limit:** at most 16 cells of 16 pixels on a line, in table order. Mednafen fetches a
+  32-wide sprite as two halves, left first, so with 15 used its left half is drawn (`FetchSpriteData`). Sapphire's
+  busy lines reach 32 cells, so the port must keep the limit to look the same.
+- **The picture's first row:** searched (a black top, as stage 5's space, fooled the first-non-black rule).
+- **Splits above the HUD:** stage 5 has a band at lines 0-24 on some frames; the HUD is the *last* split.
+
+| Stage | Frames | Re-render = Mednafen | of them from the frame-end VRAM | Not reproducible from one VRAM state |
+|---|---|---|---|---|
+| 1 | 390 | 384 | 1 | 6 |
+| 2 | 390 | 366 | 13 | 24 |
+| 3 | 384 | 367 | 61 | 17 |
+| 4 | 390 | 389 | 4 | 1 |
+| 5 | 310 | 310 | 6 | 0 |
+
+**The game writes sprite cells into VRAM while the picture is drawn** (nearly every frame writes VRAM then).
+Mostly the picture equals VRAM as at the display's start, sometimes as at the frame's end (85 frames), and in 48
+frames (2.6 %) it is a mix line by line (a boss's wings half old, half new), which no single state reproduces.
+In the port the sprites are drawn from one state: on those frames a cell would show its old or new shape a
+frame early or late, for part of its height. Measured here, judged in M3 (drawing after the frame's last write,
+as DraculaX draws at a VRAM event of its schedule, is the likely answer).
+
+**The composite (Genesis + 32X) equals the re-render on every frame that is not merged, every stage, every HUD
+way.** Merged frames (stage 1's city does not fit 4 × 15):
+
+| HUD | Stage 1 merged (worst loss) | Stage 2 | 3 | 4 | 5 | Tiles, most |
+|---|---|---|---|---|---|---|
+| Genesis split (78) | 172 of 390 (13.9 %) | 2 (4.9 %) | 0 | 0 | 25 (14.5 %) | 374 |
+| **Genesis sprites (D3)** | **174 (13.3 %)** | **0** | **0** | **0** | **0** | 469 |
+
+(The split ran before the last-split fix: stage 5's 25 merged frames are its band frames, taken as the HUD.)
+The HUD uses 10 colours (14 at most, stage 5): one Genesis palette holds it.
+
+## 7. The HUD as Genesis sprites (D3)
+
+`m1_testframe.py --hudspr`: lines 203-223 as a row of eight 32 × 24 Genesis sprites (4 × 3 cells, priority set)
+at x = 32-288, y = 203, over plane A, which keeps the playfield's scroll on every line; each sprite in one of the
+plane's 4 palettes (their colour sets packed with the plane's). 96 tiles and 8 sprite-table entries. `satest`
+loads the table with command 63 (no new command).
+
+| ares (`ARES_32X_TIMING=console`) | Stage 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| 4 MB RAM cart | 0 of 71,680 | 0 | 0 | 0 | 0 |
+| EDCD (EverDrive PRO) | 0 of 71,680 | 0 | 0 | 0 | 0 |
+
+No split, no H interrupt, nothing on the 32X: the SH2s never touch the HUD. In the port the Sub-CPU (the Sega
+CD's 68000) builds the digits' tiles and the 8 entries in Word RAM when the scores or lives change, and the
+68000 copies them to VRAM: a new stack command, behind a switch, at M3.
+
+## 8. The tools set up for this round (not in git: the container's)
 
 | What | Where |
 |---|---|

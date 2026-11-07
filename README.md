@@ -23,10 +23,11 @@ its program. **M0b done** ([docs/04](docs/04_M0B_RASTER_CODE_SOUND_REPLAY.md)): 
 banks 75-77, with the wait loop at `$68:045A` (busy 37-42 %). Stage music is CD audio, plus ADPCM voices and
 PSG effects; the demo's music is the PSG's. The demo cycle (560 s) and stage 5 replay from a fresh core with
 every frame's hash and the sound log equal: M2's reference recordings.
-**M1 test 1 done** ([docs/05](docs/05_M1_TEST1.md)): a frame of each stage drawn the REV way (the background on the
-Genesis plane, the sprites on the 32X) is exact in ares: 0 of 71,680 pixels off on all five stages, on the 4 MB RAM
-cart and as an EDCD boot from the EverDrive PRO. Found on the way: the stack's command 78 (the V-scroll split)
-gets no H interrupt in a cartridge boot, so on EDCD the HUD is drawn by the 32X (D3).
+**M1 done** ([docs/05](docs/05_M1_TEST1.md)): each stage's frame drawn the REV way is exact in ares, 0 of 71,680 pixels
+off on all five stages, on the 4 MB RAM cart and as an EDCD boot from the EverDrive PRO. The background is on the
+Genesis plane, the sprites on the 32X, and the status bar is Genesis sprites (D3: the Sega CD's 68000 builds them in
+the port). On the PC the conversion is exact over 1,864 frames; only stage 1 needs its colours merged. Found on
+the way: the stack's command 78 had no H interrupt in a cartridge boot (fixed, CD32X-BootCamp PR #1).
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
@@ -61,7 +62,8 @@ through ctypes).
 | `tools/m0b_run.py` | M0b: a recording (the demo from power-on, or a state + pokes) with every frame's hash, line log, stage, Arcade Card reads and the sound log; `verify` replays it from a fresh core |
 | `tools/m0_code.py`, `tools/huc6280.py` | M0b: the code map per stage (banks, disc sources, written code, the hottest spans disassembled; the disassembler is DraculaX's) |
 | `tools/m0_sound.py` | M0b: DraculaX's sound analyser on a recording or a stretch of it |
-| `tools/m1_capture.py`, `tools/m1_testframe.py`, `tools/colorize.py` | M1: a frame (tables as at the display's start, the line log) → the CD32X test frame (DraculaX's converter: any Genesis map size, each line's CR, `--hud32x`) |
+| `tools/m1_capture.py`, `tools/m1_testframe.py`, `tools/colorize.py` | M1: a frame (tables as at the display's start, the line log) → the CD32X test frame (DraculaX's converter: any Genesis map size, each line's CR, the 16-cells-a-line sprite limit, `--hudspr` / `--hud32x`) |
+| `tools/m1_checkall.py` | M1: every 10th frame of every stage through the converter, each HUD way |
 | `tools/m1_aresdiff.py` | M1: ares's screenshot against `expected.png` |
 | `satest/`, `cd32x/apply.sh` | M1's test ROM (DraculaX's `dxtest`: the map by command 63, any size) and the build tree from a BootCamp checkout |
 | `tools/genesis_fit.py` | DraculaX's: does each screen's background fit the Genesis' 4 palettes of 15 |

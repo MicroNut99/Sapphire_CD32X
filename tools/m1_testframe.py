@@ -23,6 +23,9 @@ LEVEL00.BIN:
      zeros (256 bytes), 32X cram (256 words), 32X layer (320 x 224 bytes), H scroll table (224 x A, B words),
      V split entries (u32: line << 20 | V scroll A << 10 | V scroll B; command 78)
   44 map width u16 (cells)   46 map height u16 (the map is stored row by row)
+  48 Genesis sprite table offset u32   52 its entries u16 (--hudspr: the HUD as 32 x 24 sprites, else 0)
+--hudspr (after the out dir): those lines as a row of 32 x 24 Genesis sprites over plane A instead, in the plane's 4
+palettes, with no split (D3, the owner: the Sega CD's 68000 will build them in the port).
 --hud32x (after the out dir): the lines from the first V split on (Sapphire's HUD, 203-223) are drawn by the
 32X, opaque, and the Genesis gets no split (no H interrupt: the EDCD boot's listener has none, docs/05 §3).
 A capture with 'lines' (the core's per-line log, M0b) is drawn per line: the H scroll table in line mode and the
@@ -101,11 +104,25 @@ def compose(bg, sprs, pal, lines=None):
     img = np.zeros((SCREEN_H, SCREEN_W), np.uint16)          # 0 = backdrop (VCE colour 0)
     img[:] = bg
     spr = np.zeros((SCREEN_H, SCREEN_W), np.int32) - 1; front = np.zeros((SCREEN_H, SCREEN_W), bool)
-    for x, y, w, h, obj, p, fr in reversed(sprs):           # entry 0 last = on top
+    # the VDC shows at most 16 sprite cells (16 pixels wide each) on a line, taken in table order: the rest
+    # of that line's sprites are not drawn (Mednafen models it; Sapphire's busy lines reach 32)
+    # (Mednafen's FetchSpriteData: a 32-wide sprite is two 16-pixel entries, its left half first, so with 15
+    # used the left half is drawn and the right half is not)
+    used = np.zeros(SCREEN_H, int); shown = []
+    for x, y, w, h, obj, p, fr in sprs:
+        cols = {}
         for r in range(h):
             yy = y + r
-            if not 0 <= yy < SCREEN_H: continue
-            for c in range(w):
+            if 0 <= yy < SCREEN_H:
+                k = min(w // 16, 16 - used[yy])
+                if k > 0: cols[r] = 16 * k
+                used[yy] += k
+        shown.append(cols)
+    for (x, y, w, h, obj, p, fr), cols in reversed(list(zip(sprs, shown))):   # entry 0 last = on top
+        for r in range(h):
+            yy = y + r
+            if not 0 <= yy < SCREEN_H or r not in cols: continue
+            for c in range(cols[r]):
                 xx = x + c
                 if 0 <= xx < SCREEN_W and obj[r, c]:
                     spr[yy, xx] = 256 + p * 16 + int(obj[r, c]); front[yy, xx] = fr
@@ -188,33 +205,52 @@ def reduce4(hists, iters=8, cap=15, seed=1):
 def main():
     cap, out = sys.argv[1], sys.argv[2]
     hud32 = '--hud32x' in sys.argv[3:]           # the lines from the first V split on drawn by the 32X, opaque
+    hudspr = '--hudspr' in sys.argv[3:]          # D3 (the owner, 7 Nov 2026): those lines as Genesis sprites
     os.makedirs(out, exist_ok=True)
     d = np.load(cap)
     vram = d['vram'][:32768].astype(np.uint16); sat = d['sat']; pal = d['pal'] & 0x1FF; regs = d['regs']
+    # VRAM as at the display's start, and (if captured) at the frame's end: a game that writes sprite cells
+    # while the picture is drawn shows the new cells below the write (Sapphire: docs/05 §6). Both are tried.
+    vrams = [('display start', vram)] + ([('frame end', d['vram_end'][:32768].astype(np.uint16))] if 'vram_end' in d.files else [])
     shot = screen_rgb(d['screen'])
-    top = int(np.where(shot.reshape(shot.shape[0], -1).max(1) > 0)[0].min())
+    tops = range(0, shot.shape[0] - SCREEN_H + 1)        # the picture's first row: searched (its top may be black)
     sprs = sprites_list(vram, sat)
     lines = d['lines'][:SCREEN_H].astype(int) if 'lines' in d.files else None   # per-line scroll (M0b)
     # Mednafen's 16-bit colours round differently from 3-bit * 255 / 7: compare with a tolerance. Its 256-pixel
     # window may also start a pixel off BXR (seen: 1 left), so both offsets are searched.
     differ = lambda a, b: (np.abs(a.astype(int) - b.astype(int)) > 40).any(2)
     best = None
-    for dy in (range(-4, 5) if lines is None else (0,)):     # the first line's scroll offset
-        bg, bat, mw, mh, bx, by = render_bg(vram, regs, dy, lines)
+    for (vname, vr), dy in [(v, y) for v in vrams for y in (range(-4, 5) if lines is None else (0,))]:
+        sprs = sprites_list(vr, sat)
+        bg, bat, mw, mh, bx, by = render_bg(vr, regs, dy, lines)
         img, spr, front = compose(bg, sprs, pal, lines)
-        for dx in range(-2, 3):
+        for top in tops:
+          for dx in range(-2, 3):
             ref = np.roll(shot[top:top + SCREEN_H, :SCREEN_W], dx, 1)
             err = int(differ(img, ref).sum())
-            if best is None or err < best[0]: best = (err, dy, dx, bg, img, spr, front, ref)
-    err, dy, dx, bg, img, spr, front, ref = best
+            if best is None or err < best[0]: best = (err, dy, dx, bg, img, spr, front, ref, vname, vr)
+    err, dy, dx, bg, img, spr, front, ref, vname, vram = best
     bad = differ(img, ref)
     print('PC Engine re-render vs Mednafen: %d of %d pixels differ (first line %+d, window %+d px); %d of them on '
-          'sprite pixels (the sprite table is read at the frame\'s end: it may already hold the next frame)'
-          % (err, SCREEN_W * SCREEN_H, dy, -dx, int((bad & (spr >= 0)).sum())))
+          'sprite pixels; VRAM as at the %s'
+          % (err, SCREEN_W * SCREEN_H, dy, -dx, int((bad & (spr >= 0)).sum()), vname))
     Image.fromarray(ref).save(os.path.join(out, 'mednafen.png'))
     _, bat, mw, mh, bx, by = render_bg(vram, regs, dy)
     if (mw, mh) not in ((32, 32), (64, 32), (128, 32), (32, 64), (64, 64), (32, 128)):
         sys.exit('a %d x %d BAT is not a Genesis plane size' % (mw, mh))
+
+    # ---- --hudspr: the HUD (from the first V split down) as a row of 32 x 24 Genesis sprites, opaque, over plane A,
+    # which keeps the playfield's scroll on every line (no split). Their colours share the plane's 4 palettes.
+    hud_from = SCREEN_H; hud9 = None; hudkeys = []
+    if hudspr and lines is not None:
+        vs0 = [r for r in range(1, SCREEN_H) if ((lines[r][1] - r) & 0x1FF) != ((lines[r - 1][1] - (r - 1)) & 0x1FF)]
+        if vs0:
+            hud_from = vs0[-1]                          # the HUD is the last split (stage 5 has a band above it too)
+            hud9 = np.array([[int(pal[int(bg[r, x])]) for x in range(SCREEN_W)] for r in range(hud_from, SCREEN_H)])
+            lines = lines.copy()
+            for r in range(hud_from, SCREEN_H):        # the playfield goes on under the sprites
+                lines[r][0] = lines[hud_from - 1][0]; lines[r][1] = lines[hud_from - 1][1] + (r - hud_from + 1)
+            hudkeys = [('hud', k) for k in range(SCREEN_W // 32)]
 
     # ---- Genesis plane A: tiles and 4 palettes. Only the cells this picture shows are converted (Sapphire's BAT
     # holds more than the screen: rows above the playfield, the HUD's own rows); the rest of the map is left 0.
@@ -229,6 +265,8 @@ def main():
         idx = bg_tile(vram, e & 0x7FF)
         cols = frozenset(int(pal[((e >> 12) & 15) * 16 + i]) for i in np.unique(idx).tolist() if i)
         sets[e] = cols
+    for key in hudkeys:
+        sets[key] = frozenset(hud9[:, key[1] * 32:key[1] * 32 + 32].ravel().tolist())
     packed = pack4(set(sets.values()))
     lossy = packed is None
     if not lossy:
@@ -243,6 +281,8 @@ def main():
             for i, m in zip(*np.unique(idx, return_counts=True)):
                 if i: h[int(pal[((e >> 12) & 15) * 16 + int(i)])] += int(m) * int(n)
             if h: hists[e] = h
+        for key in hudkeys:
+            hists[key] = Counter(hud9[:, key[1] * 32:key[1] * 32 + 32].ravel().tolist())
         gpals, where = reduce4(hists)
         print('D2: the BAT does not fit 4 x 15 exactly; merged (k-means, %d tile kinds)' % len(hists))
     gcram = np.zeros(64, np.uint16)
@@ -272,6 +312,27 @@ def main():
                 tile_no[key] = 1 + len(tiles)
                 tiles.append(bytes(((g[r, 2 * k] << 4) | g[r, 2 * k + 1]) for r in range(8) for k in range(4)))
             gmap[ty, tx] = (p << 13) | tile_no[key]
+    sat_words = []; hudspr_px = None
+    if hudkeys:
+        hudspr_px = np.zeros((SCREEN_H, 320, 3), np.uint8); hud_opaque = np.zeros((SCREEN_H, 320), bool)
+        for key in hudkeys:
+            k = key[1]; p = where[key]; P = np.array([_c3(c) for c in gpals[p]])
+            g = np.zeros((24, 32), np.uint8)
+            for r in range(min(24, SCREEN_H - hud_from)):
+                for c in range(32):
+                    col = int(hud9[r, k * 32 + c])
+                    g[r, c] = 1 + (gpals[p].index(col) if col in gpals[p] else int(((P - _c3(col)) ** 2).sum(1).argmin()))
+            first = 1 + len(tiles)
+            for tx in range(4):                         # a sprite's cells go down each column, then across
+                for ty in range(3):
+                    t = g[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8]
+                    tiles.append(bytes(((t[r, 2 * j] << 4) | t[r, 2 * j + 1]) for r in range(8) for j in range(4)))
+            link = k + 1 if k + 1 < len(hudkeys) else 0
+            sat_words += [hud_from + 128, (3 << 10) | (2 << 8) | link, 0x8000 | (p << 13) | first, 32 + 32 * k + 128]
+            for r in range(min(24, SCREEN_H - hud_from)):
+                for c in range(32):
+                    hudspr_px[hud_from + r, 32 + 32 * k + c] = (lambda w: (((w >> 1) & 7) * 255 // 7, ((w >> 5) & 7) * 255 // 7, ((w >> 9) & 7) * 255 // 7))(int(gcram[p * 16 + g[r, c]]))
+                    hud_opaque[hud_from + r, 32 + 32 * k + c] = True
     if len(tiles) > 1663:
         sys.exit('%d tiles: more than VRAM 0x0020-0xCFFF holds' % len(tiles))
 
@@ -306,7 +367,8 @@ def main():
     split = [(0, vsl[0])] + [(r, vsl[r]) for r in range(1, SCREEN_H) if vsl[r] != vsl[r - 1]]
     if lines is not None and len(split) > 16:
         sys.exit('%d V scroll changes on one picture: more than command 78 takes (16)' % len(split))
-    hud_from = SCREEN_H
+    if hudkeys:
+        split = [e for e in split if e[0] < hud_from]   # the playfield's own splits stay (command 78)
     if hud32 and len(split) > 1:
         # --hud32x: no H-interrupt split (the EDCD boot's listener has none: docs/05 §3). The 32X draws every
         # line from the first split on as the PC Engine shows it (background and sprites), opaque; the Genesis
@@ -337,6 +399,8 @@ def main():
                 v = (b >> 4) if (px % 2) == 0 else (b & 15)
                 if v:
                     plane[y, x] = gen_rgb(int(gcram[((e >> 13) & 3) * 16 + v])); opaque[y, x] = True
+    if hudspr_px is not None:                         # the Genesis sprites over plane A
+        plane = np.where(hud_opaque[:, :, None], hudspr_px, plane); opaque = opaque | hud_opaque
     exp = np.zeros((SCREEN_H, 320, 3), np.uint8)
     rgb32 = lambda w: ((w & 31) * 255 // 31, ((w >> 5) & 31) * 255 // 31, ((w >> 10) & 31) * 255 // 31)
     for y in range(SCREEN_H):
@@ -361,12 +425,14 @@ def main():
     blobs = [gcram.astype('>u2').tobytes(), b''.join(tiles), gmap.astype('>u2').tobytes(), bytes(256),
              cram32.astype('>u2').tobytes(), layer.tobytes(),
              np.array([(hsl[r], hsl[r]) for r in range(SCREEN_H)], '>u2').tobytes(),          # H scroll A, B a line
-             np.array([(r << 20) | (v << 10) | v for r, v in split], '>u4').tobytes()]       # command 78 entries
+             np.array([(r << 20) | (v << 10) | v for r, v in split], '>u4').tobytes(),       # command 78 entries
+             np.array(sat_words, '>u2').tobytes()]                                             # Genesis sprites (--hudspr)
     offs, pos = [], hdr_len
     for b in blobs:
         offs.append(pos); pos += len(b) + (len(b) & 1)
     flags = 0 if lines is None else 1 | (len(split) << 8)     # bit 0: per-line scroll (register 11 = 3, 78)
-    hdr = b'SAF1' + struct.pack('>HHHH', len(tiles), hs, vs, flags) + struct.pack('>8I', *offs) + struct.pack('>HH', mw, mh)
+    hdr = (b'SAF1' + struct.pack('>HHHH', len(tiles), hs, vs, flags) + struct.pack('>8I', *offs[:8]) + struct.pack('>HH', mw, mh)
+           + struct.pack('>IH', offs[8], len(sat_words) // 4))
     data = hdr.ljust(hdr_len, b'\0') + b''.join(b + (b'\0' if len(b) & 1 else b'') for b in blobs)
     open(os.path.join(out, 'LEVEL00.BIN'), 'wb').write(data)
     print('LEVEL00.BIN %d bytes: %d Genesis tiles, %d 32X colours, H scroll %d, V scroll %d%s' % (len(data), len(tiles), len(c32), hs, vs,

@@ -18,5 +18,5 @@ lb = (C.c_uint16 * 1536)(); h.lib.dumplines(lb)
 cap = h.capture()
 # the picture shows VRAM, the sprite table and the colours as they were at the first display line (dumpvid0)
 np.savez_compressed(out, screen=h.frame.copy(), lines=np.frombuffer(bytes(lb), np.uint16).reshape(512, 3).copy(),
-                    vram=cap['vram0'], sat=cap['sat0'], pal=cap['pal0'], regs=cap['regs'])
+                    vram=cap['vram0'], vram_end=cap['vram'], sat=cap['sat0'], pal=cap['pal0'], regs=cap['regs'])
 print(out, 'stage index', int(h.ram()[0xE15]))
