@@ -1,4 +1,4 @@
-# Pick-up notes for the next Claude session (7 Nov 2026, after docs/05)
+# Pick-up notes for the next Claude session (7 Nov 2026, after docs/06)
 
 Read `CLAUDE.md` first.
 
@@ -15,8 +15,10 @@ Read `CLAUDE.md` first.
      stack command at M3). The VSPLIT / MODE1 fix is CD32X-BootCamp PR #1 (branch `vsplit-mode1`, clone at
      `/home/claude/cd32x-bootcamp`); the ledger's §21b (MicroNut99/docs) is still to write: no push access to
      docs was granted this session.
-  4. **M2 next:** DraculaX's `tools/m2_*` and `m2host/` with the Arcade Card's ports in the CPU model's I/O map
-     (`$1A00-$1AFF`, banks 40-43); the recordings are `inp/demo.npz`, `inp/st5.npz` (docs/04).
+  4. **M2 step 1 done** (docs/06): the translation and the Arcade Card model equal to Mednafen's trace in six
+     windows (`work/tr/`, the checker `work/m2check`, the C `work/m2gen`, the blocks `work/m2`). **Next:** DraculaX's
+     docs/11-15 in order: `--timed` (the cycle model, VDC timing), then the pad / interrupts / CD unit models, then
+     every recording run alone (`--run`) with the Arcade Card from its model.
 
 ## 2. Where things live
 

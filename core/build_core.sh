@@ -1,6 +1,6 @@
 #!/bin/bash
 # core/build_core.sh <work> - (Sapphire: DraculaX_32X's core, plus sapphire.cpp / sapphire_patch.py: the Arcade Card's
-# reads and writes tracked, actrack_get() / acstat_get() / acram_copy().) Mednafen's PC Engine core (libretro beetle-pce, commit b96c11e) with nineteen exports
+# reads and writes tracked, actrack_get() / acstat_get() / acram_copy() / acstate_get(), its banks in the M2 trace.) Mednafen's PC Engine core (libretro beetle-pce, commit b96c11e) with nineteen exports
 # added: dumpvid() (VRAM, sprite table, colour table, VDC registers), ramtrack_get() (which RAM the BIOS or the
 # game wrote), cdtrack_get() (every CD READ) dumplines() (each display line's BG X / Y offsets and CR), exectrack_get() (every instruction start), ramcopy() (CD and Super RAM), and for the sound log (M0b)
 # sndtrack_get() + dx_setframe() (PSG writes, CD-unit / ADPCM register writes, CD audio commands), adpcm_ram(),
@@ -18,4 +18,4 @@ cp "$HERE/dumpvid.cpp" "$HERE/sapphire.cpp" .
 python3 "$HERE/sapphire_patch.py" .
 make -j"$(nproc)" > "$W/core/build.log" 2>&1 || { tail -30 "$W/core/build.log"; exit 1; }
 cp mednafen_pce_libretro.so "$W/core/"
-nm -D "$W/core/mednafen_pce_libretro.so" | grep -q " T acram_copy" && echo "==> $W/core/mednafen_pce_libretro.so (DraculaX's nineteen exports + the Arcade Card's three)"
+nm -D "$W/core/mednafen_pce_libretro.so" | grep -q " T acstate_get" && echo "==> $W/core/mednafen_pce_libretro.so (DraculaX's nineteen exports + the Arcade Card's four)"

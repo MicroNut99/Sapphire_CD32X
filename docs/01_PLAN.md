@@ -16,7 +16,7 @@ DraculaX_32X is the template: its `core/` (this repo's, plus the Arcade Card), i
 
 | | Dracula X | Sapphire | What it changes |
 |---|---|---|---|
-| Card | Super System Card (192 KB) | **+ Arcade Card (2 MB, port-addressed)** | the runtime models the Arcade Card's four ports; its RAM is **read-only in play** (docs/02 §4), so it lives in the cart |
+| Card | Super System Card (192 KB) | **+ Arcade Card (2 MB, port-addressed)** | the runtime models the Arcade Card's four ports (the model checked against Mednafen: docs/06); its RAM is **read-only in play** (docs/02 §4), so it lives in the cart |
 | Data track | 20.8 MB | 15.56 MB | |
 | Stages | 9 (+ alternates) | 5 blocks on a 724-sector grid | |
 | Loads | per area, all play long | the Arcade Card's 1,128 KB stage part + RAM, at a stage's start only | no loads in play: the runtime's CD model matters only between stages |
@@ -60,7 +60,7 @@ DraculaX_32X is the template: its `core/` (this repo's, plus the Arcade Card), i
 | **D1** | **Both carts laid out: the Arcade Card's six images (boot, stages 1-5) in 113 regions of 64 KB, 17 shared; each image rebuilt from each cart equal to Mednafen's (12 of 12); 832-1,216 KB per stage left for its program** | **done 7 Nov 2026 (docs/03)** |
 | **M0b** | **The raster: one split at line 203, no line scroll. The code: a kernel in Super RAM 68-74 + a per-stage overlay in 75-77, no self-modifying code to speak of, the wait loop at `$68:045A` (busy 37-42 %). The sound: CD audio in play, ADPCM 8 / 16 kHz, PSG effects (the demo's music PSG). The demo (560 s) and stage 5 recorded and replayed from a fresh core, every frame's hash and the sound log equal** | **done 7 Nov 2026 (docs/04)**; open: stage 5 with real inputs, LBA 8244-11003 |
 | **M1** | **Done 7 Nov 2026 (docs/05).** A frame of every stage in ares through commands 63-66 / 78, the 32X and the HUD as Genesis sprites: 0 of 71,680 pixels off on all five, RAM cart and EDCD. On the PC, 1,864 frames: the composite equals the re-render on every unmerged frame; stage 1 merged on 174 (worst 13.3 % of pixels a step off), stages 2-5 never. The PC Engine's 16-cells-a-line sprite limit modelled. Found: command 78 had no H interrupt in a cartridge boot (fixed, BootCamp PR #1); the game writes sprite cells while the picture is drawn (2.6 % of frames a line-by-line mix) | **done** |
-| M2 | The recompiler on the PC (DraculaX's `m2_*`, the Arcade Card's ports added), every recording equal to Mednafen frame for frame | |
+| **M2** | The recompiler on the PC (DraculaX's `m2_*`, the Arcade Card's ports added), every recording equal to Mednafen frame for frame. **Step 1 done 7 Nov 2026 (docs/06): the translation and an Arcade Card model checked against Mednafen's trace, six windows, 10.2 million instructions all equal, 321,416 card reads all equal, RAM / VRAM / card equal after; 0-0.09 % interpreted (Sapphire's slot table, base-RAM code collected)** | step 1 done |
 | M3 | The CD32X build: the runtime on the SH2, the sprites, the background, the play disc | |
 | M4 | Sound: CD audio, ADPCM, PSG | |
 | M5 | The EDCD disc on the console | |

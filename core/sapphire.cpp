@@ -3,13 +3,15 @@
 //   1 = written while the CPU ran System Card ROM code (banks 00-3F), 2 = written by the game,
 //   4 = read by the game (port reads; peeks are not counted).
 // acstat_get(): totals since the last clear: [0] port writes, [1] port reads.
-// acram_copy(): the Arcade Card RAM itself (2 MB).
+// acram_copy(): the Arcade Card RAM itself (2 MB). acstate_get(): its registers (below).
 #include <mednafen/mednafen.h>
 #define private public
 #include "mednafen/pce/pce.h"
 #undef private
 #include "mednafen/pce/huc.h"
+#define private public
 #include "mednafen/hw_misc/arcade_card/arcade_card.h"
+#undef private
 static uint8 ac_flags[0x200000];
 static uint64 ac_w, ac_r;
 extern "C" void actrack(unsigned int aci, int write)
@@ -33,5 +35,18 @@ extern "C" __attribute__((visibility("default"))) int acram_copy(uint8 *out)
 {
   if (!arcade_card) return 0;
   arcade_card->PeekRAM(0, 0x200000, out);
+  return 1;
+}
+
+// acstate_get(): the Arcade Card's registers, for the M2 host to start from (19 x u32): per port (0-3) base, offset,
+// increment, control; then the shift latch, shift bits, rotate bits.
+extern "C" __attribute__((visibility("default"))) int acstate_get(uint32 *o)
+{
+  if (!arcade_card) return 0;
+  for (int i = 0; i < 4; i++) {
+    const ACPort_t &p = arcade_card->AC.ports[i];
+    o[i * 4 + 0] = p.base; o[i * 4 + 1] = p.offset; o[i * 4 + 2] = p.increment; o[i * 4 + 3] = p.control;
+  }
+  o[16] = arcade_card->AC.shift_latch; o[17] = arcade_card->AC.shift_bits; o[18] = arcade_card->AC.rotate_bits;
   return 1;
 }
