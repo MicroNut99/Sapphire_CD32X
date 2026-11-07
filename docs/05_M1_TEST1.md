@@ -65,8 +65,8 @@ Every command answered (`4B10`).
 - **Fixed at the owner's request (7 Nov 2026):** CD32X-BootCamp PR #1 (branch `vsplit-mode1`): under `OL_MODE1`,
   inside the `DX-VSPLIT` block, `set_vs_line` also points the jump's target (`0xFFFD0E`) at `hint_vs`. The default
   build and the CD boot's VSPLIT build are byte-identical to before. **This frame on the EDCD boot with the split:
-  0 of 71,680 pixels off** (was 3,233). Documented in the BootCamp's docs/03 and docs/12; the ledger's §21b
-  (MicroNut99/docs) is still to be written from docs/12's section.
+  0 of 71,680 pixels off** (was 3,233). Merged by the owner (`1eaff00`); documented in the BootCamp's docs/03 and
+  docs/12 and the ledger's §21b (MicroNut99/docs `009a13a`).
 - This affects every game using VSPLIT on the EDCD boot (Dracula X's stage 8 bands; ledger §21).
 
 ## 4. What it means for the port

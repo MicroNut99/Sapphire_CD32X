@@ -27,7 +27,7 @@ every frame's hash and the sound log equal: M2's reference recordings.
 off on all five stages, on the 4 MB RAM cart and as an EDCD boot from the EverDrive PRO. The background is on the
 Genesis plane, the sprites on the 32X, and the status bar is Genesis sprites (D3: the Sega CD's 68000 builds them in
 the port). On the PC the conversion is exact over 1,864 frames; only stage 1 needs its colours merged. Found on
-the way: the stack's command 78 had no H interrupt in a cartridge boot (fixed, CD32X-BootCamp PR #1).
+the way: the stack's command 78 had no H interrupt in a cartridge boot (fixed: CD32X-BootCamp PR #1, merged as `1eaff00`; ledger §21b).
 **M2 done** ([docs/06](docs/06_M2_TRANSLATION_AND_THE_ARCADE_CARD.md), [docs/07](docs/07_M2_EVERY_RECORDING_ALONE.md)): the game's
 code is recompiled to C, with an Arcade Card model, and checked against Mednafen's instruction trace. In six windows,
 10.2 million instructions and 321,416 card reads are all equal, at Mednafen's clock to the master cycle. Then the

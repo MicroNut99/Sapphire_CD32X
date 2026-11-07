@@ -12,9 +12,8 @@ Read `CLAUDE.md` first.
   2. **M0b done** (docs/04). Left from it: stage 5 recorded with real inputs to its end, and where LBA 8244-8819 /
      8956-11003 go (the later scenes, the ending). The reference recordings are `inp/demo.npz` and `inp/st5.npz`.
   3. **M1 done** (docs/05). D3: the HUD as Genesis sprites, built by the Sub-CPU in Word RAM in the port (a
-     stack command at M3). The VSPLIT / MODE1 fix is CD32X-BootCamp PR #1 (branch `vsplit-mode1`, clone at
-     `/home/claude/cd32x-bootcamp`); the ledger's §21b (MicroNut99/docs) is still to write: no push access to
-     docs was granted this session.
+     stack command at M3). The VSPLIT / MODE1 fix: CD32X-BootCamp PR #1, merged as `1eaff00` (clone at
+     `/home/claude/cd32x-bootcamp`); ledger §21b written (MicroNut99/docs `009a13a`, clone `/home/claude/docs`).
   4. **M2 done** (docs/06-07): the translation, our clock, and the host alone: the whole demo from power-on equal
      to Mednafen every frame (`work/tr/<window>`, `work/m2check`, `work/m2gen`, `work/m2`). 
   5. **M3 step 1 done** (docs/08): `rt_pc` (`work/rtobj`, C from `work/m3gen`, state `work/sp/st3.bin`). **Next, M3
