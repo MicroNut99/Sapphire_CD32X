@@ -1,0 +1,440 @@
+diff --git a/Makefile.common b/Makefile.common
+index 54ba111..b1e2932 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -67,6 +67,7 @@ endif
+ ifneq ($(HAVE_GRIFFIN), 1)
+     SOURCES_CXX += \
+ 		$(CORE_DIR)/libretro.cpp \
++		$(CORE_DIR)/dumpvid.cpp \
+ 		$(CORE_EMU_DIR)/huc6280.cpp \
+ 		$(CORE_EMU_DIR)/huc.cpp \
+ 		$(CORE_EMU_DIR)/input.cpp \
+diff --git a/link.T b/link.T
+index b0c262d..4669dc1 100644
+--- a/link.T
++++ b/link.T
+@@ -1,5 +1,6 @@
+ {
+    global: retro_*;
++      dumpvid; ramtrack_get; cdtrack_get; dumplines; exectrack_get; ramcopy; sndtrack_get; dx_setframe; adpcm_ram; adpcm_data_writes; dumpvid0; cpustat_get; cpustat_addr; trace_start; trace_stop; trace_get; dumpvdcstate; dumpiostate; dumpscsistate;
+    local: *;
+ };
+ 
+diff --git a/mednafen/cdrom/scsicd.cpp b/mednafen/cdrom/scsicd.cpp
+index 4406d66..1394c5c 100644
+--- a/mednafen/cdrom/scsicd.cpp
++++ b/mednafen/cdrom/scsicd.cpp
+@@ -878,8 +878,11 @@ static void DoREQUESTSENSE(const uint8_t *cdb)
+  cd.fru_pending = 0;
+ }
+ 
++extern "C" void cdtrack(uint32_t sa, uint32_t sc);
++extern "C" void sndtrack(uint32_t kind, uint32_t ts, uint32_t a, uint32_t v, uint32_t x0, uint32_t x1, uint32_t x2);
+ static void DoREADBase(uint32_t sa, uint32_t sc)
+ {
++ cdtrack(sa, sc);
+  int track;
+ 
+  if(sa > toc.tracks[100].lba) // Another one of those off-by-one PC-FX CD bugs.
+@@ -1360,6 +1363,41 @@ static INLINE void RunCDRead(uint32_t system_timestamp, int32_t run_time)
+ }
+ 
+ 
++/* DraculaX M2: CD-DA playback and the bus, for a model to start from (pcecd.cpp dx_pcecd_state, from its index 48) */
++extern "C" void dx_scsicd_state(uint32_t *o)
++{
++ o[0] = (uint32_t)(int32_t)cdda.CDDAStatus; o[1] = (uint32_t)cdda.CDDADiv; o[2] = (uint32_t)((uint64_t)cdda.CDDADiv >> 32);
++ o[3] = cdda.CDDADivAcc; o[4] = cdda.OversamplePos; o[5] = (uint32_t)CDReadTimer; o[6] = lastts; o[7] = cdda.CDDAReadPos;
++ o[8] = read_sec; o[9] = read_sec_end; o[10] = read_sec_start; o[11] = cdda.PlayMode; o[12] = toc.tracks[100].lba;
++ o[13] = cd_bus.signals; o[14] = cd_bus.DB; o[15] = cd.SubQBuf_Last[0]; o[16] = cdda.ScanMode; o[17] = cdda.scan_sec_end;
++ o[18] = TrayOpen; o[19] = Cur_CDIF != NULL;
++}
++
++/* DraculaX M2: the SCSI drive as a whole, for a model to start from (exported: link.T). o[256] u32 (bytes one a word),
++   fifo[2048] the data FIFO in order; toc[2 + 2 * 101]: first and last track, then each track's LBA and control. */
++extern "C" __attribute__((visibility("default"))) int dumpscsistate(uint32_t *o, uint8_t *fifo, uint32_t *tc)
++{
++ memset(o, 0, 256 * 4);
++ o[0] = CurrentPhase; o[1] = cd_bus.signals; o[2] = cd_bus.DB; o[3] = cd.message_pending; o[4] = cd.status_sent;
++ o[5] = cd.message_sent; o[6] = cd.key_pending; o[7] = cd.asc_pending; o[8] = cd.ascq_pending; o[9] = cd.fru_pending;
++ o[10] = cd.command_buffer_pos; o[11] = cd.data_transfer_done; o[12] = cd.DiscChanged; o[13] = cd.last_RST_signal;
++ o[14] = SectorAddr; o[15] = SectorCount; o[16] = (uint32_t)CDReadTimer; o[17] = din->in_count;
++ o[18] = (uint32_t)monotonic_timestamp; o[19] = (uint32_t)((uint64_t)monotonic_timestamp >> 32);
++ o[20] = (uint32_t)pce_lastsapsp_timestamp; o[21] = (uint32_t)((uint64_t)pce_lastsapsp_timestamp >> 32);
++ o[22] = read_sec; o[23] = read_sec_end; o[24] = read_sec_start; o[25] = cdda.PlayMode; o[26] = (uint32_t)(int32_t)cdda.CDDAStatus;
++ o[27] = cdda.CDDAReadPos; o[28] = cdda.ScanMode; o[29] = cdda.scan_sec_end; o[30] = cdda.CDDADivAcc; o[31] = cdda.OversamplePos;
++ o[32] = (uint32_t)cdda.CDDADiv; o[33] = (uint32_t)((uint64_t)cdda.CDDADiv >> 32); o[34] = lastts; o[35] = System_Clock;
++ o[36] = CD_DATA_TRANSFER_RATE; o[37] = TrayOpen; o[38] = Cur_CDIF != NULL; o[39] = cd.command_size_left;
++ for (int i = 0; i < 12; i++) o[40 + i] = cd.SubQBuf_Last[i];
++ for (int q = 0; q < 4; q++) for (int i = 0; i < 12; i++) o[52 + q * 12 + i] = cd.SubQBuf[q][i];
++ for (int i = 0; i < 96; i++) o[100 + i] = cd.SubPWBuf[i];
++ for (int i = 0; i < 16; i++) o[200 + i] = cd.command_buffer[i];
++ for (uint32_t i = 0; i < din->in_count; i++) fifo[i] = din->data[(din->read_pos + i) % din->data.size()];
++ tc[0] = toc.first_track; tc[1] = toc.last_track;
++ for (int t = 0; t <= 100; t++) { tc[2 + 2 * t] = toc.tracks[t].lba; tc[3 + 2 * t] = toc.tracks[t].control | toc.tracks[t].valid << 8; }
++ return 256;
++}
++
+ uint32_t SCSICD_Run(scsicd_timestamp_t system_timestamp)
+ {
+  int32_t run_time = system_timestamp - lastts;
+@@ -1435,7 +1473,21 @@ uint32_t SCSICD_Run(scsicd_timestamp_t system_timestamp)
+        {
+ 	bool prev_ps = (cdda.CDDAStatus == CDDASTATUS_PLAYING || cdda.CDDAStatus == CDDASTATUS_SCANNING);
+ 
++        {  /* DraculaX M2: every SCSI command (sound log kind 5: opcode, CDB bytes 1-4, 5-8, 9, the drive's time) */
++         const uint8_t *b = cd.command_buffer;
++         sndtrack(5, system_timestamp, b[0], (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4],
++                  (b[5] << 24) | (b[6] << 16) | (b[7] << 8) | b[8], b[9], (uint32_t)monotonic_timestamp);
++        }
+         cmd_info_ptr->func(cd.command_buffer);
++	{  /* M0b sound log: the CD audio commands (D8 start, D9 end / mode, DA pause) and the play state after them */
++	 const uint8_t *b = cd.command_buffer;
++	 if(b[0] >= 0xD8 && b[0] <= 0xDA)
++	  sndtrack(3, 0, b[0], (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4],
++	           (b[5] << 24) | (b[6] << 16) | (b[7] << 8) | b[8] | 0, read_sec_start,
++	           ((uint32_t)read_sec_end << 0) );
++	 if(b[0] >= 0xD8 && b[0] <= 0xDA)
++	  sndtrack(4, 0, b[0], cdda.PlayMode, (uint8_t)cdda.CDDAStatus, read_sec, b[9]);
++	}
+ 
+ 	bool new_ps = (cdda.CDDAStatus == CDDASTATUS_PLAYING || cdda.CDDAStatus == CDDASTATUS_SCANNING);
+ 
+diff --git a/mednafen/hw_video/huc6270/vdc.cpp b/mednafen/hw_video/huc6270/vdc.cpp
+index 6cad6ec..f3ee978 100644
+--- a/mednafen/hw_video/huc6270/vdc.cpp
++++ b/mednafen/hw_video/huc6270/vdc.cpp
+@@ -18,6 +18,17 @@
+ /* VDC emulation */
+ 
+ #include <mednafen/mednafen.h>
++
++/* DraculaX M0b: per display line (RCRCount), the BG X / Y offsets the VDC latched and CR at that moment. */
++uint16 dx_line_log[512][3];
++/* DraculaX M1b: VRAM and the sprite table as they were at the first display line (the game may change them later
++   in the frame, after that picture was drawn) */
++uint16 dx_vram0[65536], dx_sat0[256];
++/* DraculaX M2: VDC events in the instruction trace (dumpvid.cpp dx_trace_io: kind 3 the sprite table copied from
++   VRAM (address = DVSSR), 4 a VRAM DMA starts, 5 it ends, 6 the VDC raises its interrupt (address = the status bit)) */
++extern int dx_trace_on;
++extern "C" void dx_trace_io(int kind, uint32 address, uint8 v);
++extern "C" void dx_line0(void);   /* dumpvid.cpp: the colour table at the same moment */
+ #include <mednafen/video.h>
+ #include <mednafen/lepacker.h>
+ 
+@@ -260,6 +271,7 @@ void VDC::RunSATDMA(int32 cycles, bool force_completion)
+ 	{
+ 		if(DCR & 0x01)
+ 		{
++			if (dx_trace_on) dx_trace_io(6, VDCS_DS, 0);
+ 			status |= VDCS_DS;
+ 			IRQHook(true);
+ 		}
+@@ -304,11 +316,13 @@ void VDC::RunDMA(int32 cycles, bool force_completion)
+ 			if(LENR == 0xFFFF)  // DMA is done.
+ 			{
+ 				DMARunning = 0;	// Clear this BEFORE CheckAndCommitPending()
++				if (dx_trace_on) dx_trace_io(5, DESR, 0);
+ 
+ 				CheckAndCommitPending();
+ 
+ 				if(DCR & 0x02)
+ 				{
++					if (dx_trace_on) dx_trace_io(6, VDCS_DV, 0);
+ 					status |= VDCS_DV;
+ 					IRQHook(true);
+ 				}
+@@ -396,6 +410,7 @@ void VDC::IncRCR(void)
+ 
+ 	if((int)RCRCount == ((int)RCR - 0x40) && (CR & 0x04))
+ 	{
++		if (dx_trace_on) dx_trace_io(6, VDCS_RR, 0);
+ 		status |= VDCS_RR;
+ 		IRQHook(true);
+ 	}
+@@ -405,6 +420,7 @@ void VDC::DoVBIRQTest(void)
+ {
+ 	if(CR & 0x08)
+ 	{
++		if (dx_trace_on) dx_trace_io(6, VDCS_VD, 0);
+ 		status |= VDCS_VD;
+ 		IRQHook(true);
+ 	}
+@@ -563,6 +579,7 @@ int32 VDC::Run(int32 clocks, uint16 *pixels, bool skip)
+ 					SATBPending = 0;
+ 
+ 					sat_dma_counter = 1024;
++					if (dx_trace_on) dx_trace_io(3, DVSSR, 0);
+ 
+ 					if(DVSSR < VRAM_Size)
+ 					{
+@@ -582,6 +599,7 @@ int32 VDC::Run(int32 clocks, uint16 *pixels, bool skip)
+ 		{
+ 			DMAPending = false;
+ 			DMARunning = true;
++			if (dx_trace_on) dx_trace_io(4, SOUR, (uint8)DCR);
+ 			VDMA_CycleCounter = 0;
+ 			DMAReadWrite = 0;
+ 		}
+@@ -673,6 +691,8 @@ int32 VDC::Run(int32 clocks, uint16 *pixels, bool skip)
+ 				assert(HPhaseCounter > 0);
+ 
+ 				BG_XOffset = BXR;
++				if (RCRCount < 512) { dx_line_log[RCRCount][0] = BG_XOffset; dx_line_log[RCRCount][1] = BG_YOffset; dx_line_log[RCRCount][2] = CR; }   /* DraculaX M0b */
++				if (RCRCount == 0) { memcpy(dx_vram0, VRAM, sizeof(dx_vram0)); memcpy(dx_sat0, SAT, sizeof(dx_sat0)); dx_line0(); }   /* DraculaX M1b: what the picture is drawn from */
+ 				break;
+ 
+ 			case HPHASE_HDW: 
+diff --git a/mednafen/pce/huc.cpp b/mednafen/pce/huc.cpp
+index e6d3a93..ad18376 100644
+--- a/mednafen/pce/huc.cpp
++++ b/mednafen/pce/huc.cpp
+@@ -45,7 +45,7 @@ uint8 *PopRAM = NULL; // 0x8000
+ uint8 SaveRAM[2048];
+ uint8 *CDRAM = NULL; //262144;
+ 
+-static uint8 *SysCardRAM = NULL;
++uint8 *SysCardRAM = NULL;   /* DraculaX M0b: not static, read by dumpvid.cpp ramcopy() */
+ 
+ static void Cleanup(void)
+ {
+@@ -103,9 +103,11 @@ static DECLFW(AC_PhysWrite)
+ 	return(arcade_card->PhysWrite(A, V));
+ }
+ 
++extern "C" void ramtrack(uint32 index, uint8 v);
+ static DECLFW(SysCardRAMWrite)
+ {
+ 	SysCardRAM[A - 0x68 * 8192] = V;
++	ramtrack(8192 + 65536 + (A - 0x68 * 8192), V);
+ }
+ 
+ static DECLFR(SysCardRAMRead)
+@@ -116,6 +118,7 @@ static DECLFR(SysCardRAMRead)
+ static DECLFW(CDRAMWrite)
+ {
+ 	CDRAM[A - 0x80 * 8192] = V;
++	ramtrack(8192 + (A - 0x80 * 8192), V);
+ }
+ 
+ static DECLFR(CDRAMRead)
+diff --git a/mednafen/pce/huc6280.cpp b/mednafen/pce/huc6280.cpp
+index cc323df..142b9f9 100644
+--- a/mednafen/pce/huc6280.cpp
++++ b/mednafen/pce/huc6280.cpp
+@@ -29,6 +29,14 @@
+ */
+ 
+ #include <mednafen/mednafen.h>
++
++/* DraculaX M0b: one bit per physical address (21 bits): an instruction started here */
++uint8 dx_exec_map[(1 << 21) >> 3];
++/* DraculaX M2a: instructions and cycles by physical bank (charged to the instruction that ran), an instruction
++   count per physical address, interrupts taken by vector, and calls into the System Card jump table */
++uint32 dx_bank_ins[256], dx_bank_cyc[256], dx_irq[3], dx_bios[128];
++uint32 *dx_addr_ins;
++static uint32 dx_last_ts, dx_last_phys; static int dx_last_bank = -1;
+ #include "huc6280.h"
+ 
+ #include <string.h>
+@@ -590,6 +598,8 @@ NO_INLINE void HuC6280::RunSub(void)
+ 
+ 				if(tmpa)
+ 				{
++					dx_irq[tmpa == 0xFFFA ? 0 : tmpa == 0xFFF8 ? 1 : 2]++;   /* DraculaX M2a: timer, IRQ1 (VDC), IRQ2 (CD) */
++					if (dx_trace_on) dx_trace_irq(tmpa);
+ 					// Total: 8 cycles(7 ADDCYC(1), 1 LASTCYCLE)
+ 
+ 					ADDCYC(1);	// Cycle 1
+@@ -624,7 +634,19 @@ NO_INLINE void HuC6280::RunSub(void)
+ 		}
+ 		PC &= 0xFFFF;     // Our cpu core can only handle PC going about 8192 bytes over, so make sure it never gets that far...
+ 
++		{
++			const uint32 phys = (MPR[(PC >> 13) & 7] << 13) | (PC & 0x1FFF);
++			if (dx_last_bank >= 0 && (int32)(timestamp - dx_last_ts) >= 0 && timestamp - dx_last_ts < 4096) {   /* the timestamp restarts each frame */
++				dx_bank_cyc[dx_last_bank] += timestamp - dx_last_ts;
++				if (dx_addr_ins) dx_addr_ins[dx_last_phys] += timestamp - dx_last_ts;   /* cycles, per address */
++			}
++			dx_last_ts = timestamp; dx_last_bank = phys >> 13; dx_last_phys = phys;
++			dx_bank_ins[phys >> 13]++;
++			if (MPR[7] == 0 && PC >= 0xE000 && PC < 0xE000 + 3 * 128 && (PC - 0xE000) % 3 == 0) dx_bios[(PC - 0xE000) / 3]++;
++		}
++		if (dx_trace_on) dx_trace_ins(PC, A, X, Y, S, P, MPR, timestamp, speed);           /* DraculaX M2: state before it */
+ 		lastop = RdOp(PC);
++		dx_exec_map[((MPR[(PC >> 13) & 7] << 13) | (PC & 0x1FFF)) >> 3] |= 1 << (PC & 7);   /* DraculaX M0b: instruction starts */
+ 
+ 		PC++;
+ 
+diff --git a/mednafen/pce/huc6280.h b/mednafen/pce/huc6280.h
+index ed3bf0c..62a531a 100644
+--- a/mednafen/pce/huc6280.h
++++ b/mednafen/pce/huc6280.h
+@@ -1,6 +1,12 @@
+ #ifndef __MDFN_PCE_HUC6280_H
+ #define __MDFN_PCE_HUC6280_H
+ 
++/* DraculaX M2: the instruction trace (dumpvid.cpp) */
++extern int dx_trace_on;
++extern "C" void dx_trace_io(int kind, uint32 address, uint8 v);
++extern "C" void dx_trace_ins(uint16 pc, uint8 a, uint8 x, uint8 y, uint8 s, uint8 p, const uint8 *mpr, uint32 ts, uint8 speed);
++extern "C" void dx_trace_irq(int vector);
++
+ class MDFN_ALIGN(128) HuC6280
+ {
+ public:
+@@ -167,7 +173,9 @@ private:
+ 		LastLogicalReadAddr = address;
+ 
+ 		uint8 wmpr = MPR[address >> 13];
+-		return ReadMap[wmpr]((wmpr << 13) | (address & 0x1FFF));
++		uint8 v = ReadMap[wmpr]((wmpr << 13) | (address & 0x1FFF));
++		if (dx_trace_on && wmpr == 0xFF) dx_trace_io(0, address, v);   /* DraculaX M2: hardware reads */
++		return v;
+ 	}
+ 
+ 	// Logical
+@@ -183,6 +191,7 @@ private:
+ 
+ 		LastLogicalWriteAddr = address;
+ 
++		if (dx_trace_on && wmpr == 0xFF) dx_trace_io(1, address, V);    /* DraculaX M2: hardware writes */
+ 		WriteMap[wmpr]((wmpr << 13) | (address & 0x1FFF), V);
+ 	}
+ 
+@@ -190,6 +199,7 @@ private:
+ 	// Must not modify address(upper bit is abused for ST0/ST1/ST2 handling).
+ 	void INLINE WrMemPhysical(uint32 address, uint8 data)
+ 	{
++		if (dx_trace_on) dx_trace_io(2, address & 0x1FFFFF, data);          /* DraculaX M2: ST0 / ST1 / ST2 */
+ 		WriteMap[(address >> 13) & 0xFF](address, data);
+ 	}
+ 
+diff --git a/mednafen/pce/input.cpp b/mednafen/pce/input.cpp
+index 60e365f..0b1a5c7 100644
+--- a/mednafen/pce/input.cpp
++++ b/mednafen/pce/input.cpp
+@@ -169,6 +169,9 @@ void INPUT_AdjustTS(int32 delta_timestamp)
+ 			devices[i]->AdjustTS(delta_timestamp);
+ }
+ 
++/* DraculaX M2: the pad port, for a model to start from (dumpiostate, dumpvid.cpp) */
++extern "C" void dx_input_state(uint32 *o) { o[0] = SEL; o[1] = CLR; o[2] = read_index; o[3] = MultiTapEnabled; }
++
+ static INLINE uint8 RealPortRead(int32 timestamp, int which)
+ {
+ 	if(devices[which])
+diff --git a/mednafen/pce/pce.cpp b/mednafen/pce/pce.cpp
+index 54a9224..717247f 100644
+--- a/mednafen/pce/pce.cpp
++++ b/mednafen/pce/pce.cpp
+@@ -82,9 +82,11 @@ static DECLFR(BaseRAMRead)
+ 	return(BaseRAM[A & 0x1FFF]);
+ }
+ 
++extern "C" void ramtrack(uint32 index, uint8 v);
+ static DECLFW(BaseRAMWrite)
+ {
+ 	BaseRAM[A & 0x1FFF] = V;
++	ramtrack(A & 0x1FFF, V);
+ }
+ 
+ static DECLFR(IORead)
+@@ -165,6 +167,7 @@ static DECLFR(IORead)
+ 	return(0xFF);
+ }
+ 
++extern "C" void sndtrack(uint32 kind, uint32 ts, uint32 a, uint32 v, uint32 x0, uint32 x1, uint32 x2);
+ static DECLFW(IOWrite)
+ {
+ 	switch(A & 0x1c00)
+@@ -181,6 +184,7 @@ static DECLFW(IOWrite)
+ 
+ 		case 0x0800:
+ 			HuCPU.SetIODataBuffer(V); 
++			sndtrack(1, HuCPU.Timestamp(), A & 0x0F, V, 0, 0, 0);
+ 			psg->Write(HuCPU.Timestamp() / 3, A & 0x1FFF, V);
+ 			break;
+ 
+@@ -562,6 +566,7 @@ void Emulate(EmulateSpecStruct *espec)
+ 		const uint32 end_timestamp = HuCPU.Timestamp();
+ 		const uint32 end_timestamp_div12 = end_timestamp / 12;
+ 		const uint32 end_timestamp_mod12 = end_timestamp % 12;
++		if (dx_trace_on) dx_trace_io(9, end_timestamp - end_timestamp_mod12, 0);   /* DraculaX M2: the timestamp restarts: this much subtracted */
+ 
+ 		INPUT_AdjustTS((int32)end_timestamp_mod12 - (int32)end_timestamp);	// Careful with this!
+ 
+diff --git a/mednafen/pce/pcecd.cpp b/mednafen/pce/pcecd.cpp
+index 80219ea..682ca91 100644
+--- a/mednafen/pce/pcecd.cpp
++++ b/mednafen/pce/pcecd.cpp
+@@ -637,7 +637,47 @@ static void INLINE Fader_Run(const int32 clocks)
+ }
+ 
+ 
++extern "C" void sndtrack(uint32 kind, uint32 ts, uint32 a, uint32 v, uint32 x0, uint32 x1, uint32 x2);
++/* DraculaX M2: the CD unit's registers, ADPCM and fader state for a model to start from (dumpiostate, dumpvid.cpp):
++   0-14 _Port, 15 BRAM enabled, 16 ACK, 17 ACK delay, 18 lastts, 19 SCSI next event, 20-34 ADPCM, 35-38 its clock,
++   39-43 the fader, 44 sub-channel FIFO count; 48-: the SCSI CD (scsicd.cpp) */
++extern "C" void dx_scsicd_state(uint32 *o);
++extern "C" void dx_pcecd_state(uint32 *o)
++{
++	for (int i = 0; i < 15; i++) o[i] = _Port[i];
++	o[15] = bBRAMEnabled; o[16] = ACKStatus; o[17] = (uint32)ClearACKDelay; o[18] = (uint32)lastts; o[19] = (uint32)scsicd_ne;
++	o[20] = ADPCM.Addr; o[21] = ADPCM.ReadAddr; o[22] = ADPCM.WriteAddr; o[23] = ADPCM.LengthCount; o[24] = ADPCM.HalfReached;
++	o[25] = ADPCM.EndReached; o[26] = ADPCM.Playing; o[27] = ADPCM.LastCmd; o[28] = ADPCM.SampleFreq; o[29] = ADPCM.PlayBuffer;
++	o[30] = ADPCM.ReadBuffer; o[31] = (uint32)ADPCM.ReadPending; o[32] = (uint32)ADPCM.WritePending; o[33] = ADPCM.WritePendingValue;
++	o[34] = ADPCM.PlayNibble; o[35] = (uint32)ADPCM.bigdivacc; o[36] = (uint32)((uint64)ADPCM.bigdivacc >> 32);
++	o[37] = (uint32)ADPCM.bigdiv; o[38] = (uint32)((uint64)ADPCM.bigdiv >> 32);
++	o[39] = Fader.Command; o[40] = (uint32)Fader.Volume; o[41] = (uint32)Fader.CycleCounter; o[42] = Fader.CountValue; o[43] = Fader.Clocked;
++	o[44] = SubChannelFIFO.in_count;
++	dx_scsicd_state(o + 48);
++}
++extern "C" __attribute__((visibility("default"))) int adpcm_ram(uint8 *out)
++{
++	if (!ADPCM.RAM) return 0;
++	memcpy(out, ADPCM.RAM, 0x10000);
++	return 0x10000;
++}
++/* M0b sound log: every CD-unit register write but the ADPCM data port ($180A, counted only), with the ADPCM
++   state after it: read address, length, (playing | rate << 8 | last command << 16) */
++static uint32 dx_adpcm_data_writes;
++extern "C" __attribute__((visibility("default"))) uint32 adpcm_data_writes(int clear)
++{
++	uint32 n = dx_adpcm_data_writes; if (clear) dx_adpcm_data_writes = 0; return n;
++}
++static int32 PCECD_Write_(uint32 timestamp, uint32 physAddr, uint8 data);
+ int32 MDFN_FASTCALL PCECD_Write(uint32 timestamp, uint32 physAddr, uint8 data)
++{
++	int32 r = PCECD_Write_(timestamp, physAddr, data);
++	if ((physAddr & 0xf) == 0xa) dx_adpcm_data_writes++;
++	else sndtrack(2, timestamp, physAddr & 0xf, data, ADPCM.ReadAddr, ADPCM.LengthCount,
++	              (uint32)ADPCM.Playing | (ADPCM.SampleFreq << 8) | ((uint32)ADPCM.LastCmd << 16));
++	return r;
++}
++static int32 PCECD_Write_(uint32 timestamp, uint32 physAddr, uint8 data)
+ {
+ 	const uint8 V = data;
+ 
+diff --git a/mednafen/pce/vce.cpp b/mednafen/pce/vce.cpp
+index 01bebda..6e64f4b 100644
+--- a/mednafen/pce/vce.cpp
++++ b/mednafen/pce/vce.cpp
+@@ -55,6 +55,7 @@ static int scanline_info_count;
+ static const int vce_ratios[4] = { 4, 3, 2, 2 };
+ 
+ static int32 MDFN_FASTCALL NO_INLINE Sync(const int32 timestamp);
++extern "C" void dx_ws_log(int32 to_steal);
+ 
+ static void IRQChange_Hook(bool newstatus)
+ {
+@@ -72,6 +73,8 @@ bool VCE::WS_Hook(int32 vdc_cycles)
+ 	else
+ 		to_steal = ((vdc_cycles * dot_clock_ratio - clock_divider) + 2) / 3;
+ 
++	{ extern int dx_trace_on; if (dx_trace_on && vdc_cycles == -1) dx_ws_log(to_steal); }   /* DraculaX M2: the wait states */
++
+ 	if(to_steal <= 0) // This should never happen.  But in case it does...
+ 		to_steal = 1;
+ 

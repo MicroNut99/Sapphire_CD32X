@@ -1,0 +1,25 @@
+# No game data in this repository, ever: no disc tracks, no BIOS, no audio, no save states, no VRAM or
+# RAM captures, no graphics taken from the game (the tilesets included). They live in the work folder.
+work/
+*.iso
+*.bin
+*.img
+*.sub
+*.ccd
+*.cue
+*.wav
+*.pce
+*.st
+*.npz
+*.png
+*.so
+__pycache__/
+*.BIN
+*.RAW
+*.32x
+*.32X
+*.elf
+*.o
+# M3's speed test: built in the work tree (its cd/ files are game data)
+dxspeed/build/
+dxspeed/cd/
