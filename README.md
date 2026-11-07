@@ -28,10 +28,12 @@ off on all five stages, on the 4 MB RAM cart and as an EDCD boot from the EverDr
 Genesis plane, the sprites on the 32X, and the status bar is Genesis sprites (D3: the Sega CD's 68000 builds them in
 the port). On the PC the conversion is exact over 1,864 frames; only stage 1 needs its colours merged. Found on
 the way: the stack's command 78 had no H interrupt in a cartridge boot (fixed, CD32X-BootCamp PR #1).
-**M2 step 1 done** ([docs/06](docs/06_M2_TRANSLATION_AND_THE_ARCADE_CARD.md)): the game's code recompiled to C, with an Arcade
-Card model, checked against Mednafen's instruction trace in six windows. All 10.2 million instructions are equal
-register for register, and all 321,416 Arcade Card reads are equal. RAM, VRAM and the card are equal after each
-window, and under 0.1 % of instructions are interpreted.
+**M2 done** ([docs/06](docs/06_M2_TRANSLATION_AND_THE_ARCADE_CARD.md), [docs/07](docs/07_M2_EVERY_RECORDING_ALONE.md)): the game's
+code is recompiled to C, with an Arcade Card model, and checked against Mednafen's instruction trace. In six windows,
+10.2 million instructions and 321,416 card reads are all equal, at Mednafen's clock to the master cycle. Then the
+host build runs alone, with no trace, on the recorded inputs. The whole demo from power-on is 33,599 frames and 990
+million instructions: the boot's Arcade Card load, the intro, stages 1-4 and every load. Every frame's RAM, VRAM
+and Arcade Card is equal to Mednafen's.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
@@ -71,6 +73,7 @@ through ctypes).
 | `tools/m1_aresdiff.py` | M1: ares's screenshot against `expected.png` |
 | `satest/`, `cd32x/apply.sh` | M1's test ROM (DraculaX's `dxtest`: the map by command 63, any size) and the build tree from a BootCamp checkout |
 | `tools/m2_code.py`, `m2_recomp.py`, `m2_trace.py`, `m2_tracedump.py`, `m2host/` | M2 (DraculaX's, for Sapphire's recordings and slots): the code blocks, HuC6280 → C, the trace checker; `m2host/ac_model.c`: the Arcade Card |
+| `tools/m2_run.py` | M2: the host build alone from a window, frame by frame against the recording (`--long` to its end) |
 | `tools/m0_replay.py`, `tools/m2_runs.py` | DraculaX's tools opening Sapphire's recordings |
 | `tools/genesis_fit.py` | DraculaX's: does each screen's background fit the Genesis' 4 palettes of 15 |
 

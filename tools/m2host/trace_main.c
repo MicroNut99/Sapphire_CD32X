@@ -360,14 +360,14 @@ static uint32_t rt_hash(int with_stack)
     return h;
 }
 static long idle_n, idle_irqs;
-static void frame_md5(long k)                                 /* the state as tools/m0_replay.py frame_hash hashes it */
+static void frame_md5(long k)                                 /* the state as Sapphire's tools/m0b_run.py hashes it */
 {
     if (getenv("RUN_IDLE_HASH")) printf("frame %ld hash %08x %08x\n", k, rt_hash(1), rt_hash(0));
-    static const uint8_t zero[16384];
     unsigned char md[16]; unsigned len;
     EVP_MD_CTX *x = EVP_MD_CTX_new(); EVP_DigestInit_ex(x, EVP_md5(), 0);
-    EVP_DigestUpdate(x, base_ram, 8192); EVP_DigestUpdate(x, zero, sizeof zero);   /* the core's 24 KB "system RAM" */
-    EVP_DigestUpdate(x, cd_ram, 65536); EVP_DigestUpdate(x, super_ram, 196608);
+    /* base RAM, CD RAM, Super RAM, the Arcade Card's 2 MB, VRAM, the sprite table, the colours (m0b_run.py run()) */
+    EVP_DigestUpdate(x, base_ram, 8192);
+    EVP_DigestUpdate(x, cd_ram, 65536); EVP_DigestUpdate(x, super_ram, 196608); EVP_DigestUpdate(x, ac.ram, 0x200000);
     EVP_DigestUpdate(x, vdc.vram, sizeof vdc.vram); EVP_DigestUpdate(x, vdc.sat, sizeof vdc.sat); EVP_DigestUpdate(x, vdc.color, sizeof vdc.color);
     EVP_DigestFinal_ex(x, md, &len); EVP_MD_CTX_free(x);
     printf("frame %ld md5 ", k); for (int i = 0; i < 16; i++) printf("%02x", md[i]); printf("\n");

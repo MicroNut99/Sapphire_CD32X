@@ -1,4 +1,4 @@
-# Pick-up notes for the next Claude session (7 Nov 2026, after docs/06)
+# Pick-up notes for the next Claude session (7 Nov 2026, after docs/07)
 
 Read `CLAUDE.md` first.
 
@@ -15,10 +15,10 @@ Read `CLAUDE.md` first.
      stack command at M3). The VSPLIT / MODE1 fix is CD32X-BootCamp PR #1 (branch `vsplit-mode1`, clone at
      `/home/claude/cd32x-bootcamp`); the ledger's §21b (MicroNut99/docs) is still to write: no push access to
      docs was granted this session.
-  4. **M2 step 1 done** (docs/06): the translation and the Arcade Card model equal to Mednafen's trace in six
-     windows (`work/tr/`, the checker `work/m2check`, the C `work/m2gen`, the blocks `work/m2`). **Next:** DraculaX's
-     docs/11-15 in order: `--timed` (the cycle model, VDC timing), then the pad / interrupts / CD unit models, then
-     every recording run alone (`--run`) with the Arcade Card from its model.
+  4. **M2 done** (docs/06-07): the translation, our clock, and the host alone: the whole demo from power-on equal
+     to Mednafen every frame (`work/tr/<window>`, `work/m2check`, `work/m2gen`, `work/m2`). **Next: M3** as DraculaX's
+     docs/16 on: the translation for the SH2 (`tools/m3_sh2.py`), the 32X runtime (`tools/m3rt/`) and its speed
+     test (`dxspeed/`), with the Arcade Card in the cart (docs/03's layouts).
 
 ## 2. Where things live
 
