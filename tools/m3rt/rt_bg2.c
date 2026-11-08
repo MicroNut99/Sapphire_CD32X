@@ -31,6 +31,11 @@ static inline void tset(Bg2 *b, unsigned off, uint16_t v)
 }
 #define T_MASK(t) (BG2_T_MASK + 2 * (t))
 #define T_TAG(t) (BG2_T_TAG + 2 * (t))
+/* (docs/33) the tiles' tags and hashes in SDRAM, one copy: read cached, written without the journal (only the SH2
+   reads them; the frame buffer's BG2_T_TAG / BG2_T_HASH are left unused) */
+uint16_t bg2_ttag[2048], bg2_thash[2048];
+#define TTAG(t) (bg2_ttag[(t) & 2047])
+#define THASH(t) (bg2_thash[(t) & 2047])
 #define T_PRIM(t) (BG2_T_PRIM + 2 * (t))
 #define T_GMAP(a) (BG2_T_GMAP + 2 * (a))
 #define S_KEY(s) (BG2_T_SLOT + 8 * (s))
@@ -277,11 +282,11 @@ void bg2_fill(Bg2 *b, int cur)                     /* a buffer's tables, at the 
 {
     uint16_t *f = b->fb[cur];
     for (unsigned o = BG2_T_MASK; o < BG2_T_END; o += 2) f[o >> 1] = 0;
-    for (int t = 0; t < 2048; t++) { f[T_TAG(t) >> 1] = NONE; f[T_PRIM(t) >> 1] = NONE; }
+    for (int t = 0; t < 2048; t++) { TTAG(t) = NONE; f[T_PRIM(t) >> 1] = NONE; }
     for (int a = 0; a < 4096; a++) f[T_GMAP(a) >> 1] = NONE;
     for (int s = 0; s < BG2_SLOTS; s++) { f[S_KEY(s) >> 1] = NONE; f[S_REFS(s) >> 1] = 0; }
     for (int h = 0; h < BG2_OVF_N; h++) f[T_OVF(h) >> 1] = NONE;
-    for (int t = 0; t < 2048; t++) f[T_HASH(t) >> 1] = 0;
+    for (int t = 0; t < 2048; t++) THASH(t) = 0;
 }
 static uint16_t tile_hash(const V32 *v, unsigned t)
 {
@@ -348,7 +353,7 @@ static unsigned find_slot(const Bg2 *b, unsigned t, int p)
 }
 static int good(const Bg2 *b, unsigned s, unsigned t, int p, const V32 *v)
 {
-    if (tget(b, S_TAG(s)) != tget(b, T_HASH(t))) return 0;   /* (the tile as converted: its words' hash then) */
+    if (tget(b, S_TAG(s)) != THASH(t)) return 0;   /* (the tile as converted: its words' hash then) */
     const unsigned u = tget(b, T_MASK(t)), cv = tget(b, S_CVER(s));
     for (int i = 1; i < 16; i++) if ((u & B16(i)) && b->chg[p][i] > cv) return 0;
     (void)v; return 1;
@@ -431,7 +436,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
       for (int t = grp * 32; t < grp * 32 + 32; t++) {
         if (!jroom(b, 5 + 64)) { whole = 0; break; }
         const uint16_t tag = rt_marks.v[t];
-        if (tget(b, T_TAG(t)) == tag) continue;   /* (a copy under way reads ~tag: looked at each picture) */
+        if (TTAG(t) == tag) continue;   /* (a copy under way reads ~tag: looked at each picture) */
         const int underway = tag == rt_marks.tag && !VSRC_IS_CODE(tag);   /* (a copy still going on: looked at again) */
         const uint16_t want = underway ? (uint16_t)~tag : tag;
 #ifdef BG2_FPGA_TILES
@@ -444,8 +449,8 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         const uint16_t h = tile_hash(v, (unsigned)t); ST(b->st.hashed++);
 #endif
         if (underway) { whole = 0; ST(b->st.underway_t++); }
-        if (h == tget(b, T_HASH(t)) && tget(b, T_TAG(t)) != NONE) {   /* (its words as they were: only the tag noted) */
-            if (tget(b, T_TAG(t)) != want) tset(b, T_TAG(t), want);
+        if (h == THASH(t) && TTAG(t) != NONE) {   /* (its words as they were: only the tag noted) */
+            if (TTAG(t) != want) TTAG(t) = want;
             continue;
         }
 #ifdef BG2_FPGA_TILES
@@ -453,7 +458,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
 #else
         tile_mask_set(b, (unsigned)t, tile_mask_of((unsigned)t));
 #endif
-        tset(b, T_TAG(t), want); tset(b, T_HASH(t), h); ST(b->st.masked++);
+        TTAG(t) = want; THASH(t) = h; ST(b->st.masked++);
         if (tget(b, T_MASK(t)) & 1) { tchg[t >> 3] |= B8(t & 7); ntchg++; }   /* (a tile no entry names - a
                                                      sprite's cell - changes nothing of the plane) */
         if (t < (b->mn >> 4)) { batchg[t >> 3] |= B8(t & 7); nbat++; }
@@ -506,7 +511,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         if (!(b->dirty[a >> 3] & B8(a & 7))) continue;
         if (!jroom(b, 12) || b->ln + 40 > BG2_LIST_WORDS) { stop = 1; break; }
         const uint16_t e = VRp[a]; const unsigned t = e & 0x7FF; const int p = e >> 12;
-        if (tget(b, T_TAG(t)) != rt_marks.v[t] && tget(b, T_TAG(t)) != (uint16_t)~rt_marks.v[t]) { ST(b->st.unseen++); continue; }   /* (its tile not looked at yet: later; a copy under way is looked at each picture) */
+        if (TTAG(t) != rt_marks.v[t] && TTAG(t) != (uint16_t)~rt_marks.v[t]) { ST(b->st.unseen++); continue; }   /* (its tile not looked at yet: later; a copy under way is looked at each picture) */
         const unsigned u0 = tget(b, T_MASK(t)), u = u0 & ~1u;
         if (!(u0 & 1)) tset(b, T_MASK(t), (uint16_t)(u0 | 1));   /* (named by the plane from now on) */
         if (b->g[p] < 0 && u) { b->dirty[a >> 3] &= (uint8_t)~B8(a & 7); b->ndirty--; continue; }   /* (a misfit) */
@@ -525,7 +530,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
                 if (s == NONE && !released) { released = 1; if (release_out(b)) s = new_slot(b, t, p); }
                 if (s == NONE) { ST(b->st.noslot++); stop = 1; break; } }
             PQ(2);
-            convert(b, v, t, p, s); tset(b, S_CVER(s), b->ver[p]); tset(b, S_TAG(s), tget(b, T_HASH(t)));
+            convert(b, v, t, p, s); tset(b, S_CVER(s), b->ver[p]); tset(b, S_TAG(s), THASH(t));
             PQ(3);
         } else PQ(1);
         const uint16_t ge = (uint16_t)(s | gp << 13), old = tget(b, T_GMAP(a));

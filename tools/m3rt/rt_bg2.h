@@ -30,6 +30,7 @@
 #define BG2_LIST 0x11A00                   /* (the list: 2,400 words at most, then its journal run) */
 #define BG2_JRN 0x12E00                    /* (the journal's pairs, 768 x 2 words, to 0x13A00) */
 #define BG2_T_MASK 0x13A00                 /* each tile: the colour indices it shows (u16) */
+extern uint16_t bg2_ttag[2048], bg2_thash[2048];   /* (docs/33: the tags and hashes, in SDRAM) */
 #define BG2_T_TAG 0x14A00                  /* each tile: its marks' tag when last looked at (u16; ~tag: a copy under way) */
 #define BG2_T_PRIM 0x15A00                 /* each tile: the slot it was last converted into (u16) */
 #define BG2_T_GMAP 0x16A00                 /* the plane's 4,096 entries as sent (u16) */

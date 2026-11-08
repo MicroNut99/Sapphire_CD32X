@@ -588,7 +588,7 @@ static long gen_check(const V32 *v, int whole)
                     const unsigned t = e & 0x7FF, sl = ge & 0x7FF; const uint16_t *f = bg2_fb[bg2.cur ^ 1];
                     printf("bg2 why: entry %d tile %03X pal %d (g %d) -> ge %04X slot %u key %04X cver %u tag %04X refs %u; tile tag %04X marks %04X mask %04X prim %u; px %d,%d i %u n %u want %03X got %03X; ver %u chg %u m %u\n",
                         a, t, p, bg2.g[p], ge, sl, f[(BG2_T_SLOT >> 1) + 4 * sl], f[(BG2_T_SLOT >> 1) + 4 * sl + 1], f[(BG2_T_SLOT >> 1) + 4 * sl + 2], f[(BG2_T_SLOT >> 1) + 4 * sl + 3],
-                        f[(BG2_T_TAG >> 1) + t], rt_marks.v[t], f[(BG2_T_MASK >> 1) + t], f[(BG2_T_PRIM >> 1) + t], x, y, i, n, want, got, bg2.ver[p], bg2.chg[p][i], bg2.m[p][i]); } }
+                        bg2_ttag[t], rt_marks.v[t], f[(BG2_T_MASK >> 1) + t], f[(BG2_T_PRIM >> 1) + t], x, y, i, n, want, got, bg2.ver[p], bg2.chg[p][i], bg2.m[p][i]); } }
                 bad += want != got; } } }
     return bad;
 }

@@ -1013,11 +1013,12 @@ static void fifo_play(V32 *v, long frames)
 #ifdef SPR_FPGA_CELLS
             /* (docs/29) released as soon as the picture before is on screen; drawn at the frame the FPGA then locked */
             /* (the release before the count: the store, which follows this count, locks at this very frame) */
-            { static int released; static uint32_t want = 0xFFFFFFFFu;
-              if (!released && pic_free()) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu; }
+            /* (docs/33: a frame drawn at most every 2nd frame - a solid 30, no picture a refresh after the one before) */
+            { static int released; static uint32_t want = 0xFFFFFFFFu; static long drawn_k = -2;
+              if (!released && pic_free() && k - drawn_k >= 2) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu; }
               CS_WR(0xca, (k + 1) & 0xFF);                       /* (the boundaries this CPU has passed: the store's pace) */
               if (released && want == 0xFFFFFFFFu) { const uint16_t l = CS_RD(0xc9); if (l != 0xFFFF) want = l; }
-              if (released && (uint32_t)(k + 1) == want) { cs_purge(); draw_hook(v); fifo_pics++; released = 0; } }
+              if (released && (uint32_t)(k + 1) == want) { cs_purge(); draw_hook(v); fifo_pics++; released = 0; drawn_k = k; } }
 #else
             if (pic_free() && (long)(gTicks - t0) < k + 1) { draw_hook(v); fifo_pics++; }
 #endif

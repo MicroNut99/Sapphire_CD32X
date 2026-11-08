@@ -92,6 +92,10 @@ Read `CLAUDE.md` first.
   27. **docs/32:** pic_extras' number blocks drawn only where they change (37 -> 19 lines); `SPRPROF=1` times the
      master's sprites (1,800 clocks a cell: the frame buffer shared with bg2's tables). Next: VRAM read from the FPGA,
      the 64 KB freed, rt_bg2's tables to SDRAM (no journal).
+  28. **docs/33, 30 fps:** tiles' tags/hashes in SDRAM (`bg2_ttag`, `bg2_thash`); fifo_play draws at most every 2nd
+     frame. 292 pictures, 282 at 2 refreshes (10 slow: the stage's first pictures, one boss). PC reference remade
+     (`work/pic_st3_all.bin`; old `.docs32.bin`, `work/rtbg.docs32`). Open: line 0's V scroll late in 3 of 21
+     screenshots (the commit vs the raster).
 
 ## 2. Where things live
 
