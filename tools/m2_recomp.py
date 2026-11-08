@@ -182,6 +182,11 @@ SLOT = {0x00: 7, 0x02: 6, 0x68: 2, 0x69: 3, 0x6A: 2, 0x6B: 3, 0x6C: 4, 0x74: 2, 
 # (DraculaX's: (0x00, 0x0009) CD_READ, (0x6C, 0x01B8) / (0x6C, 0x016F) its load list. Sapphire's are found at M3:
 # DraculaX's 6C addresses are other code in Sapphire's bank 6C.)
 HOOKS = {}
+# docs/13: code that writes a whole instruction, opcode too, into a place the code map saw one opcode at (Sapphire
+# 69:1235 / 12E4 / 1345: a JMP the game turns into CPY / LDX each frame). PATCH_ALTS[(bank, offset)] = the other
+# opcodes seen there; the translation picks by the opcode in memory instead of leaving to the interpreter. Read from
+# <work>/m2/patch_alts.json ({"69:1235": [204], ...}: tools/m3rt rt_pc RUN_INTERP lists them) - the game's, so not here
+PATCH_ALTS = {}
 # docs/75: the System Card's CD_READ byte loop, its plain iterations in one go (HUC_CDSTEP builds; rt.c rt_cdstep)
 CDSTEP_AT = (0x00, 0x0A99)
 ADSTEP_AT = (0x00, 0x13D0)   # docs/76: its AD_TRANS wait (rt_adstep)
@@ -277,7 +282,12 @@ class Block:
         for off in self.labels:
             d = decode(lambda a: int(self.data[a & 0x1FFF]) if a < 0x2000 else 0, off)
             m, mode, ob, n, t = d
-            if off in self.patched:                       # code may write its opcode: run it only while it is this
+            alts = [o for o in PATCH_ALTS.get((self.bank, off), ()) if o != int(self.data[off]) and OPS[o]] if off in self.patched else []
+            if alts:                                      # (docs/13: its other opcodes translated too)
+                L.append('l%04X: { const uint8_t op_ = RD((uint16_t)(base + 0x%04X)); if (__builtin_expect(op_ != 0x%02X, 0)) { %s SYNC_OUT(); c->pc = (uint16_t)(base + 0x%04X); c->miss = 1; return; } }'
+                         % (off, off, int(self.data[off]), ' '.join('if (op_ == 0x%02X) goto a%04X_%02X;' % (o, off, o) for o in alts), off))
+                L.append('    CHK(0x%04X); CY(%d); /* %s %s */%s' % (off, CYCLES[int(self.data[off])], m, mode, self.ops_def(off, ob)))
+            elif off in self.patched:                     # code may write its opcode: run it only while it is this
                 L.append('l%04X: if (__builtin_expect(RD((uint16_t)(base + 0x%04X)) != 0x%02X, 0)) { SYNC_OUT(); c->pc = (uint16_t)(base + 0x%04X); c->miss = 1; return; }  /* else the interpreter */'
                          % (off, off, int(self.data[off]), off))
                 L.append('    CHK(0x%04X); CY(%d); /* %s %s */%s' % (off, CYCLES[int(self.data[off])], m, mode, self.ops_def(off, ob)))
@@ -297,6 +307,11 @@ class Block:
             nxt = off + n
             L.append(self.code(m, mode, ob, n, off, nxt))
             L.append(undef(ob).strip())
+            for o in alts:                                # (docs/13: each other opcode, its operands read when it runs)
+                m2, mode2, ob2, n2, _ = decode(lambda a, o=o: o if a == off else (int(self.data[a & 0x1FFF]) if a < 0x2000 else 0), off)
+                L.append('a%04X_%02X: CHK(0x%04X); CY(%d); /* %s %s (written by code) */%s' % (off, o, off, CYCLES[o], m2, mode2, self.ops_def(off, ob2)))
+                L.append(self.code(m2, mode2, ob2, n2, off, off + n2))
+                L.append(undef(ob2).strip())
         L.append('leave_:\n    SYNC_OUT(); c->pc = t; return;')
         L.append('#undef LOCAL\n#undef LEAVE\n}\n')
         return '\n'.join(x for x in L if x)
@@ -880,6 +895,16 @@ def merge_blocks(W):
     return out
 
 
+def load_patch_alts(W):
+    """PATCH_ALTS from <work>/m2/patch_alts.json (docs/13); also tools/m3_speedtest.py split's"""
+    pa = os.path.join(W, 'm2', 'patch_alts.json')
+    if not os.path.exists(pa): return False
+    import json
+    for k, v in json.load(open(pa)).items():
+        bk, of = k.split(':'); PATCH_ALTS[(int(bk, 16), int(of, 16))] = [int(x) for x in v]
+    return True
+
+
 def main():
     W, out = sys.argv[1], sys.argv[2]
     os.makedirs(out, exist_ok=True)
@@ -887,6 +912,7 @@ def main():
         os.remove(f)
     open(os.path.join(out, 'huc_ops.h'), 'w').write(RUNTIME_H)
     open(os.path.join(out, 'huc_rt.c'), 'w').write(RUNTIME_C)
+    if load_patch_alts(W): print('patch_alts: %d places' % len(PATCH_ALTS))
     blocks = merge_blocks(W)
     for line in find_patched(blocks):
         print('code written by code, its bytes read when it runs:', line)

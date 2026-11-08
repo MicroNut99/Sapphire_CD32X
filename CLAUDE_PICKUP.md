@@ -35,6 +35,8 @@ Read `CLAUDE.md` first.
      (4 MB plain EverDrive): a photo of each end screen. Quartus done (docs/10 §2b: 3,677 LEs, timing met).
   9. **docs/12:** every stage: `work/sp/st{1,2,4,5}.bin`, `work/tr/st*_600`, `work/sel_st*`, `work/stage_run.sh`
      (= `tools/m3_stagerun.sh`). Next: the 14 MB build's profile, the VRAM in the FPGA, the console results.
+  10. **docs/13:** `work/m2/patch_alts.json`, the translation `work/m3gen2` (rt_pc `work/rtobj2`); `sel_st*` reselected
+     from it. Next: the alternatives in the hot asm, the VRAM port (17 %), rd/wr_slow, the console results.
 
 ## 2. Where things live
 

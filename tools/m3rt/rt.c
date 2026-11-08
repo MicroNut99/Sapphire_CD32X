@@ -1468,6 +1468,9 @@ void rt_run(Rt *r, long frames, void (*each_frame)(Rt *r))
         }
         if (!fn || c->miss == 1) {                   /* no block, or no label here: one instruction interpreted */
             const uint8_t op = RD_(c, c->pc);
+#if !defined(__32X__)
+            { extern uint32_t *rt_interp_hist; if (rt_interp_hist) rt_interp_hist[(uint32_t)op << 21 | (uint32_t)c->MPR[c->pc >> 13] << 13 | (c->pc & 0x1FFF)]++; }
+#endif
             c->miss = 0; interp_one(c); r->interpreted++;
             c->left -= huc_cycles[op];
         }

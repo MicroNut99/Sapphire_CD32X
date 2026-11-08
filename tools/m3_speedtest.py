@@ -372,6 +372,7 @@ def entry_set(R, b, every, hot, targets):
 
 def split(W, out, dirs, merge=True):
     import m2_recomp as R
+    R.load_patch_alts(W)                                 # (docs/13: the opcodes code writes, as m2_recomp.py's)
     hot = hot_set(dirs); ne = 0
     keys = sorted(f[4:-2] for f in os.listdir(out) if f.startswith('blk_') and f.endswith('.c'))
     blocks = {b.key: b for b in R.merge_blocks(W)}
@@ -388,7 +389,9 @@ def split(W, out, dirs, merge=True):
         b = blocks[k]
         b.gen(); every = list(b.labels)
         h = {o for o in every if (b.bank, o) in hot}
-        open(os.path.join(out, 'blk_%s.c' % k), 'w').write('#define HUC_LOCAL\n#include "huc_ops.h"\n' + b.gen(keep=set(every) - h))
+        alt = {o for o in h if o in b.patched and (b.bank, o) in R.PATCH_ALTS}   # (docs/13: in the cold half too: the hot
+        #   code leaves there when the game wrote another opcode, and the C runs it)
+        open(os.path.join(out, 'blk_%s.c' % k), 'w').write('#define HUC_LOCAL\n#include "huc_ops.h"\n' + b.gen(keep=(set(every) - h) | alt))
         nh += len(h); nc += len(every) - len(h)
         if not h: continue
         if merge and b.bank in R.SLOT:

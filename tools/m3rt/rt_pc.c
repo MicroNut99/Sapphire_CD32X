@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
-uint32_t *rt_ro_hist;
+uint32_t *rt_ro_hist, *rt_interp_hist;   /* (RUN_ROHIST, RUN_INTERP: docs/11, docs/13) */
 #ifdef RT_AC_FPGA
 #include "ac_engine.h"
 #endif
@@ -878,7 +878,8 @@ int main(int argc, char **argv)
     { extern uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob;
       if (getenv("RUN_ACE_LOG")) rt_ace_log = fopen(getenv("RUN_ACE_LOG"), "wb"); }   /* (docs/10: the engine's cart is the state's bytes) */
 #endif
-    if (getenv("RUN_ROHIST")) rt_ro_hist = calloc(256 << 13, 4);   /* (each lost write's place, docs/11) */
+    if (getenv("RUN_ROHIST")) rt_ro_hist = calloc(256 << 13, 4);
+    if (getenv("RUN_INTERP")) rt_interp_hist = calloc(256u << 21, 4);   /* (each lost write's place, docs/11) */
     static Rt rt; rt_init(&rt, &st, banks);
     rt.on_idle = on_idle; quiet = getenv("RUN_QUIET") != 0;
     if (argc > 3 && getenv("RUN_DISC")) {                       /* the CD drive, as the PC host has it */
@@ -1013,6 +1014,14 @@ int main(int argc, char **argv)
         uint32_t w[19], h = 2166136261u; ac_state(acp, w);
         for (int i = 0; i < 19; i++) h = (h ^ w[i]) * 16777619u;
         printf("Arcade Card registers at the end: %08x\n", h);
+    }
+    if (rt_interp_hist) {                                       /* (the places interpreted most, with their opcode) */
+        for (int k = 0; k < 25; k++) {
+            uint32_t best = 0, bi = 0; for (uint32_t i = 0; i < (256u << 21); i++) if (rt_interp_hist[i] > best) { best = rt_interp_hist[i]; bi = i; }
+            if (!best) break;
+            printf("interpreted %6u x %02X:%04X op %02X (when interpreted)\n", best, (bi >> 13) & 0xFF, bi & 0x1FFF, bi >> 21);
+            rt_interp_hist[bi] = 0;
+        }
     }
     if (rt_ro_hist) { FILE *h = fopen(getenv("RUN_ROHIST"), "wb"); fwrite(rt_ro_hist, 4, 256 << 13, h); fclose(h); }
     printf("banks written:");

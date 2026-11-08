@@ -54,6 +54,9 @@ frees 32 KB of SDRAM. The hot code is now chosen over the whole 600 frames, not 
 **Every stage** ([docs/12](docs/12_EVERY_STAGE_ON_BOTH_EVERDRIVES.md)): stages 1-5, each with its own regions, banks
 and hot set from its 600 frames, exact against rt_pc on both carts. With the core 0.91-1.77 refreshes a frame,
 the 4 MB plain EverDrive 1.65-3.08 (the game and runtime only, no drawing yet).
+**The instructions the game writes** ([docs/13](docs/13_INSTRUCTIONS_THE_GAME_WRITES.md)): three `JMP`s the game rewrites
+into other instructions each frame were interpreted 11,500-14,700 times a stage; now translated (1-3 % faster).
+With the core 532-1,055 refreshes for 600 frames, the 4 MB plain EverDrive 985-1,829.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

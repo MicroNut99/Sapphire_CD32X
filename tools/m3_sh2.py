@@ -1077,7 +1077,9 @@ class Gen:
             n_ = self.u(); ok = '.Lpo%d' % n_
             self.flush(); self.mat(); self.code_byte(base, off)
             self.imm('r2', op); self.i('cmp/eq\tr2,r3'); self.a.b('bt', ok)
-            self.i('mov\t#1,r0', 'mov.b\tr0,@(%d,gbr)' % self.o['miss']); self.leave(here)
+            # (docs/13: to the cold C translation, which runs the other opcodes the game writes here - m2_recomp.py
+            # PATCH_ALTS - and leaves to the interpreter for any other)
+            self.i('mov\t#3,r0', 'mov.b\tr0,@(%d,gbr)' % self.o['miss']); self.leave(here)
             self.a.l(ok)
         self.cy(self.CYC[op])
         dyn = (off in b.dynops or off in b.patched) and m not in ('RTS', 'RTI', 'BRK')
