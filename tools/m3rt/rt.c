@@ -772,6 +772,34 @@ static inline int vram_port(Rt *r, uint32_t off, uint8_t v)
     return 1;
 }
 
+/* (Sapphire docs/14) TIA from an Arcade Card data port (banks 40-43) to the VRAM data port: the game streams its
+   graphics this way (stage 3: 491,520 of its 493,154 card reads). The bytes as block_move's loop makes them - the
+   card's port read and stepped each byte, the latch then the word, 1 cycle in vram_port and 6 in the move - for as
+   long as vram_port would take them (no VDC event due, the same test), without RD_ / WR_'s way through rd_slow and
+   wr_slow. Returns the bytes done; block_move goes on with the rest the usual way */
+int rt_tia_card_vram(Cpu *c, uint16_t src, uint16_t dst, uint32_t len)
+{
+    Rt *r = RT_OF(c);
+    const uint8_t sb = c->MPR[src >> 13];
+    if (sb < 0x40 || sb > 0x43 || c->MPR[dst >> 13] != 0xFF || (dst & 0x1C03) != 2) return 0;
+    V32 *const d = &r->vdc;
+    if (d->vp->select != 2 || r->irq_stale) return 0;
+    uint32_t n = 0x2000u - (src & 0x1FFF); if (n > len) n = len;     /* (the source's slot: the same bank) */
+    const uint32_t port = ac_phys((uint32_t)sb << 13);
+    VPort *const p = d->vp;
+    const int32_t lim = vram_at(r), m = mult(c), base_t = r->entry_t + r->entry_left * m;
+    uint32_t i = 0;
+    for (; i < n; i++) {
+        if (base_t - (c->left - 1) * m >= lim) break;                   /* (vram_port's test: an event due) */
+        const uint8_t v = AC_READ(r, port);
+        c->left -= 1;
+        if (!(i & 1)) p->latch = v;
+        else { PROV_VRAM(p->mawr); if (p->mawr < 0x8000) { p->vram[p->mawr] = (uint16_t)(p->latch | v << 8); VMARK(p, p->mawr); } p->mawr += p->inc; }
+        c->left -= 6;
+    }
+    return (int)i;
+}
+
 #ifdef RT_POOL
 /* RT_POOL (DraculaX docs/72): the Super / CD RAM banks the SH2 keeps in the cart (read only there) made writable when
    the game writes one - its 8 KB copied into a slot of a small SDRAM pool, the bank mapped there; the slot's bank

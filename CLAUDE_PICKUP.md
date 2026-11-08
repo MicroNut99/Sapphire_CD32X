@@ -37,6 +37,8 @@ Read `CLAUDE.md` first.
      (= `tools/m3_stagerun.sh`). Next: the 14 MB build's profile, the VRAM in the FPGA, the console results.
   10. **docs/13:** `work/m2/patch_alts.json`, the translation `work/m3gen2` (rt_pc `work/rtobj2`); `sel_st*` reselected
      from it. Next: the alternatives in the hot asm, the VRAM port (17 %), rd/wr_slow, the console results.
+  11. **docs/14:** `rt_tia_card_vram` (rt.c) from `block_move` (m2_recomp RUNTIME_C). After a regeneration copy
+     `m3gen2/huc_rt.c` into every `sel_st*` folder (select / split keep the old one).
 
 ## 2. Where things live
 

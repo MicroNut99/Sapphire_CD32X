@@ -57,6 +57,9 @@ the 4 MB plain EverDrive 1.65-3.08 (the game and runtime only, no drawing yet).
 **The instructions the game writes** ([docs/13](docs/13_INSTRUCTIONS_THE_GAME_WRITES.md)): three `JMP`s the game rewrites
 into other instructions each frame were interpreted 11,500-14,700 times a stage; now translated (1-3 % faster).
 With the core 532-1,055 refreshes for 600 frames, the 4 MB plain EverDrive 985-1,829.
+**The card streamed to VRAM** ([docs/14](docs/14_THE_CARD_STREAMED_TO_VRAM.md)): the game's `TIA` from the card to the VDC
+(its graphics, 316-492 KB a stage in 600 frames) in one loop of the runtime's. With the core **528-883 refreshes
+(0.88-1.47 a frame)**, the 4 MB plain EverDrive 953-1,407, every hash exact.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

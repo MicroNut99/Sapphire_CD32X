@@ -743,6 +743,17 @@ void block_move(Cpu *c, int kind, uint16_t src, uint16_t dst, uint16_t len)
 {
     PUSH(c->Y); PUSH(c->A); PUSH(c->X);
     unsigned alt = 0;
+#if defined(HUC_TIMED) && !defined(TRACECHECK)
+    if (kind == 3) {                              /* (Sapphire docs/14: the card's port to the VRAM port, the runtime's) */
+        extern int rt_tia_card_vram(Cpu *c, uint16_t src, uint16_t dst, uint32_t len);
+        const int n = rt_tia_card_vram(c, src, dst, len ? len : 0x10000u);
+        if (n) {
+            src = (uint16_t)(src + n); alt = (unsigned)n & 1;
+            if ((uint32_t)n == (len ? len : 0x10000u)) { c->X = POP(); c->A = POP(); c->Y = POP(); return; }
+            len = (uint16_t)(len - n);
+        }
+    }
+#endif
 #ifdef TRACECHECK
     unsigned done = 0;
 #endif
