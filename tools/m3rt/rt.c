@@ -785,19 +785,39 @@ int rt_tia_card_vram(Cpu *c, uint16_t src, uint16_t dst, uint32_t len)
     V32 *const d = &r->vdc;
     if (d->vp->select != 2 || r->irq_stale) return 0;
     uint32_t n = 0x2000u - (src & 0x1FFF); if (n > len) n = len;     /* (the source's slot: the same bank) */
-    const uint32_t port = ac_phys((uint32_t)sb << 13);
+    /* (docs/15) vram_port's test at byte k (c->left = left0 - 7k there): base_t - (left0 - 7k - 1) * m < lim, so the
+       bytes before an event, worked out once */
+    const int32_t lim = vram_at(r), m = mult(c), left0 = c->left;
+    const int32_t x = lim - (r->entry_t + r->entry_left * m) + (left0 - 1) * m;
+    if (x <= 0) return 0;
+    const uint32_t kmax = (uint32_t)((x + 7 * m - 1) / (7 * m));
+    if (n > kmax) n = kmax;
     VPort *const p = d->vp;
-    const int32_t lim = vram_at(r), m = mult(c), base_t = r->entry_t + r->entry_left * m;
-    uint32_t i = 0;
-    for (; i < n; i++) {
-        if (base_t - (c->left - 1) * m >= lim) break;                   /* (vram_port's test: an event due) */
-        const uint8_t v = AC_READ(r, port);
-        c->left -= 1;
-        if (!(i & 1)) p->latch = v;
-        else { PROV_VRAM(p->mawr); if (p->mawr < 0x8000) { p->vram[p->mawr] = (uint16_t)(p->latch | v << 8); VMARK(p, p->mawr); } p->mawr += p->inc; }
-        c->left -= 6;
+    uint8_t buf[256];
+    for (uint32_t done = 0; done < n; ) {
+        const uint32_t k = n - done > sizeof buf ? (uint32_t)sizeof buf : n - done;
+#ifdef RT_AC_FPGA
+        {   /* (the engine: the port's data register, one cart read a byte past the cache) */
+#ifdef __32X__
+            volatile const uint16_t *const pr = (volatile const uint16_t *)(0x22000000u + ACE_WINDOW + ACE_RD_OFF((sb - 0x40) << 4));
+            for (uint32_t j = 0; j < k; j++) buf[j] = (uint8_t)*pr;
+#else
+            for (uint32_t j = 0; j < k; j++) buf[j] = ace_rd(ACE_RD_OFF((sb - 0x40) << 4));
+#endif
+            r->ac.reads += (long)k;
+        }
+#else
+        ac_stream(&r->ac, sb - 0x40, buf, k);
+#endif
+        for (uint32_t j = 0; j < k; j++) {
+            const uint32_t at = done + j;
+            if (!(at & 1)) p->latch = buf[j];
+            else { PROV_VRAM(p->mawr); if (p->mawr < 0x8000) { p->vram[p->mawr] = (uint16_t)(p->latch | buf[j] << 8); VMARK(p, p->mawr); } p->mawr += p->inc; }
+        }
+        done += k;
     }
-    return (int)i;
+    c->left -= 7 * (int32_t)n;
+    return (int)n;
 }
 
 #ifdef RT_POOL

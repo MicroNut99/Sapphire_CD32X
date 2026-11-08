@@ -131,6 +131,9 @@ def drop_labels(items, refs):
 LIT_W, LIT_L = 480, 960                       # how far ahead a mov.w / mov.l may be from its literal (margins kept)
 MARKS = int(__import__('os').environ.get('SPLIT_MARKS', '0'))   # D6b's marks (docs/54): the hooks and each VRAM write's tag
 CDSTEP = int(__import__('os').environ.get('SPLIT_CDSTEP', '0'))   # docs/75: the System Card's CD_READ byte loop in one go
+import copy
+ALT_STATE = ('az', 'ns', 'zs', 'pend', 'sel', 'pair_at', 'pair_next', 'cold_state', 'cold_branch', 'ck', 'cur_w', 'vlive')
+DYN_LOADS = __import__('os').environ.get('SPLIT_DYN_LOADS', '1') == '1'   # (docs/15)
 TRAMP = {'.Lleave': int(__import__('os').environ.get('SPLIT_TRAMP_LEAVE', '200')), '.Llocal': 3000}
                                               # the shared exits: jumps to them go through a trampoline near by
                                               # (bt / bf reach 256 bytes, bra 4 KB: one every that many bytes; past
@@ -304,7 +307,10 @@ _ZNW = {'LDA', 'LDX', 'LDY', 'AND', 'ORA', 'EOR', 'ADC', 'SBC', 'CMP', 'CPX', 'C
 
 
 def supported(m, mode, b, off):
-    if off in b.dynops or off in b.patched: return m in ('RTS', 'RTI')   # (one byte: translated as they are)
+    if off in b.dynops or off in b.patched:
+        if m in ('RTS', 'RTI'): return True               # (one byte: translated as they are)
+        # (docs/15) a one-byte instruction whose opcode code may write: the guard has checked it, so as it is
+        if not (DYN_LOADS and off not in b.dynops and mode in ('imp', 'acc') and m != 'BRK'): return False
     if m in _SIMPLE: return True
     if m in ('LDA', 'LDX', 'LDY', 'AND', 'ORA', 'EOR', 'ADC', 'SBC', 'CMP', 'CPX', 'CPY', 'BIT'):
         return mode in _RW_MODES or mode == 'imm'
@@ -1058,13 +1064,17 @@ class Gen:
         elif m == 'DEC': self.i('add\t#-1,%s' % r, 'extu.b\t%s,%s' % (r, r))
 
     # -------------------------------------------------------------------------------------------------------------
-    def ins(self, i, b, base, off, HC, next_lab):
+    def ins(self, i, b, base, off, HC, next_lab, alt_op=None):
         """one instruction at offset off of block i (its label already placed); returns the offset it falls into
-        (the next label, state carried) or None (it ended: a jump, a leave)"""
+        (the next label, state carried) or None (it ended: a jump, a leave). alt_op (docs/15): another opcode the game
+        writes here (m2_recomp.py PATCH_ALTS), its operands read when it runs; it ends in a jump, never falls"""
         R = self.R
-        d = R.decode(lambda a: int(b.data[a & 0x1FFF]) if a < 0x2000 else 0, off)
+        opat = (lambda a: alt_op if a == off else (int(b.data[a & 0x1FFF]) if a < 0x2000 else 0)) if alt_op is not None \
+            else (lambda a: int(b.data[a & 0x1FFF]) if a < 0x2000 else 0)
+        d = R.decode(opat, off)
         m, mode, ob, n, t = d
-        op = int(b.data[off]); nxt = off + n; here = (base + off) & 0xFFFF
+        op = int(b.data[off]) if alt_op is None else alt_op; nxt = off + n; here = (base + off) & 0xFFFF
+        if alt_op is not None: next_lab = None
         self.cur_w = COUNTS.get((b.bank, off), 0)  # (the instruction's runs: its constants' weight, docs/35)
 
         def goto_next(o=nxt):
@@ -1073,10 +1083,20 @@ class Gen:
                 self.to_label(i, o); return None
             self.leave((base + o) & 0xFFFF); return None
 
-        if off in b.patched:                      # its opcode may change: run only while it is this one
+        if off in b.patched and alt_op is None:   # its opcode may change: run only while it is this one
             n_ = self.u(); ok = '.Lpo%d' % n_
             self.flush(); self.mat(); self.code_byte(base, off)
             self.imm('r2', op); self.i('cmp/eq\tr2,r3'); self.a.b('bt', ok)
+            for ao in (R.PATCH_ALTS.get((b.bank, off), ()) if DYN_LOADS else ()):   # (docs/15: its other opcodes here)
+                m2_, mode2_ = (R.decode(lambda a, ao=ao: ao if a == off else (int(b.data[a & 0x1FFF]) if a < 0x2000 else 0), off) or (None, None))[:2]
+                if ao == op or not ((m2_ in ('LDA', 'LDX', 'LDY') and mode2_ in ('imm', 'abs', 'abx', 'aby'))
+                                    or (m2_ in ('CMP', 'CPX', 'CPY') and mode2_ in ('abs', 'abx', 'aby'))): continue
+                nk = '.Lpn%d_%02X' % (n_, ao)
+                self.imm('r2', ao); self.i('cmp/eq\tr2,r3'); self.a.b('bf', nk)
+                keep = {k_: copy.copy(getattr(self, k_)) for k_ in ALT_STATE if hasattr(self, k_)}
+                self.ins(i, b, base, off, HC, None, alt_op=ao)
+                for k_, v_ in keep.items(): setattr(self, k_, v_)
+                self.a.l(nk); self.code_byte(base, off)   # (r3: the opcode again for the next compare)
             # (docs/13: to the cold C translation, which runs the other opcodes the game writes here - m2_recomp.py
             # PATCH_ALTS - and leaves to the interpreter for any other)
             self.i('mov\t#3,r0', 'mov.b\tr0,@(%d,gbr)' % self.o['miss']); self.leave(here)
@@ -1086,6 +1106,25 @@ class Gen:
 
         if dyn and m in R.CTRL:
             return self.ins_dyn(i, b, base, off, m, mode, n, nxt, HC, goto_next)
+        if dyn and DYN_LOADS and ((m in ('LDA', 'LDX', 'LDY') and mode in ('imm', 'abs', 'abx', 'aby'))
+                                  or (m in ('CMP', 'CPX', 'CPY') and mode in ('abs', 'abx', 'aby'))):
+            # (docs/15) a load or compare whose operand bytes code writes: read them when it runs (code_dyn's way)
+            r = {'LDA': 'r8', 'LDX': 'r9', 'LDY': 'r10', 'CMP': 'r8', 'CPX': 'r9', 'CPY': 'r10'}[m]
+            self.flush(); self.mat()
+            if m == 'CMP': self.za()
+            if mode == 'imm':
+                self.code_byte(base, off + 1)
+            else:
+                self.code_byte(base, off + 2); self.i('mov.l\tr3,@-r15'); self.code_byte(base, off + 1)
+                self.i('mov.l\t@r15+,r1', 'shll8\tr1', 'or\tr3,r1')
+                if mode != 'abs': self.i('add\t%s,r1' % ('r9' if mode == 'abx' else 'r10'), 'extu.w\tr1,r1')
+                self.load('r3', ('ptr',), ext=True)
+            if m[0] == 'L':
+                self.i('mov\tr3,%s' % r)
+                if r == 'r8': self.az = True
+                self.zn(r); return goto_next()
+            self.i('mov\t%s,r2' % r, 'sub\tr3,r2', 'extu.b\tr2,r11', 'cmp/hs\tr3,%s' % r, 'movt\tr13')
+            self.zs = self.ns = 'r11'; return goto_next()
         if not supported(m, mode, b, off):
             if m == 'SET':
                 d2 = R.decode(lambda a: int(b.data[a & 0x1FFF]), nxt)

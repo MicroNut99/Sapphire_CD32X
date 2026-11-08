@@ -39,6 +39,9 @@ Read `CLAUDE.md` first.
      from it. Next: the alternatives in the hot asm, the VRAM port (17 %), rd/wr_slow, the console results.
   11. **docs/14:** `rt_tia_card_vram` (rt.c) from `block_move` (m2_recomp RUNTIME_C). After a regeneration copy
      `m3gen2/huc_rt.c` into every `sel_st*` folder (select / split keep the old one).
+  12. **docs/15:** m3_sh2 `SPLIT_DYN_LOADS`, PATCH_ALTS inline; `ac_stream`; `work/prof_run.sh` (ares profile by part:
+     `PSTART`/`PEND` frames inside the test, which starts near frame 3300 now). Next: VRAM in the cart on the 14 MB
+     (docs/15 §4), measured first.
 
 ## 2. Where things live
 

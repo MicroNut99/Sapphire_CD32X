@@ -51,6 +51,18 @@ static void ac_add_offset(ACPort *p)
     p->base = (p->base + p->offset) & 0xFFFFFF;
 }
 
+void ac_stream(ArcadeCard *ac, int k, uint8_t *out, uint32_t n)
+{
+    ACPort *p = &ac->port[k & 3];
+    for (uint32_t j = 0; j < n; j++) {
+        const uint32_t i = ac_index(p);
+        if (!ac->regions) out[j] = ac->ram[i];
+        else { const uint8_t *g = ac->reg[i >> 16]; if (g) out[j] = g[i & 0xFFFF]; else { out[j] = 0xFF; ac->misses++; } }
+        ac_auto_increment(p);
+    }
+    ac->reads += (long)n;
+}
+
 uint8_t ac_read(ArcadeCard *ac, uint32_t a)
 {
     if ((a & 0x1F00) != 0x1A00) return 0xFF;
