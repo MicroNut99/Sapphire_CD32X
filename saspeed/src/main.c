@@ -84,6 +84,7 @@ static volatile uint32_t sec_vs_, sec_vsdone_;
 #define SEC_VSDONE (*(volatile uint32_t *)((uintptr_t)&sec_vsdone_ | 0x20000000))
 static void vsplit_send(void);
 static Bg2 bg2;
+static volatile uint32_t wdt_vbl; static uint32_t lists_now;
 static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
 #define vs_job SH(vs_job_v)
 #define lst_ready SH(lst_ready_v)
@@ -228,7 +229,8 @@ static void line(int y, const char *label, uint32_t v, int hex, uint8_t c)
 #define SDTEXT __attribute__((section(".sdtext")))   /* (in SDRAM with the runtime, dxspeed.ld: run each frame, docs/38) */
 static SDTEXT uint16_t frt(void) { const uint8_t h = SH2_FRT_FRCH; const uint8_t l = SH2_FRT_FRCL; return (uint16_t)(h << 8 | l); }
 static uint16_t t_last; static uint32_t t_sum, t_max, t_min = 0xFFFFFFFF, nframes, hash, hash_stack;
-static long frames_to_run; static uint32_t frt_check; static volatile uint32_t ticks_end;
+static long frames_to_run; static uint32_t frt_check;
+uint32_t fifo_frt_check(void) { return frt_check; } static volatile uint32_t ticks_end;
 #ifdef CONV_TEST
 #include "conv.h"
 /* DIAG (docs/45): each frame CONV_TEST background tiles and CONV_CELLS sprite cells of the VRAM converted, to
@@ -244,7 +246,7 @@ static SDTEXT void conv_frame(Rt *r)
     for (int i = 0; i < CONV_CELLS; i++) conv_cell(v + 0x4000 + 64 * ((i * 11 + (int)r->frame) & 127), conv_out);
 }
 #endif
-#if defined(PROF_LOG) || defined(SEC_TIMES)
+#if defined(PROF_LOG) || defined(SEC_TIMES) || defined(VS_SEC)
 /* DIAG (docs/62, make RTX=-DPROF_LOG): each PC Engine frame's time, its drawing's time, the sprite cells drawn and the
    sprites left as they were, 4 words a frame in the frame buffer's spare part (the speed test draws into one buffer
    and never swaps); copied at the end to SDRAM 0x0600B000 (over the hot code, run no more) for ares's --dump-sdram
@@ -516,6 +518,7 @@ static int pal_dirty;                                         /* (cram_pend diff
 static void pace_vbi(void)
 {
 #ifdef VS_SEC
+    wdt_vbl = wdt_now();                                      /* (docs/25: the line now, from the watchdog's time) */
     if (lst_ready) {                                          /* (docs/19: the picture's list, at the blank's start) */
         if (cdr_busy || MARS_SYS_COMM0 != 0) { bg2_late++; return; }
         bg2_send(BG2_LIST, lst_op); lst_ready = 0; SEC_VS = vs_job;
@@ -752,6 +755,7 @@ static void draw_hook(V32 *v)
 #endif
 #ifdef VS_SEC
     if (vs_job) while (SEC_VSDONE != vs_job) { }             /* (docs/19: its command 78 sent) */
+    SEC_T(9, ta);
 #endif
 #ifdef SPR_LATE
     if (late_job) while (SEC_SENT != late_job) { }           /* (docs/17: the picture before sent) */
@@ -835,7 +839,19 @@ static void draw_hook(V32 *v)
 #ifdef VS_SEC
         /* (docs/19: the list sent by pace_vbi at the next blank's start, so the 68000 runs it while no raster split is
            due - level 4 is masked while it runs - and command 78 the secondary's, after it) */
-        vs_job = job; lst_op = 2 + (cur ^ 1); lst_ready = 1;
+        vs_job = job; lst_op = 2 + (cur ^ 1);
+        {   /* (docs/25) at once if the 68000 can run it before line 200 (about 10 words a line, the masked raster
+               interrupt's line 203 kept clear), else at the blank's start */
+            const int tpl = 1, d = (int)((wdt_now() - wdt_vbl) * 262 / 94);   /* (94 ticks a refresh: 2.8 lines a tick) */
+            const int line = d - 38, need = n / 10 + 12;
+#ifdef LIST_ANYTIME
+            if (!cdr_busy && MARS_SYS_COMM0 == 0) {          /* (DIAG, docs/25: the speed with no line to keep clear) */
+#else
+            if (tpl && line + need < 196 && !cdr_busy && MARS_SYS_COMM0 == 0 && line > -30) {
+#endif
+                bg2_send(BG2_LIST, lst_op); SEC_VS = vs_job; lists_now++;
+            } else lst_ready = 1;
+        }
 #else
         if (bg2.vsp_dirty) vsplit_send();                     /* (docs/16: before the list that asks for the swap) */
         bg2_send(BG2_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
@@ -862,6 +878,56 @@ static void draw_hook(V32 *v)
     MARS_SYS_COMM6 = (short)pace_missed;
 }
 #endif
+#endif
+#ifdef FIFO_PLAY
+/* FIFO=<file> (docs/25): the CPU in the cart's FIFO, recorded (fpga/huc: RUN=1 run_vsys.sh, TB_FIFO), played from the
+   cart (LEVEL00.BIN at 0x02200000) at the PC Engine's own rate: frame k is due at refresh k from the start. Its entries
+   (docs/24) applied to the VDC model as fifo_v32.c does; at each display start the picture is drawn if no later
+   frame is due yet (the newest), else only the frame's splits and marks move on. COMM8: the pictures drawn */
+static uint32_t fifo_pics;
+static void fifo_play(V32 *v, long frames)
+{
+    const uint32_t *f = (const uint32_t *)0x02200000;
+    const uint32_t t0 = gTicks; long k = 0; unsigned addr = 0;
+    while (k < frames) {
+        const uint32_t e = __builtin_bswap32(*f++);           /* (the FIFO file is little-endian, as the PC wrote it) */
+        const unsigned t = e >> 28, x = (e >> 16) & 0xFFF, d = e & 0xFFFF;
+        switch (t) {
+        case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag; } addr = (addr + 1) & 0xFFFF; break;
+        case 2: addr = d; break;
+        case 3: {
+            const unsigned sel = x >> 1, hi = x & 1;
+#define SETB_(r, val) (r) = (uint16_t)(hi ? (((r) & 0x00FF) | (val) << 8) : (((r) & 0xFF00) | (val)))
+            switch (sel) {
+            case 5: SETB_(v->t.CR, d); if (v->sp_cur >= 0) { v->sp[v->sp_cur].cr = v->t.CR; v->sp[v->sp_cur].wrote |= 4; } break;
+            case 6: SETB_(v->t.RCR, d); v->t.RCR &= 0x3FF; break;
+            case 7: SETB_(v->BXR, d); v->BXR &= 0x3FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].bxr = v->BXR; v->sp[v->sp_cur].wrote |= 1; } break;
+            case 8: SETB_(v->BYR, d); v->BYR &= 0x1FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].byr = v->BYR; v->sp[v->sp_cur].wrote |= 2; } break;
+            case 9: SETB_(v->MWR, d); break;
+            case 0x13: SETB_(v->DVSSR, d); break;
+            }
+#undef SETB_
+            break;
+        }
+        case 4: v->color[x & 0x1FF] = (uint16_t)d; break;
+        case 5:
+            for (int i = 0; i < v->sp_n; i++) v->spl[i] = v->sp[i];
+            v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
+            while ((long)(gTicks - t0) < k) { }                 /* (not due yet: the PC Engine's own rate) */
+            if ((long)(gTicks - t0) < k + 1) { draw_hook(v); fifo_pics++; }   /* (the newest due) */
+            rt_marks_frame();
+            k++;
+            break;
+        case 6: v->sp_cur = -1; break;
+        case 7: if (v->sp_n < 4) { const int j = v->sp_n++; v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
+                                   v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
+        case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(v->sat, &v->vram[d], len * 2); } break;
+        default: break;
+        }
+    }
+    COMM8_32 = fifo_pics;
+    { extern uint32_t fifo_frt_check(void); MARS_SYS_COMM10 = (uint16_t)fifo_frt_check(); }
+}
 #endif
 static Rt rt __attribute__((section(".bss.place_rt")));          /* (their places: dxspeed.ld, docs/35) */
 static RtState st;
@@ -977,7 +1043,9 @@ int main(void)
     CacheControl(0x11);                                       /* the 68000 wrote the cart: purge (docs/06 rule 10) */
     screen();
     if (!rt_state_load(STATE, &st, 0)) { text(16, 16, "LEVEL01.BIN IS NOT A DXS1 STATE", C_RED); show(); cd_status(0x4EE5); while (1) { } }
+#ifndef FIFO_PLAY
     if (!blocks[0].key) { text(16, 16, "NO BLOCKS IN LEVEL00.BIN", C_RED); show(); cd_status(0x4EE5); while (1) { } }
+#endif
 #ifndef SPR_PACE
     text(16, 16, "SASPEED: RUNNING", C_WHITE); show();
 #else
@@ -1151,8 +1219,8 @@ int main(void)
         COMM8_32 = gTicks - g; cd_status(0x4B10); while (1) { }
     }
 #endif
-#if defined(PROF_LOG) || defined(SEC_TIMES)
-    prof_init();
+#if defined(PROF_LOG) || defined(SEC_TIMES) || defined(VS_SEC)
+    prof_init();                                              /* (VS_SEC, docs/25: the line from the watchdog's time) */
 #endif
     const uint32_t v0 = gTicks;
     t_last = frt();
@@ -1161,7 +1229,11 @@ int main(void)
 #else
     frames_to_run = st.nmasks < FRAMES ? st.nmasks : FRAMES;
 #endif
+#ifdef FIFO_PLAY
+    fifo_play(&rt.vdc, frames_to_run);
+#else
     rt_run(&rt, frames_to_run, on_frame);
+#endif
     const uint32_t vblanks = (ticks_end ? ticks_end : gTicks) - v0;
 #if defined(RT_DIGEST) && defined(DIGEST_END)
     {   volatile uint32_t *o = (volatile uint32_t *)0x2600B000;  /* (DIAG, docs/74: the state at the run's end, by frame,

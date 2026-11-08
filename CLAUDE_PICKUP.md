@@ -68,6 +68,9 @@ Read `CLAUDE.md` first.
   19. **docs/24, the FIFO:** `TB_FIFO=` on `RUN=1 run_vsys.sh` writes it; `fpga/huc/fifo_v32.c` rebuilds each picture's
      state from it; rt_pc `RUN_V32HASH=1` (`work/rtvh`) gives the runtime's. Next: the FPGA in ares (ares's PCE CPU as
      a stand-in), the SH2's build from the FIFO, the FPGA logic and Quartus.
+  20. **docs/25:** `FIFO=work/fifo_st3.bin` in EXTRA plays the recorded FIFO in the picture build (screenshots after
+     ares frame 4000: the disc loads 1.85 MB first). 24 pictures a second at the game's full speed; the waits are the
+     stack's commands 79 / 78. ares's recompiler doesn't step the FRT: the watchdog gives the line.
 
 ## 2. Where things live
 

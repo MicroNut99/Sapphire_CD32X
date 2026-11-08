@@ -13,7 +13,7 @@
 static uint16_t vram[65536], sat[256], color[512];
 static uint16_t BXR, BYR, CR, MWR, RCR, DVSSR;
 static struct { uint16_t line, bxr, byr, cr; uint8_t wrote; } sp[4], spl[4];
-static int sp_n, sp_cur = -1, spl_n;
+static int sp_n, sp_cur = -1, spl_n; static long pal_used[16];
 
 static uint32_t hash(void)
 {
@@ -66,10 +66,13 @@ int main(int argc, char **argv)
             break;
         case 6: sp_cur = -1; break;
         case 7: if (sp_n < 4) { const int k = sp_n++; sp[k].line = (uint16_t)d; sp[k].bxr = BXR; sp[k].byr = BYR; sp[k].cr = CR; sp[k].wrote = 0; sp_cur = k; } break;
-        case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(sat, &vram[d], len * 2); } break;
+        case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(sat, &vram[d], len * 2);
+                    for (int i = 0; i < 64; i++) { const int y = (sat[i * 4] & 0x3FF) - 64, xx = (sat[i * 4 + 1] & 0x3FF) - 32;
+                        if (y > -64 && y < 224 && xx > -32 && xx < 256) pal_used[sat[i * 4 + 3] & 15]++; } } break;
         }
     }
     fprintf(stderr, "fifo_v32: %ld entries, %ld pictures; VRAM %ld, addresses %ld, registers %ld, colours %ld, splits %ld, PSG %ld\n",
             n, pic, kinds[1], kinds[2], kinds[3], kinds[4], kinds[7], kinds[10]);
+    fprintf(stderr, "sprite palettes used:"); for (int i = 0; i < 16; i++) fprintf(stderr, " %ld", pal_used[i]); fprintf(stderr, "\n");
     return 0;
 }

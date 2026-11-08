@@ -78,6 +78,11 @@ endif
 ifeq ($(VS_SEC),1)
 CCFLAGS += -DVS_SEC
 endif
+# FIFO=<file> (docs/25): the picture build played from a recorded FIFO (fpga/huc, TB_FIFO), LEVEL00.BIN = the FIFO:
+# no game code on the SH2s, the PC Engine's frames due at its own rate, the newest drawn at each picture
+ifneq ($(FIFO),)
+CCFLAGS += -DFIFO_PLAY
+endif
 # KEEP=1 (with ACE=1, the 14 MB cart): every sprite cell kept converted in the cart, by the engine's poke (docs/19)
 ifeq ($(KEEP),1)
 CCFLAGS += -DSPR_KEEP
@@ -147,7 +152,7 @@ $(TARGET).32x: $(TARGET).elf
 
 cd/LEVEL00.BIN: $(TARGET).elf
 	mkdir -p cd
-	$(SHOBJC) -O binary -j .blk $< $@
+	$(if $(FIFO),cp $(FIFO) $@,$(SHOBJC) -O binary -j .blk $< $@)
 
 $(BUILD)/saspeed.ld: saspeed.ld Makefile
 	@mkdir -p $(BUILD)

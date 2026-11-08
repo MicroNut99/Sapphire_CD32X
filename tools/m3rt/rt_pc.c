@@ -1039,6 +1039,39 @@ int main(int argc, char **argv)
 #endif
 #endif
 #endif
+    if (getenv("RUN_FIFO")) {   /* (Sapphire docs/25) the CPU in the cart's FIFO played into the VDC model, every frame
+                                   drawn (rt_draw_hook), instead of the game: saspeed's FIFO_PLAY, on the PC */
+        FILE *ff = fopen(getenv("RUN_FIFO"), "rb"); uint32_t e; unsigned addr = 0; long k = 0; V32 *v = &rt.vdc;
+        while (ff && k < frames && fread(&e, 4, 1, ff) == 1) {
+            const unsigned t = e >> 28, x = (e >> 16) & 0xFFF, d = e & 0xFFFF;
+            switch (t) {
+            case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag; } addr = (addr + 1) & 0xFFFF; break;
+            case 2: addr = d; break;
+            case 3: { const unsigned sel = x >> 1, hi = x & 1;
+#define SETB_(r, val) (r) = (uint16_t)(hi ? (((r) & 0x00FF) | (val) << 8) : (((r) & 0xFF00) | (val)))
+                switch (sel) {
+                case 5: SETB_(v->t.CR, d); if (v->sp_cur >= 0) { v->sp[v->sp_cur].cr = v->t.CR; v->sp[v->sp_cur].wrote |= 4; } break;
+                case 6: SETB_(v->t.RCR, d); v->t.RCR &= 0x3FF; break;
+                case 7: SETB_(v->BXR, d); v->BXR &= 0x3FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].bxr = v->BXR; v->sp[v->sp_cur].wrote |= 1; } break;
+                case 8: SETB_(v->BYR, d); v->BYR &= 0x1FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].byr = v->BYR; v->sp[v->sp_cur].wrote |= 2; } break;
+                case 9: SETB_(v->MWR, d); break;
+                case 0x13: SETB_(v->DVSSR, d); break;
+                }
+#undef SETB_
+                break; }
+            case 4: v->color[x & 0x1FF] = (uint16_t)d; break;
+            case 5: for (int i = 0; i < v->sp_n; i++) v->spl[i] = v->sp[i];
+                v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
+                if (rt_draw_hook) rt_draw_hook(v);
+                rt_marks_frame(); k++; break;
+            case 6: v->sp_cur = -1; break;
+            case 7: if (v->sp_n < 4) { const int j = v->sp_n++; v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
+                                       v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
+            case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(v->sat, &v->vram[d], len * 2); } break;
+            }
+        }
+        printf("fifo: %ld frames played\n", k);
+    } else
     rt_run(&rt, frames, on_frame);
     #ifdef RT_IRQ_CHECK
     { extern void rt_irq_check_report(void); rt_irq_check_report(); }
