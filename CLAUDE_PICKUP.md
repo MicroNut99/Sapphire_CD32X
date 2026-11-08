@@ -44,6 +44,10 @@ Read `CLAUDE.md` first.
      (docs/15 §4), measured first.
      **Waiting on the owner:** `Sapphire\console_test` now holds docs/15's stage 3 builds (ares: core 552
      refreshes, plain 1,140, HASH `66AC699E`); a photo of each end screen before more is built on the engine.
+  13. **docs/16, the picture:** `work/rtbg` (rt_pc with marks + bg2), `work/rip/` (the empty rip files),
+     `work/pic_run.sh` / `pic_check.sh` (= tools/m3_picrun.sh, m3_piccheck_ares.sh), `work/pic_<st>_all.bin` (every PC
+     picture), the split `work/sel_st3_600m` (SPLIT_MARKS=1). Build: docs/16's how-to with `SEC=2`. The owner said
+     not to burn a CD until the game is ready. Next: speed, colours (stages 1-2), sprite line limit, then play.
 
 ## 2. Where things live
 

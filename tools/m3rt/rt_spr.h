@@ -6,7 +6,9 @@
 
 #define SPR_LINE 320                /* bytes a frame buffer line */
 #define SPR_LINES 224
-#define SPR_SC 32                   /* the converted cells' cache (docs/55) */
+#ifndef SPR_SC
+#define SPR_SC 32                   /* the converted cells' cache (docs/55; Sapphire docs/16: SPR_SC=n) */
+#endif
 #define SPR_CELL 288                /* a cell's bytes (tools/m3_rip.py nibbles) */
 
 /* one frame buffer as the drawing sees it: the overwrite area's and the normal area's byte for the picture's

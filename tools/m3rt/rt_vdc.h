@@ -59,6 +59,10 @@ typedef struct V32 {                         /* (the registers and the timing fi
     VPort *vp;                               /* the ports' registers: the Cpu's (docs/19) */
     uint8_t vce_cr;                          /* (select, MARR, the read buffer, the colour address: vp's) */
     uint16_t BXR, BYR, MWR, SOUR, DESR, DVSSR;
+    /* (Sapphire docs/16) the raster splits: at each raster compare match the line after it and the BXR / BYR / CR the
+       game writes then (its interrupt handler); sp_* this frame's so far, spl_* the last whole frame's (the picture's) */
+    struct { uint16_t line, bxr, byr, cr; uint8_t wrote; } sp[4], spl[4];
+    int8_t sp_n, sp_cur, spl_n;
     uint16_t sat[256], color[512], vram[32768];
     int sc_next; long sc_hits, sc_made;
     VSCache sc[VS_CACHE];

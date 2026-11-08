@@ -18,6 +18,7 @@
 #define BG2_SLOTS 1536
 #define BG2_PLANE_A 0xC000u
 #define BG2_HSCROLL 0xE000u
+#define BG2_HSCROLL2 0xE400u              /* (Sapphire docs/16: the other per-line table, 224 x 2 words each) */
 #define BG2_FAILS 4                        /* (packs failed in a row: then BG2_HOLD pictures let be) */
 #define BG2_HOLD 30
 #define BG2_JOURNAL 768                    /* the tables' writes a picture (then the rest waits) */
@@ -59,6 +60,17 @@ typedef struct Bg2 {
     uint16_t hs, vs;                       /* the scroll as sent */
     int late;                              /* this picture is not all sent (the rest at the next) */
     int have;
+    uint16_t geom;                         /* (Sapphire docs/16) the map's size as last sent: MWR & 0x70, 0 none yet */
+    int mw, ms, mn;                        /* its width, log2 width, entries */
+    int16_t wx, wy;                        /* the window's first column and row (docs/16) */
+    /* (Sapphire docs/16) the picture's bands - the top, then each raster split (rt_vdc's spl): from its line, its X and
+       the Y its first line shows; their windows (first column, first row, rows); the per-line H scroll as sent (two
+       tables taking turns, register 13 switched in the kept run) and the V splits as sent (command 78: main.c sends
+       them when vsp_dirty) */
+    uint8_t nb; uint16_t bl[3], bx[3], by[3];
+    uint8_t nr; int16_t rx[3], ry[3], rn[3];
+    uint16_t hs_line[3], hs_val[3]; uint8_t hs_n, htab;
+    uint32_t vsp_e[3]; uint8_t vsp_n, vsp_dirty;
     uint8_t fails, hold;                            /* (packs failed in a row; pictures left to let be) */
     uint32_t colhash; int col_ok;          /* the colours in use and their values, as last seen; whether they fitted */
 #ifndef __sh__
@@ -69,6 +81,10 @@ typedef struct Bg2 {
 void bg2_init(Bg2 *b, uint16_t *fb0, uint16_t *fb1);
 void bg2_fill(Bg2 *b, int cur);            /* each buffer's tables, once, at the start */
 /* one picture at the display start, into buffer cur (the one the SH2 sees); returns the list's words (in the buffer
-   at BG2_LIST, ended by 0; its kept runs, 0x3nnn, at the end); 0 if the map is not 64 x 64 */
+   at BG2_LIST, ended by 0; its kept runs, 0x3nnn, at the end); 0 if the map has more than 4,096 entries (128 x 64:
+   more than a Genesis plane; Sapphire docs/16: every other size, 32-128 wide, 32-64 tall) */
 int bg2_frame(Bg2 *b, const V32 *v, int cur);
+/* (Sapphire docs/16) the map's size from MWR: width 32 / 64 / 128 (bits 4-5), height 32 / 64 (bit 6) */
+static inline int bg2_mw(unsigned mwr) { const int w = (mwr >> 4) & 3; return w == 0 ? 32 : w == 1 ? 64 : 128; }
+static inline int bg2_mh(unsigned mwr) { return (mwr & 0x40) ? 64 : 32; }
 #endif

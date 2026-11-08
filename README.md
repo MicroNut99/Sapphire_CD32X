@@ -63,6 +63,10 @@ With the core 532-1,055 refreshes for 600 frames, the 4 MB plain EverDrive 985-1
 **The hot code reads what the game writes** ([docs/15](docs/15_THE_HOT_CODE_READS_WHAT_THE_GAME_WRITES.md)): written operands and
 rewritten instructions in the hot assembly, the card's stream in one go. With the core **443-725 refreshes (0.74-1.21
 a frame; stages 2-5 under one)**, the 4 MB plain EverDrive 912-1,246, every hash exact.
+**The picture** ([docs/16](docs/16_THE_PICTURE.md)): **the game on screen in ares**, the background on the Genesis plane, the
+sprites on the 32X, the status bar in its own band (the line-203 raster split by per-line H scroll and command 78).
+Stage 3's screenshots equal the PC's pictures, which equal Mednafen's screen but for the 16-cells-a-line sprite limit.
+Next: speed (22-27 frames a second with drawing), stages 1-2's colours.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

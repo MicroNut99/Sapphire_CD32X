@@ -141,10 +141,50 @@ static int repack(Bg2 *b, const V32 *v, uint16_t *chgd)
 }
 /* the colour indices each palette shows on the plane, exactly (the whole map: 4,096 entries) - else they only grow, as
    entries and tiles change (cheap), until a palette does not fit */
+/* (Sapphire docs/16) the window: each band's rectangle of 33 columns x its rows; WIN_FOR walks its entries (a) */
+#define WIN_FOR(b, a, ...) do { const int mh_ = (b)->mn / (b)->mw; \
+    for (int q_ = 0; q_ < (b)->nr; q_++) for (int r_ = 0; r_ < (b)->rn[q_]; r_++) { \
+        const int row_ = (((b)->ry[q_] + r_) & (mh_ - 1)) << (b)->ms; \
+        for (int k_ = 0; k_ < 33; k_++) { const int a = row_ + (((b)->rx[q_] + k_) & ((b)->mw - 1)); __VA_ARGS__ } } } while (0)
 static void recount(Bg2 *b, const V32 *v)
 {
     memset(b->used, 0, sizeof b->used);
-    for (int a = 0; a < 4096; a++) { const uint16_t e = v->vram[a]; b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; }
+    WIN_FOR(b, a, { const uint16_t e = v->vram[a]; b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; });
+}
+static void win_count(Bg2 *b, const V32 *v)       /* (Sapphire docs/16: the window's indices, exactly) */
+{
+    recount(b, v);
+}
+static int in_win(const Bg2 *b, int a)
+{
+    const int mh = b->mn / b->mw;
+    for (int q = 0; q < b->nr; q++)
+        if ((((a & (b->mw - 1)) - b->rx[q]) & (b->mw - 1)) <= 32 && (((a >> b->ms) - b->ry[q]) & (mh - 1)) < b->rn[q]) return 1;
+    return 0;
+}
+static void bands(Bg2 *b, const V32 *v)           /* (docs/16) the bands and their windows, from the scroll and the splits */
+{
+    b->nb = 1; b->bl[0] = 0; b->bx[0] = v->BXR; b->by[0] = v->BYR;
+    for (int i = 0; i < v->spl_n && b->nb < 3; i++) {
+        const unsigned l = v->spl[i].line;
+        if (l == 0 || l >= 224 || l <= b->bl[b->nb - 1]) continue;
+        b->bl[b->nb] = (uint16_t)l; b->bx[b->nb] = v->spl[i].bxr; b->by[b->nb] = (uint16_t)((v->spl[i].byr + 1) & 0x1FF); b->nb++;
+    }
+    b->nr = b->nb;
+    for (int k = 0; k < b->nb; k++) {
+        const int n = (k + 1 < b->nb ? b->bl[k + 1] : 224) - b->bl[k], y0 = b->by[k];
+        b->rx[k] = (int16_t)((b->bx[k] >> 3) & (b->mw - 1)); b->ry[k] = (int16_t)((y0 >> 3) & (b->mn / b->mw - 1));
+        b->rn[k] = (int16_t)(((y0 & 7) + n + 7) >> 3);
+    }
+}
+static void set_dirty(Bg2 *b, int a);
+static int release_out(Bg2 *b)                    /* (no slot free: the entries out of view let their slots go) */
+{
+    int n = 0;
+    for (int a = 0; a < b->mn; a++) { const uint16_t old = tget(b, T_GMAP(a));
+        if (old == NONE || in_win(b, a) || !jroom(b, 4)) continue;
+        tset(b, S_REFS(old & 0x7FF), (uint16_t)(tget(b, S_REFS(old & 0x7FF)) - 1)); tset(b, T_GMAP(a), NONE); set_dirty(b, a); n++; }
+    return n;
 }
 /* the colours for this picture; chgd: per palette, the indices whose slot changed (their tiles convert again) */
 static int colours(Bg2 *b, const V32 *v, uint16_t *chgd)
@@ -292,16 +332,27 @@ static void set_dirty(Bg2 *b, int a) { if (!(b->dirty[a >> 3] & B8(a & 7))) { b-
 
 int bg2_frame(Bg2 *b, const V32 *v, int cur)
 {
-    if ((v->MWR & 0x70) != 0x50) return 0;
+    const unsigned geom = v->MWR & 0x70;          /* (Sapphire docs/16: any size up to 4,096 entries, not only 64 x 64) */
+    const int mw = bg2_mw(geom), mh = bg2_mh(geom);
+    if (mw * mh > 4096) return 0;
     b->cur = cur; b->ln = 0; b->run_open = 0; b->kn = 0;
     /* 1. this buffer is up to date: the last picture's table writes went into it at the commit (the 68000) */
     b->jn = 0;
+    int regrow = 0;
+    if (geom != b->geom) {                        /* (a new size: the Genesis' plane size, every entry sent again) */
+        b->geom = (uint16_t)geom; b->mw = mw; b->mn = mw * mh; b->ms = mw == 32 ? 5 : mw == 64 ? 6 : 7; regrow = 1;
+        memset(b->dirty, 0, sizeof b->dirty); b->ndirty = 0;
+        for (int a = 0; a < b->mn; a++) set_dirty(b, a);
+    }
 #ifndef __sh__
     if (getenv("RUN_BG2_SAME")) { static int told;
         for (unsigned o = BG2_T_MASK >> 1; o < BG2_T_END >> 1 && told < 5; o++) if (b->fb[0][o] != b->fb[1][o]) {
             printf("bg2 tables apart: picture %ld byte %05X: %04X / %04X\n", b->st.frames, o * 2, b->fb[0][o], b->fb[1][o]); told++; break; } }
 #endif
-    list_word(b, 0x1001); list_word(b, 0x8F02);    /* (the VDP's increment: 2) */
+    if (regrow) {                                 /* (register 16: plane size - width 32 / 64 / 128: 0 / 1 / 3, height 32 / 64: 0 / 1) */
+        list_word(b, 0x1002); list_word(b, 0x8F02);
+        list_word(b, (uint16_t)(0x9000 | (mw == 32 ? 0 : mw == 64 ? 1 : 3) | (mh == 64 ? 0x10 : 0)));
+    } else { list_word(b, 0x1001); list_word(b, 0x8F02); }   /* (the VDP's increment: 2) */
     /* 2. the tiles whose tags changed (marks, docs/53): their masks; the map's units (tiles 0-255 are the map) */
     uint8_t tchg[256], batchg[32]; memset(tchg, 0, sizeof tchg); memset(batchg, 0, sizeof batchg); int ntchg = 0, nbat = 0;
     int allwhole = 1;                              /* (every tile looked at: until then the indices are counted whole) */
@@ -326,7 +377,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         tile_mask(b, v, (unsigned)t); tset(b, T_TAG(t), want); tset(b, T_HASH(t), h); ST(b->st.masked++);
         if (tget(b, T_MASK(t)) & 1) { tchg[t >> 3] |= B8(t & 7); ntchg++; }   /* (a tile no entry names - a
                                                      sprite's cell - changes nothing of the plane) */
-        if (t < 256) { batchg[t >> 3] |= B8(t & 7); nbat++; }
+        if (t < (b->mn >> 4)) { batchg[t >> 3] |= B8(t & 7); nbat++; }
       }
       if (!whole) { f = ~f; allwhole = 0; }
       if (jroom(b, 2)) { tset(b, fo, (uint16_t)(f >> 16)); tset(b, fo + 2, (uint16_t)f); }
@@ -334,15 +385,15 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
     /* 3. the indices in use: the map's changed entries and the changed tiles' entries add theirs (exact again only when
        a palette does not fit: colours), then the colours */
     uint16_t chgd[16]; memset(chgd, 0, sizeof chgd);
-    if (!b->have) recount(b, v);                  /* (a tile looked at before an entry names it does not count by
-                                                     the marks: at the start - a window's state, VRAM already full -
-                                                     the whole count each picture until every tile has been looked at) */
-    if (nbat) for (int t = 0; t < 256; t++) if (batchg[t >> 3] & B8(t & 7))
-        for (int a = t * 16; a < t * 16 + 16; a++) { const uint16_t e = v->vram[a]; set_dirty(b, a);
-            b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; }
+    if (nbat) for (int t = 0; t < (b->mn >> 4); t++) if (batchg[t >> 3] & B8(t & 7))
+        for (int a = t * 16; a < t * 16 + 16; a++) set_dirty(b, a);
     if (ntchg) ST(b->st.scan_t++);
-    if (ntchg) for (int a = 0; a < 4096; a++) { const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF;
-        if (tchg[t >> 3] & B8(t & 7)) { set_dirty(b, a); b->used[e >> 12] |= tget(b, T_MASK(t)) & ~1u; } }
+    if (ntchg) for (int a = 0; a < b->mn; a++) { const unsigned t = v->vram[a] & 0x7FF;
+        if (tchg[t >> 3] & B8(t & 7)) set_dirty(b, a); }
+    /* (Sapphire docs/16) the window the picture can show: 33 x 29 entries from the scroll. Only its entries count for
+       the colours (exactly, each picture) and are sent - Sapphire's 128-wide map holds far more colours than a screen;
+       the rest stay to send while they are out of view */
+    bands(b, v); win_count(b, v);
 #ifndef __sh__
     if (getenv("RUN_BG2_HAVE") && allwhole && !b->have) printf("bg2: every tile looked at, picture %ld\n", b->st.frames);
     if (getenv("RUN_BG2_HAVE") && !b->have) b->st.recounts++;
@@ -362,13 +413,15 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
     if (!ok) ST(b->st.misfit++);
     int any = 0; for (int p = 0; p < 16; p++) any |= chgd[p];
     if (any) ST(b->st.scan_c++);
-    if (any) for (int a = 0; a < 4096; a++) { const uint16_t e = v->vram[a];
+    if (any) for (int a = 0; a < b->mn; a++) { const uint16_t e = v->vram[a];
         if (chgd[e >> 12] & tget(b, T_MASK(e & 0x7FF))) set_dirty(b, a);
         else if (chgd[e >> 12] == 0xFFFF) set_dirty(b, a); }
     /* 4. the entries to send: each its tile converted for its palette's map (kept by (tile, palette)), its word */
-    for (int a = 0; a < 4096 && b->ndirty; a++) {
+    int released = 0, stop = 0;
+    WIN_FOR(b, a, {
+        if (stop || !b->ndirty) break;
         if (!(b->dirty[a >> 3] & B8(a & 7))) continue;
-        if (!jroom(b, 12) || b->ln + 40 > BG2_LIST_WORDS) break;
+        if (!jroom(b, 12) || b->ln + 40 > BG2_LIST_WORDS) { stop = 1; break; }
         const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF; const int p = e >> 12;
         if (tget(b, T_TAG(t)) != rt_marks.v[t] && tget(b, T_TAG(t)) != (uint16_t)~rt_marks.v[t]) { ST(b->st.unseen++); continue; }   /* (its tile not looked at yet: later; a copy under way is looked at each picture) */
         const unsigned u0 = tget(b, T_MASK(t)), u = u0 & ~1u;
@@ -377,7 +430,9 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         const unsigned gp = b->g[p] < 0 ? 0 : (unsigned)b->g[p];
         unsigned s = find_slot(b, t, p);
         if (s == NONE || !good(b, s, t, p, v)) {
-            if (s == NONE) { s = new_slot(b, t, p); if (s == NONE) { ST(b->st.noslot++); break; } }
+            if (s == NONE) { s = new_slot(b, t, p);
+                if (s == NONE && !released) { released = 1; if (release_out(b)) s = new_slot(b, t, p); }
+                if (s == NONE) { ST(b->st.noslot++); stop = 1; break; } }
             convert(b, v, t, p, s); tset(b, S_CVER(s), b->ver[p]); tset(b, S_TAG(s), tget(b, T_HASH(t)));
         }
         const uint16_t ge = (uint16_t)(s | gp << 13), old = tget(b, T_GMAP(a));
@@ -387,25 +442,50 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
             vram_at(b, BG2_PLANE_A + 2 * (unsigned)a); vram_word(b, ge); ST(b->st.map++);
         }
         b->dirty[a >> 3] &= (uint8_t)~B8(a & 7); b->ndirty--;
-    }
+    });
     run_close(b);
     /* 5. kept for the commit after the swap (0x3nnn runs at the list's end: the listener keeps 256 words, docs/61):
        the scroll (one value a picture for now: H at the H scroll table's first entry for planes A and B - B shows
        the same map under A - and V in VSRAM 0 and 2), then the colours that changed, neighbours in one run (CRAM
        palette g colour j at 2 (16 g + j); the PC Engine's GRB 3-3-3 as the Genesis' BGR) */
     int behind_col = 0;
-    const uint16_t hs = (uint16_t)((32 - v->BXR) & 0x3FF), vs = (uint16_t)(v->BYR & 0x3FF);
-    if (hs != b->hs || vs != b->vs) {
-        static const uint16_t tmpl[] = { 0x300B, 0x1002, 0x4000 | (BG2_HSCROLL & 0x3FFF), BG2_HSCROLL >> 14, 0x2002, 0, 0,
-                                         0x1002, 0x4000, 0x0010, 0x2002 };
-        for (unsigned k = 0; k < sizeof tmpl / 2; k++) {
-            uint16_t w = tmpl[k];
-            if (k == 5 || k == 6) w = hs;
-            list_word(b, w);
+    /* (Sapphire docs/16) H: the per-line table (register 11 = 3, set up by main.c), each band's lines its X; when it
+       changes the whole table goes into the table not shown (the list, before the swap) and the kept run switches
+       register 13 to it at the commit. V: the top band's into VSRAM in the kept run every picture (command 78's
+       entry 0, written after line 223, is not kept up to date: the commit's write follows it); the bands below by
+       command 78 when their lines or offsets change */
+    int hchg = b->hs_n != b->nb;
+    for (int k = 0; k < b->nb && !hchg; k++) hchg = b->hs_line[k] != b->bl[k] || b->hs_val[k] != (uint16_t)((32 - b->bx[k]) & 0x3FF);
+    int htab_switch = 0;
+    if (hchg && b->ln + 6 + 448 + 2 < BG2_LIST_WORDS) {
+        run_close(b);
+        const unsigned tb = b->htab ? BG2_HSCROLL : BG2_HSCROLL2;   /* (the one not shown) */
+        list_word(b, 0x1002); list_word(b, (uint16_t)(0x4000 | (tb & 0x3FFF))); list_word(b, (uint16_t)(tb >> 14));
+        list_word(b, (uint16_t)(0x2000 | 448));
+        for (int k = 0, l = 0; k < b->nb; k++) {
+            const int end = k + 1 < b->nb ? b->bl[k + 1] : 224; const uint16_t h = (uint16_t)((32 - b->bx[k]) & 0x3FF);
+            for (; l < end; l++) { list_word(b, h); list_word(b, h); }
+            b->hs_line[k] = b->bl[k]; b->hs_val[k] = h;
         }
-        list_word(b, vs); list_word(b, vs);       /* (the run's last two words: V for A and B) */
-        b->fb[b->cur][(BG2_LIST >> 1) + b->ln - 13] = 0x300C;   /* (its count: 12 words) */
-        b->kn += 13; b->hs = hs; b->vs = vs;
+        b->hs_n = b->nb; b->htab ^= 1; htab_switch = 1;
+    }
+    {
+        const uint16_t vs = (uint16_t)(v->BYR & 0x3FF);
+        const int n = htab_switch ? 8 : 6;        /* (the kept run: [register 13: 2 words], VSRAM 0 for A and B: 6) */
+        list_word(b, (uint16_t)(0x3000 | n));
+        if (htab_switch) { list_word(b, 0x1001); list_word(b, (uint16_t)(0x8D00 | ((b->htab ? BG2_HSCROLL2 : BG2_HSCROLL) >> 10))); }
+        list_word(b, 0x1002); list_word(b, 0x4000); list_word(b, 0x0010); list_word(b, 0x2002); list_word(b, vs); list_word(b, vs);
+        b->kn += n + 1; b->vs = vs;
+    }
+    {   /* the V splits for command 78: line << 20 | V A << 10 | V B; entry 0 the top's */
+        uint32_t e[3]; const int n = b->nb;
+        e[0] = (uint32_t)(v->BYR & 0x3FF) << 10 | (v->BYR & 0x3FF);
+        for (int k = 1; k < n; k++) { const uint32_t o = (uint32_t)((b->by[k] - b->bl[k]) & 0x3FF);
+            e[k] = (uint32_t)b->bl[k] << 20 | o << 10 | o; }
+        /* (entry 0 too while a split is on: command 78 writes it after line 223 for the next picture - the top's V -
+           so it must be this picture's; with no split, only the change to none) */
+        int chg = n != b->vsp_n; for (int k = n > 1 ? 0 : 1; k < n && !chg; k++) chg = e[k] != b->vsp_e[k];
+        if (chg) { for (int k = 0; k < n; k++) b->vsp_e[k] = e[k]; b->vsp_n = (uint8_t)n; b->vsp_dirty = 1; }
     }
     for (int c0 = 1; c0 < 64; ) {
         const int g0 = c0 >> 4, j0 = c0 & 15;
@@ -427,7 +507,9 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         for (int k = 0; k < 2 * b->jn; k++) list_word(b, J[k]);
     }
     list_word(b, 0);
-    b->late = b->ndirty != 0 || behind_col;
+    int wdirty = 0;                                /* (late: an entry in view still to send) */
+    WIN_FOR(b, a, { if (b->dirty[a >> 3] & B8(a & 7)) { wdirty = 1; break; } });
+    b->late = wdirty || behind_col;
 #ifndef __sh__
     b->st.frames++; b->st.behind += b->late;
     if (b->jn > b->st.journal_max) b->st.journal_max = b->jn;

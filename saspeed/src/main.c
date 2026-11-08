@@ -82,7 +82,9 @@ void secondary(void)
         SEC_N = sec_bg_job(SEC_V, (int)(j & 1));
 #ifdef SPR_SPLIT
         while (SEC_LIST != j) { }                             /* (the master's list of the sprites' cells) */
-        spr_draw_cmds((const SprCmd *)((uintptr_t)spr_cmd | 0x20000000), SEC_NC, (int)(j & 1), SPLIT_Y, SPR_LINES);
+        { extern int spr_ylim; const int yl = *(volatile int *)((uintptr_t)&spr_ylim | 0x20000000);   /* (Sapphire docs/16: the
+                                                                 master's line limit, past the cache) */
+          spr_draw_cmds((const SprCmd *)((uintptr_t)spr_cmd | 0x20000000), SEC_NC, (int)(j & 1), SPLIT_Y, yl); }
 #endif
 #else
         spr_frame(SEC_V, (int)(j & 1));
@@ -102,7 +104,7 @@ void secondary(void)
 extern void CacheControl(int mode);
 
 #define COMM8_32   (*(volatile uint32_t *)0x20004028)
-#if defined(RT_CD_RING) || defined(RT_POOL)
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
 static volatile int cdr_busy;                                 /* (docs/69: a sector read under way) */
 #endif
 #define COMM12_16  (*(volatile uint16_t *)0x2000402C)
@@ -350,6 +352,17 @@ static int bg2_run(uint32_t off)                              /* a list at off i
    from the vertical blank's interrupt once the swap has been): the tables' pairs into the buffer the SH2 draws in
    next. Either way the frame buffer is the 68000's until bg2_take; nothing touches it, the 32X's registers or its
    palette meanwhile (the game's code does not; draw_hook and pace_vbi take it back first) */
+/* (Sapphire docs/16) command 78 (VSPLIT): the bands' V splits rt_bg2 made, entry 0 the top's; then shown from the
+   picture whose swap is asked for next (the stack's double-buffered list, ledger 21a). Only when they changed */
+static void vsplit_send(void)
+{
+    cdr_busy = 1;                                             /* (pace_vbi sends nothing meanwhile) */
+    bg2_wait();
+    for (int k = 0; k < bg2.vsp_n; k++) { MARS_SYS_COMM2 = (short)k; COMM8_32 = bg2.vsp_e[k]; cd_cmd(78); }
+    MARS_SYS_COMM2 = (short)(0x8000 | (bg2.vsp_n > 1 ? bg2.vsp_n : 0)); cd_cmd(78);
+    bg2.vsp_dirty = 0;
+    cdr_busy = 0;
+}
 static void bg2_send(uint32_t off, int op)                    /* op 2 / 3, not waited for: bg2_take waits */
 {
     bg2_wait();
@@ -381,7 +394,7 @@ static void bg2_setup(void)
        cells, no window, the backdrop palette 0 colour 0 (black), H40, increment 2; then the display on. The 32X's
        colour 0 see-through; its borders (x 0-31, 288-319: the PC Engine shows 256) black, in both buffers */
     volatile uint16_t *L = (volatile uint16_t *)(0x24000000 + BG2_LIST); int n = 0;
-    static const uint16_t regs[] = { 0x8134, 0x8230, 0x8406, 0x8578, 0x8D38, 0x8B00, 0x9011, 0x9100, 0x9200, 0x8700, 0x8C81, 0x8F02 };
+    static const uint16_t regs[] = { 0x8134, 0x8230, 0x8406, 0x8578, 0x8D38, 0x8B03, 0x9011, 0x9100, 0x9200, 0x8700, 0x8C81, 0x8F02 };   /* (Sapphire docs/16: 0x8B03, the H scroll per line) */
     L[n++] = (uint16_t)(0x1000 | (sizeof regs / 2)); for (unsigned i = 0; i < sizeof regs / 2; i++) L[n++] = regs[i];
     L[n++] = 0x1002; L[n++] = 0x7000; L[n++] = 0x0003; L[n++] = 0x2004; L[n++] = 0; L[n++] = 0; L[n++] = 0; L[n++] = 0;   /* SAT 0xF000 */
     L[n++] = 0x1002; L[n++] = 0x6000; L[n++] = 0x0003; L[n++] = 0x2002; L[n++] = 32; L[n++] = 32;                         /* H scroll */
@@ -423,8 +436,8 @@ static int pal_dirty;                                         /* (cram_pend diff
 static void pace_vbi(void)
 {
     if (pal_go < 0) return;
-#ifdef RT_CD_RING
-    if (cdr_busy) { bg2_late++; return; }                     /* (a sector read under way: the COMM registers are its) */
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+    if (cdr_busy) { bg2_late++; return; }                     /* (a sector read or command 78 under way: the COMM registers are its) */
 #endif
     if (MARS_SYS_COMM0 != 0) {                                /* (the command not answered yet: the frame buffer the 68000's) */
         if (PAL_DIRTY && (uint16_t)MARS_SYS_COMM10 == (uint16_t)(0xFB00 | pal_go))
@@ -670,7 +683,7 @@ static void draw_hook(V32 *v)
     spr_frame_list(v, cur ^ 1);
     SEC_T(8, ta);
     SEC_NC = spr_ncmd; SEC_LIST = job;                        /* (the cells' list: the secondary draws its band) */
-    spr_draw_cmds(spr_cmd, spr_ncmd, cur ^ 1, 0, SPLIT_Y);
+    { extern int spr_ylim; spr_draw_cmds(spr_cmd, spr_ncmd, cur ^ 1, 0, SPLIT_Y < spr_ylim ? SPLIT_Y : spr_ylim); }   /* (docs/16) */
 #else
     spr_frame(v, cur ^ 1);
 #endif
@@ -696,6 +709,7 @@ static void draw_hook(V32 *v)
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);
         bg2_sent++; bg2_words += (uint32_t)n;
+        if (bg2.vsp_dirty) vsplit_send();                     /* (docs/16: before the list that asks for the swap) */
         bg2_send(BG2_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
         SEC_T(4, ta);
 #ifdef SEC_TIMES

@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
+#include "rt_bg2.h"
 uint32_t *rt_ro_hist, *rt_interp_hist;   /* (RUN_ROHIST, RUN_INTERP: docs/11, docs/13) */
 #ifdef RT_AC_FPGA
 #include "ac_engine.h"
@@ -272,6 +273,7 @@ static long spr_bad_px, spr_bad_frames, spr_first_bad = -1;
 static void spr_ref_draw(const V32 *r, const uint16_t *sat)
 {
     memset(spr_ref, 0, sizeof spr_ref);
+    extern int spr_ylim;                            /* (Sapphire docs/16: the lines with sprites on, as the drawing's) */
     for (int i = 63; i >= 0; i--) {
         const uint16_t *e = sat + i * 4;
         const int sy = (e[0] & 0x3FF) - 64, sx = (e[1] & 0x3FF) - 32, pat = e[2], attr = e[3];
@@ -283,7 +285,7 @@ static void spr_ref_draw(const V32 *r, const uint16_t *sat)
             for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) {
                 const int b = 15 - x, v = ((w[y] >> b) & 1) | ((w[16 + y] >> b) & 1) << 1 | ((w[32 + y] >> b) & 1) << 2 | ((w[48 + y] >> b) & 1) << 3;
                 const int X = sx + 16 * (hf ? cgx - 1 - cx : cx) + (hf ? 15 - x : x), Y = sy + 16 * (vf ? cgy - 1 - cy : cy) + (vf ? 15 - y : y);
-                if (v && X >= 0 && X < 256 && Y >= 0 && Y < SPR_LINES) spr_ref[Y][X] = (uint8_t)(pal << 4 | v);
+                if (v && X >= 0 && X < 256 && Y >= 0 && Y < spr_ylim) spr_ref[Y][X] = (uint8_t)(pal << 4 | v);
             }
         }
     }
@@ -312,17 +314,18 @@ static int pack4(const uint32_t *set, int nsets, int cap, int byval)
 }
 static void bgstat(const V32 *v)
 {
-    if ((v->MWR & 0x70) != 0x50) { bg_mwr_bad++; return; }
+    const int mw = bg2_mw(v->MWR), mh = bg2_mh(v->MWR), ms = mw == 32 ? 5 : mw == 64 ? 6 : 7;   /* (Sapphire docs/16) */
+    if (mw * mh > 4096) { bg_mwr_bad++; return; }
     static uint8_t seen_kind[0x10000 / 8]; memset(seen_kind, 0, sizeof seen_kind);
     static uint8_t seen_tile[0x800 / 8]; memset(seen_tile, 0, sizeof seen_tile);
     uint32_t used[16] = { 0 }; int kinds = 0, tiles = 0;
     static uint16_t tmask[0x800]; static uint32_t tmask_ok[0x800 / 32]; memset(tmask_ok, 0, sizeof tmask_ok);
     const int win = getenv("RUN_BGSTAT_WIN") != 0;  /* (the visible window at the display start: 33 x 29 entries from
                                                        BXR / BYR - one band; the lines below a raster split not seen) */
-    const int tx0 = (v->BXR >> 3) & 63, ty0 = (v->BYR >> 3) & 63;
-    for (int a = 0; a < 4096; a++) {
-        if (win && (((a & 63) - tx0) & 63) > 32) continue;
-        if (win && (((a >> 6) - ty0) & 63) > 28) continue;
+    const int tx0 = (v->BXR >> 3) & (mw - 1), ty0 = (v->BYR >> 3) & (mh - 1);
+    for (int a = 0; a < mw * mh; a++) {
+        if (win && (((a & (mw - 1)) - tx0) & (mw - 1)) > 32) continue;
+        if (win && (((a >> ms) - ty0) & (mh - 1)) > 28) continue;
         const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF, p = e >> 12;
         if (!(tmask_ok[t >> 5] >> (t & 31) & 1)) {   /* (the tile's pixel values used) */
             const uint16_t *w = v->vram + t * 16; unsigned m = 0;
@@ -535,6 +538,7 @@ static void bg_run_pc(V32 *v)
 static Bg2 bg2; static uint16_t bg2_fb[2][65536]; static uint16_t gvram[32768], gcram[64], gvsram[64];
 static long b2_jrn_over, b2_scroll_bad, b2_pics, b2_checked, b2_bad, b2_badpics, b2_whole_bad, b2_skip;
 static uint16_t keep_buf[256]; static int keep_n;   /* (the listener's fb_keep) */
+static unsigned g_htab = BG2_HSCROLL;                /* (docs/16: register 13's table) */
 static uint16_t jrn_buf[2048]; static int jrn_n;     /* (and its fb_jrn: pairs for the other buffer) */
 static void gen_run(const uint16_t *L, int kept)   /* the listener's fb_list on a model of the VDP */
 {
@@ -543,7 +547,9 @@ static void gen_run(const uint16_t *L, int kept)   /* the listener's fb_list on 
         const unsigned h = *L++, n = h & 0xFFF, k = h & 0xF000;
         if (!h) return;
         if (k == 0x1000) for (unsigned i = 0; i < n; i++) { const unsigned w = *L++;
-            if ((w & 0xC000) == 0x8000) { if ((w >> 8 & 0x1F) == 15) inc = w & 0xFF; continue; }
+            if ((w & 0xC000) == 0x8000) { if ((w >> 8 & 0x1F) == 15) inc = w & 0xFF;
+                if ((w >> 8 & 0x1F) == 13) g_htab = (w & 0x3F) << 10;   /* (docs/16: the H scroll table shown) */
+                continue; }
             if (i + 1 < n) { const unsigned w2 = *L++; i++; code = (w >> 14) | (w2 >> 2 & 0x3C); addr = (w & 0x3FFF) | (w2 & 3) << 14; } }
         else if (k == 0x2000) for (unsigned i = 0; i < n; i++) { const unsigned w = *L++;
             if ((code & 0xF) == 1) gvram[(addr >> 1) & 0x7FFF] = (uint16_t)w; else if ((code & 0xF) == 3) gcram[(addr >> 1) & 63] = (uint16_t)w;
@@ -556,9 +562,13 @@ static void gen_run(const uint16_t *L, int kept)   /* the listener's fb_list on 
 }
 static long gen_check(const V32 *v, int whole)
 {
-    long bad = 0; const int tx0 = (v->BXR >> 3) & 63, ty0 = (v->BYR >> 3) & 63;
-    for (int a = 0; a < 4096; a++) {
-        if (!whole && ((((a & 63) - tx0) & 63) > 32 || (((a >> 6) - ty0) & 63) > 28)) continue;
+    const int mw = bg2_mw(v->MWR), mh = bg2_mh(v->MWR);   /* (Sapphire docs/16: the bands' windows, rt_bg2's) */
+    long bad = 0;
+    for (int a = 0; a < mw * mh; a++) {
+        if (!whole) { int in = 0;
+            for (int q = 0; q < bg2.nr && !in; q++)
+                in = ((((a & (mw - 1)) - bg2.rx[q]) & (mw - 1)) <= 32 && (((a >> bg2.ms) - bg2.ry[q]) & (mh - 1)) < bg2.rn[q]);
+            if (!in) continue; }
         const uint16_t e = v->vram[a], ge = gvram[(BG2_PLANE_A >> 1) + a]; const uint16_t *w = v->vram + (e & 0x7FF) * 16;
         const uint16_t *gt = gvram + (ge & 0x7FF) * 16; const int g = ge >> 13 & 3, p = e >> 12;
         for (int y = 0; y < 8; y++) { const unsigned p01 = w[y], p23 = w[8 + y]; const uint32_t row = (uint32_t)gt[2 * y] << 16 | gt[2 * y + 1];
@@ -593,10 +603,49 @@ static void bg2_run_pc(V32 *v)
       (void)was; if (getenv("RUN_BG2_RUNS") && b2_pics == 1) atexit_runs(runs); }
     if (getenv("RUN_BG2_LATE") && (bg2.late || bg2.st.misfit != misfit0)) printf("bg2 not checked: picture %ld (%s)\n", b2_pics - 1, bg2.late ? "still sending" : "not fitting");
     if (bg2.late || bg2.st.misfit != misfit0) return;
-    if (gvram[(BG2_HSCROLL >> 1)] != ((32 - v->BXR) & 0x3FF) || gvram[(BG2_HSCROLL >> 1) + 1] != gvram[BG2_HSCROLL >> 1] || gvsram[0] != (v->BYR & 0x3FF) || gvsram[1] != gvsram[0]) b2_scroll_bad++;
+    {   /* (docs/16) each line's H scroll in the table shown, the top's V in VSRAM, the splits as sent for command 78 */
+        int sbad = gvsram[0] != (v->BYR & 0x3FF) || gvsram[1] != gvsram[0];
+        for (int k = 0, l = 0; k < bg2.nb; k++) { const int end = k + 1 < bg2.nb ? bg2.bl[k + 1] : 224;
+            for (; l < end; l++) sbad |= gvram[(g_htab >> 1) + 2 * l] != ((32 - bg2.bx[k]) & 0x3FF) || gvram[(g_htab >> 1) + 2 * l + 1] != gvram[(g_htab >> 1) + 2 * l]; }
+        for (int k = 1; k < bg2.nb; k++) sbad |= bg2.vsp_e[k] != ((uint32_t)bg2.bl[k] << 20 | (uint32_t)((bg2.by[k] - bg2.bl[k]) & 0x3FF) << 10 | ((bg2.by[k] - bg2.bl[k]) & 0x3FF));
+        if (sbad) { b2_scroll_bad++; if (getenv("RUN_BG_SHOW") && b2_scroll_bad < 4) {
+            printf("bg2 scroll wrong: picture %ld (bands %d, table %04X, htab %d) vsram %03X BYR %03X; bands:", b2_pics, bg2.nb, g_htab, bg2.htab, gvsram[0], v->BYR);
+            for (int k = 0; k < bg2.nb; k++) printf(" [L%d x%03X y%03X]", bg2.bl[k], bg2.bx[k], bg2.by[k]);
+            printf("; table lines 0 %03X 100 %03X 202 %03X 203 %03X 223 %03X\n", gvram[(g_htab >> 1)], gvram[(g_htab >> 1) + 200], gvram[(g_htab >> 1) + 404], gvram[(g_htab >> 1) + 406], gvram[(g_htab >> 1) + 446]); } }
+    }
     const long bad = gen_check(v, 0); b2_checked++; b2_bad += bad; b2_badpics += bad != 0;
     if (bad && getenv("RUN_BG_SHOW") && b2_badpics <= 5) printf("bg2: picture %ld wrong pixels %ld\n", b2_pics, bad);
     if ((b2_checked & 63) == 0) b2_whole_bad += gen_check(v, 1);
+}
+#endif
+#ifdef RT_BG2
+/* RUN_PIC_DUMP=<file> [RUN_PIC_EVERY=n] (Sapphire docs/16): every n-th picture as the console shows it - the Genesis
+   model's plane (per-line H scroll, the top's VSRAM, the V splits, its tiles and CRAM) with the 32X's sprite layer in
+   front - as PC Engine colours (u32 the frame, then 256 x 224 u16), for tools/m3_piccheck.py against Mednafen.
+   Game data: the work folder only */
+static void pic_dump(const V32 *v, int b)
+{
+    static FILE *f; static long n; const long every = getenv("RUN_PIC_EVERY") ? atol(getenv("RUN_PIC_EVERY")) : 50;
+    if (n++ % every) return;
+    if (!f) f = fopen(getenv("RUN_PIC_DUMP"), "wb");
+    static uint16_t px[224][256];
+    const int mw = bg2_mw(v->MWR), mh = bg2_mh(v->MWR), W = mw * 8, H = mh * 8;
+    for (int l = 0; l < 224; l++) {
+        unsigned vs = gvsram[0];
+        for (int k = 1; k < bg2.vsp_n; k++) if ((int)(bg2.vsp_e[k] >> 20) <= l) vs = (bg2.vsp_e[k] >> 10) & 0x3FF;
+        const unsigned hs = gvram[(g_htab >> 1) + 2 * l];
+        for (int x = 0; x < 256; x++) {
+            const int sp = spr_fb[b][0x200 + l * SPR_LINE + x + 32];
+            if (sp) { px[l][x] = v->color[256 + sp] & 0x1FF; continue; }
+            const unsigned X = (unsigned)(x + 32 - (int)hs) & (W - 1), Y = (l + vs) & (H - 1);
+            const uint16_t e = gvram[(BG2_PLANE_A >> 1) + (Y >> 3) * mw + (X >> 3)];
+            const unsigned t = e & 0x7FF, g = e >> 13 & 3, ty = (e & 0x1000) ? 7 - (Y & 7) : Y & 7, tx = (e & 0x800) ? 7 - (X & 7) : X & 7;
+            const uint32_t row = (uint32_t)gvram[t * 16 + 2 * ty] << 16 | gvram[t * 16 + 2 * ty + 1];
+            const unsigned nib = row >> (28 - 4 * tx) & 15, c = gcram[nib ? 16 * g + nib : 0];
+            px[l][x] = (uint16_t)(((c >> 5) & 7) << 6 | ((c >> 1) & 7) << 3 | ((c >> 9) & 7));
+        }
+    }
+    const uint32_t fr = (uint32_t)cur_frame_any; fwrite(&fr, 4, 1, f); fwrite(px, 2, 256 * 224, f); fflush(f);
 }
 #endif
 static void spr_draw_pc(V32 *v)                    /* (rt_draw_hook: at the display's start) */
@@ -617,6 +666,9 @@ static void spr_draw_pc(V32 *v)                    /* (rt_draw_hook: at the disp
         if (got != want) { if (!bad && spr_first_bad < 0) { spr_first_bad = spr_frame_no; printf("spr: drawing %ld first wrong at (%d, %d): %02X, want %02X\n", spr_frame_no, x - 32, y, got, want); } bad++; }
     }
     spr_bad_px += bad; if (bad) spr_bad_frames++;
+#ifdef RT_BG2
+    if (getenv("RUN_PIC_DUMP") && getenv("RUN_BG2")) pic_dump(v, b);
+#endif
     if (getenv("RUN_SPR_DUMP")) {                  /* (DIAG, docs/57: each drawing's sprite layer and sprite colours, for
                                                       tools/m3_sprcheck.py - game data: the work folder only) */
         static FILE *df; if (!df) df = fopen(getenv("RUN_SPR_DUMP"), "wb");
@@ -645,7 +697,7 @@ static void spr_check(Rt *r)
         FILE *f = *p && strcmp(p, "-") ? fopen(p, "rb") : 0;
         if (f) { fseek(f, 0, SEEK_END); long n = ftell(f); rewind(f); cells = malloc(n); if (fread(cells, 1, n, f) != (size_t)n) cells = 0; fclose(f); }
         spr_init(cells);
-        for (int b = 0; b < 2; b++) { spr_buf[b].ovl = spr_buf[b].nrm = spr_fb[b] + 0x200 + 32; spr_buf[b].tail = spr_fb[b] + 0x1D000; }
+        for (int b = 0; b < 2; b++) { spr_buf[b].ovl = spr_buf[b].nrm = spr_fb[b] + 0x200 + 32; spr_buf[b].tail = spr_fb[b] + ((0x20000 - SPR_SC * SPR_CELL) & ~0xFFF); }   /* (Sapphire docs/16: the cache at the end) */
         rt_draw_hook = spr_draw_pc;
         on = 1;
     }
@@ -684,6 +736,25 @@ static void marks_out(Rt *r)
     }
 }
 #endif
+#ifdef HUC_MARKS
+/* RUN_SPLITS (Sapphire docs/16): each picture's raster splits as the VDC model kept them (the frame before the display
+   start), their kinds counted: line, BXR, BYR - line (the V offset), CR's sprite bit, what the handler wrote */
+static void splits_stat(const V32 *v, int show)
+{
+    static struct { char k[96]; long n; } kinds[64]; static int nk; static long pics;
+    char k[96]; int o = 0; pics++;
+    o += snprintf(k + o, sizeof k - o, "top %03X %03X CR %04X |", v->BXR, v->BYR, v->t.CR);
+    for (int i = 0; i < v->spl_n && o < 80; i++)
+        o += snprintf(k + o, sizeof k - o, " L%d x%03X y%03X(o%03X) CR%04X w%d", v->spl[i].line, v->spl[i].bxr, v->spl[i].byr,
+                      (v->spl[i].byr - v->spl[i].line + 1) & 0x1FF, v->spl[i].cr, v->spl[i].wrote);
+    if (show) printf("splits: %s\n", k);
+    const char *kk = strchr(k, '|');            /* (counted without the top's values, which move each frame) */
+    int j; for (j = 0; j < nk; j++) if (!strcmp(kinds[j].k, kk)) break;
+    if (j == nk && nk < 64) { strncpy(kinds[nk].k, kk, 95); kinds[nk].n = 0; nk++; }
+    if (j < nk) kinds[j].n++;
+    if (show == 2) for (int q = 0; q < nk; q++) printf("split kind %ld x:%s\n", kinds[q].n, kinds[q].k);
+}
+#endif
 static void on_frame(Rt *r)
 {
     cur_frame_any = r->frame;
@@ -697,6 +768,7 @@ static void on_frame(Rt *r)
 #endif
 #ifdef HUC_MARKS
     if (getenv("RUN_DRAWSTAT")) drawstat(r);
+    if (getenv("RUN_SPLITS")) splits_stat(&r->vdc, r->frame < atol(getenv("RUN_SPLITS")) ? 1 : r->frame == last_frame ? 2 : 0);
     if (getenv("RUN_SPR")) spr_check(r);
     if (getenv("RUN_MARKS_AT")) marks_out(r);
 #endif

@@ -133,6 +133,10 @@ static __attribute__((noinline)) void line0(Ctx *x, int32_t t)
 #ifdef RT_LINES
     if (x->m) v32_line0_t = t;
 #endif
+    if (x->m) {                                   /* (Sapphire docs/16: the frame's splits kept for the picture) */
+        V32 *const m = x->m; for (int i = 0; i < m->sp_n; i++) m->spl[i] = m->sp[i];
+        m->spl_n = m->sp_n; m->sp_n = 0; m->sp_cur = -1;
+    }
     if (x->m && v32_line0) v32_line0(x->m);
 }
 #endif
@@ -143,10 +147,20 @@ static inline __attribute__((always_inline)) void inc_rcr(VTime *s, Ctx *x, int3
         next_vphase(s, t);
 #ifdef HUC_MARKS
         if (s->vphase == V_VDW) line0(x, t);
+        else if (x->m) x->m->sp_cur = -1;         /* (docs/16: the display's end - later writes are the next frame's top) */
 #endif
     }
     if (x->rec) steps_at(s, x, t, s->rcr_count, 1);
-    if ((int)s->rcr_count == (int)s->RCR - 0x40 && (s->CR & 4)) raise(s, x, t, 0x04);
+    if ((int)s->rcr_count == (int)s->RCR - 0x40 && (s->CR & 4)) {
+        raise(s, x, t, 0x04);
+#ifdef HUC_MARKS
+        if (x->m && x->m->sp_n < 4) {             /* (Sapphire docs/16: a split from the next line) */
+            V32 *const m = x->m; const int k = m->sp_n++;
+            m->sp[k].line = (uint16_t)(s->rcr_count + 1); m->sp[k].bxr = m->BXR; m->sp[k].byr = m->BYR; m->sp[k].cr = s->CR;
+            m->sp[k].wrote = 0; m->sp_cur = (int8_t)k;
+        }
+#endif
+    }
 }
 
 static void line_times(VTime *s, int32_t h)                   /* this line's HDW and HDW_FINAL, from its sync end h */
@@ -504,7 +518,7 @@ static int32_t schedule_run(const V32 *v, int32_t horizon, int frame, VSched *o)
 
 void v32_load(V32 *v, VPort *vp, const uint16_t *vram, const uint16_t *sat, const uint16_t *color, const uint32_t *r, int64_t t0)
 {
-    memset(v, 0, sizeof *v);
+    memset(v, 0, sizeof *v); v->sp_cur = -1;      /* (docs/16: no split open) */
     v->vp = vp; vp->vram = v->vram; vp->color = v->color;
     memcpy(v->vram, vram, sizeof v->vram); memcpy(v->sat, sat, sizeof v->sat); memcpy(v->color, color, sizeof v->color);
     VTime *s = &v->t;
@@ -590,14 +604,18 @@ void v32_write(V32 *v, unsigned a, uint8_t val)
             v->vp->mawr += v->vp->inc;
         }
         break;
-    case 0x05: SETB(s->CR, val, msb); v->vp->inc = vram_inc[(s->CR >> 11) & 3]; break;
+    case 0x05: SETB(s->CR, val, msb); v->vp->inc = vram_inc[(s->CR >> 11) & 3];
+        if (v->sp_cur >= 0) { v->sp[v->sp_cur].cr = s->CR; v->sp[v->sp_cur].wrote |= 4; }   /* (docs/16) */
+        break;
     case 0x06: SETB(s->RCR, val, msb); s->RCR &= 0x3FF; break;
     case 0x07: SETB(v->BXR, val, msb); v->BXR &= 0x3FF;
+        if (v->sp_cur >= 0) { v->sp[v->sp_cur].bxr = v->BXR; v->sp[v->sp_cur].wrote |= 1; }
 #ifdef RT_LINES
         if (v32_scroll) v32_scroll(v, 7);
 #endif
         break;
     case 0x08: SETB(v->BYR, val, msb); v->BYR &= 0x1FF;
+        if (v->sp_cur >= 0) { v->sp[v->sp_cur].byr = v->BYR; v->sp[v->sp_cur].wrote |= 2; }
 #ifdef RT_LINES
         if (v32_scroll) v32_scroll(v, 8);
 #endif

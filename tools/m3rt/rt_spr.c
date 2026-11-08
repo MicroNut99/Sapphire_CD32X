@@ -250,15 +250,24 @@ static void draw_cell(const uint8_t *cell, uint8_t *ovl, int px, int py, int hf,
     }
 }
 
+/* (Sapphire docs/16) the lines sprites show on: the picture's, cut where the CR in force turns them off (a raster
+   split below which the game shows no sprites - Sapphire's status bar from line 203); set at each picture */
+int spr_ylim = SPR_LINES;
+static void set_ylim(const V32 *v)
+{
+    int y = (v->t.CR & 0x40) ? SPR_LINES : 0;
+    for (int i = 0; i < v->spl_n && y > 0; i++) if (!(v->spl[i].cr & 0x40) && v->spl[i].line < y) y = v->spl[i].line;
+    spr_ylim = y;
+}
 /* a sprite's place: x0, x1 (even), y0, y1 inside the picture; 0 when it is not in it */
 typedef struct { int sx, sy, cgx, cgy, x0, x1, y0, y1; } Geo;
 static int geo(const uint16_t *e, Geo *g)
 {
     g->sy = (e[0] & 0x3FF) - 64; g->sx = (e[1] & 0x3FF) - 32; const unsigned attr = e[3];
     g->cgx = attr & 0x100 ? 2 : 1; const int hc = (int)(attr >> 12) & 3; g->cgy = hc == 0 ? 1 : hc == 1 ? 2 : 4;
-    if (g->sy >= SPR_LINES || g->sy + g->cgy * 16 <= 0 || g->sx >= 256 || g->sx + g->cgx * 16 <= 0) return 0;
+    if (g->sy >= spr_ylim || g->sy + g->cgy * 16 <= 0 || g->sx >= 256 || g->sx + g->cgx * 16 <= 0) return 0;
     g->x0 = g->sx < 0 ? 0 : g->sx & ~1; const int x1 = (g->sx + g->cgx * 16 + 1) & ~1; g->x1 = x1 > 256 ? 256 : x1;
-    g->y0 = g->sy < 0 ? 0 : g->sy; g->y1 = g->sy + g->cgy * 16 > SPR_LINES ? SPR_LINES : g->sy + g->cgy * 16;
+    g->y0 = g->sy < 0 ? 0 : g->sy; g->y1 = g->sy + g->cgy * 16 > spr_ylim ? spr_ylim : g->sy + g->cgy * 16;
     return 1;
 }
 static inline int cell0(const uint16_t *e, const Geo *g) { return ((e[2] >> 1) & 0x3FF) & ~(g->cgx - 1) & ~((g->cgy - 1) * 2); }
@@ -300,10 +309,10 @@ void spr_frame(const V32 *v, int buf)             /* (the list and the whole pic
 {
     spr_frame_list(v, buf);
 #ifdef __sh__
-    spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, SPR_LINES);
+    spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, spr_ylim);
 #else
     { static int split = -1; if (split < 0) { const char *e = getenv("RUN_SPR_SPLIT"); split = e ? atoi(e) : 112; }
-      spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, split); spr_draw_cmds(spr_cmd, spr_ncmd, buf, split, SPR_LINES); }
+      if (split > spr_ylim) split = spr_ylim; spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, split); spr_draw_cmds(spr_cmd, spr_ncmd, buf, split, spr_ylim); }
 #endif
 }
 void spr_frame_list(const V32 *v, int buf)
@@ -315,6 +324,7 @@ void spr_frame(const V32 *v, int buf)
     spr_ncmd = 0;
 #endif
     SprBuf *b = &spr_buf[buf];
+    set_ylim(v);                                   /* (docs/16) */
     uint16_t dirty[SPR_LINES / 16] = { 0 };
     uint8_t same[64];
     const uint32_t conv0 = spr_stat.conv;
@@ -328,13 +338,13 @@ void spr_frame(const V32 *v, int buf)
                 if (!VSRC_IS_CODE(tg) && (t[0] == tg || t[1] == tg || t[2] == tg || t[3] == tg)) { h = 0; break; }
                 h = (h ^ t[0]) * 16777619u; h = (h ^ t[1]) * 16777619u; h = (h ^ t[2]) * 16777619u; h = (h ^ t[3]) * 16777619u;
             }
-            sig = h ? (h | 1) : 2;
+            sig = h ? ((h ^ (uint32_t)spr_ylim * 2654435761u) | 1) : 2;   /* (docs/16: the line limit too) */
         }
         SprLast *const L = &LAST(buf)[i]; uint16_t *le = L->e; const uint32_t ls = L->sig;
         same[i] = (sig & 1) && sig == ls && le[0] == e[0] && le[1] == e[1] && le[2] == e[2] && le[3] == e[3];
         if (same[i]) continue;
         if (ls) {                                   /* (its box from before: cleared, and changed) */
-            Geo o; geo(le, &o);
+            Geo o; { const int yl = spr_ylim; spr_ylim = SPR_LINES; geo(le, &o); spr_ylim = yl; }   /* (docs/16: all it may have drawn) */
 #ifndef SPR_NOCLEAR
             const int w = (o.x1 - o.x0) / 2;
 #ifdef __sh__
@@ -363,18 +373,18 @@ void spr_frame(const V32 *v, int buf)
         const int hf = (attr & 0x800) != 0, vf = (attr & 0x8000) != 0, pal = attr & 15;
         for (int cy = 0; cy < g.cgy; cy++) for (int cx = 0; cx < g.cgx; cx++) {
             const int px = g.sx + 16 * (hf ? g.cgx - 1 - cx : cx), py = g.sy + 16 * (vf ? g.cgy - 1 - cy : cy);
-            if (py >= SPR_LINES || py + 16 <= 0 || px >= 256 || px + 16 <= 0) continue;
+            if (py >= spr_ylim || py + 16 <= 0 || px >= 256 || px + 16 <= 0) continue;
             spr_stat.cells++;
 #ifdef SPR_SPLIT
             const uint8_t *src = cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1);
             if (src_unkept || spr_ncmd == SPR_CMDS) {   /* (a cell not kept, or the list full: what is listed now, whole) */
-                spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, SPR_LINES); spr_ncmd = 0;
-                if (src_unkept) { draw_cell(src, b->ovl, px, py, hf, vf, pal, 0, SPR_LINES); continue; }
+                spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, spr_ylim); spr_ncmd = 0;
+                if (src_unkept) { draw_cell(src, b->ovl, px, py, hf, vf, pal, 0, spr_ylim); continue; }
             }
             SprCmd *k = &spr_cmd[spr_ncmd++];
             k->src = src; k->px = (int16_t)px; k->py = (int16_t)py; k->hv = (uint8_t)(hf | vf << 1); k->pal = (uint8_t)pal;
 #else
-            draw_cell(cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1), b->ovl, px, py, hf, vf, pal, 0, SPR_LINES);
+            draw_cell(cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1), b->ovl, px, py, hf, vf, pal, 0, spr_ylim);
 #endif
         }
     }
