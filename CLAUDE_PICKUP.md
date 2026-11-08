@@ -62,6 +62,9 @@ Read `CLAUDE.md` first.
      (GHDL `ghdl-llvm`; `apt install ghdl ghdl-llvm`, and link libLLVM-18.so.18.1): the core exact on three whole
      windows. ares is v1.7 now (the owner: "use the new ares"): the engine branch rebased, ares-headless rebuilt.
      Next: the VDC's timing in RTL, the hardware page, the FIFO, rom1, the SH2's side.
+  18. **docs/21-23:** `fpga/huc/vdc_timing.sv` (= the C model: run_eq.sh), the core in Verilator (run_vtb.sh: GHDL synth
+     to `/tmp/vhuc/huc_cpu_dbg.v` first), the two together (run_vsys.sh; `RUN=1`: from models, the end against
+     Mednafen's). Next: the FIFO and the SH2's side, the hardware page in RTL, Quartus.
 
 ## 2. Where things live
 

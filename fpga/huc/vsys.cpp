@@ -15,6 +15,10 @@ extern "C" {
 int tb_init(int); int tb_rd(int); int tb_wr(int, int);
 int tb_ins(int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int);
 extern long tb_started;
+#ifdef SYSRUN
+extern int64_t sys_now; int sys_irq_mask(void); void sys_vram(unsigned, unsigned); void sys_sat_copy(unsigned);
+int sys_frame_end(void); void sys_vdc_start(const Vdc *);
+#endif
 }
 static Vvdc_timing *v;
 #define R(x) (v->rootp->vdc_timing__DOT__##x)
@@ -52,6 +56,9 @@ static int32_t next_event() {                     // vt_next_event on the RTL's 
     return m < 1 ? 1 : (int32_t)m;
 }
 static long st_reads, st_bad, ws_waits, ws_steps;
+#ifdef SYSRUN
+extern "C" int sys_irq1(void) { return v->irq; }
+#endif
 int main() {
     const char *d = getenv("TB_DIR");
     tb_init(0);
@@ -65,10 +72,13 @@ int main() {
         cm.MWR = r[7]; cm.HSR = r[8]; cm.HDR = r[9]; cm.VSR = r[10]; cm.VDR = r[11]; cm.VCR = r[12]; cm.DCR = r[13];
         cm.SOUR = r[14]; cm.DESR = r[15]; cm.LENR = r[16]; cm.DVSSR = r[17]; cm.write_latch = r[19]; cm.status = r[20];
         cm.pending_read = r[21]; cm.pending_write = r[23]; cm.pending_write_addr = r[24]; cm.pending_write_latch = r[25];
-        cm.dma_running = r[28]; cm.dma_pending = r[29]; cm.satb_pending = r[30]; cm.vce_cr = r[34];
+        cm.dma_running = r[28]; cm.dma_pending = r[29]; cm.satb_pending = r[30]; cm.vce_cr = r[34]; cm.ctaddress = r[35];
         vt_start(&cm, r, (int64_t)(int32_t)(r[49] - ins[0].ts));
         vt_run(&cm, 0);
     }
+#ifdef SYSRUN
+    sys_vdc_start(&cm);
+#endif
     v = new Vvdc_timing; rtl_from_c(cm); v->ce = 1; v->clk = 0; v->eval();
     VHUC6280_CPU *c = new VHUC6280_CPU;
     int ce = 0, rdy = 1, cnt = 0, sel_old = 0, di = 0xEA, irq = 0, par = -1; long cyc6 = 0;
@@ -79,13 +89,26 @@ int main() {
     auto vstep = [&](int rd, int wr, unsigned a, unsigned dd) {   // one master clock of the video chips
         v->cpu_rd = rd; v->cpu_wr = wr; v->a = a; v->d = dd; v->clk = 1; v->eval(); v->clk = 0; v->eval();
         const int sl = R(scanline_r);
-        if (sl != last_sl) { if (sl == 123 || sl == 14 + 243) ws_counter = 0; last_sl = sl; }   // (Mednafen's run slices)
+#ifdef SYSRUN
+        if (v->wr_vram) sys_vram(v->wr_addr, v->wr_data);
+        { static int32_t was; const int32_t sd = (int32_t)R(sat_dma); if (sd > 0 && was <= 0) sys_sat_copy(R(DVSSR)); was = sd; }   // (the copy starts)
+#endif
+        if (sl != last_sl) { if (sl == 123 || sl == 14 + 243) ws_counter = 0; last_sl = sl;
+#ifdef SYSRUN
+            if (sl == 14 + 243) sys_frame_end();
+#endif
+        }
     };
     for (;;) {
         const int cs_old = c->CS, a_old = c->A_OUT, ce_old = ce, cnt_old = cnt;
         c->CE = ce; c->RDY = rdy; c->DI = di;
         c->IRQ2_N = !(irq & 1); c->IRQT_N = !(irq & 4);
+#ifdef SYSRUN
+        c->IRQ1_N = !(v->irq && (sys_irq_mask() & 2));
+        if (par >= 0) sys_now = (cyc6 - par) / 2;
+#else
         c->IRQ1_N = par >= 0 ? !v->irq : !(irq & 2);
+#endif
         c->CLK = 1; c->eval();
         ce = 0;
         if ((cnt_old == 5 && cs_old) || (cnt_old == 23 && !cs_old)) { cnt = 0; ce = 1; } else cnt = (cnt_old + 1) % 32;
@@ -120,11 +143,21 @@ int main() {
                         continue;                                            // (the access: once the stall ends)
                     }
                     vstep(rd, !rd, off & 0x7FF, rd ? 0 : c->DO); did = 1;
+#ifdef SYSRUN
+                    if (off >= 0x400) { if (rd) di = tb_rd(pa); else tb_wr(pa, c->DO); }   // (the VCE: the colours are sys_host's)
+                    else if (rd) di = v->rd_d;
+                    if (0) {
+#else
                     if (rd) {
+#endif
                         const int tv = tb_rd(pa);
                         if (off < 0x400 && (off & 3) == 0) { st_reads++; if ((v->rd_d & 0xFF) != tv && st_bad++ < 8) fprintf(stderr, "  status: RTL %02X, Mednafen %02X\n", v->rd_d, tv); di = v->rd_d; }
                         else di = tv;
+#ifndef SYSRUN
                     } else tb_wr(pa, c->DO);
+#else
+                    }
+#endif
                 } else if (!c->WE_N) tb_wr(pa, c->DO); else di = tb_rd(pa);
             }
         }

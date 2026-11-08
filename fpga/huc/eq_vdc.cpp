@@ -96,6 +96,8 @@ int main(int argc, char **argv) {
         vt_run(&vdc, at);
         if (e.kind == 0) { if (off < 0x400) vdc_read(&vdc, off); else vce_read(&vdc, off); }
         else { if (off < 0x400) vdc_write(&vdc, off, e.v); else vce_write(&vdc, off, e.v); }
+        if (getenv("EQ_SATLOG") && at < 800000 && e.kind && off < 0x400 && (off & 3) == 3) fprintf(stderr, "  t %lld write hi sel %d MAWR %04X\n", (long long)at, vdc.select, vdc.MAWR);
+        if (getenv("EQ_SATLOG") && at < 800000 && R(sat_dma) == 1024) fprintf(stderr, "  t %lld SAT copy running\n", (long long)at);
         cmp("access", at); acc++;
         if (lines > frames_max * 263) break;
     }

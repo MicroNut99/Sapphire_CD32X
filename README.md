@@ -70,7 +70,8 @@ Next: speed (22-27 frames a second with drawing; [docs/17](docs/17_SPEED_FIRST_L
 **The CPU in the cart** ([docs/20](docs/20_THE_CPU_IN_THE_CART.md)): for a solid 30 frames a second at the game's speed, the HuC6280 goes into
 the 14 MB cart's FPGA and the 32X only draws. MiSTer's HuC6280 core (GPL, fetched, not copied) runs Sapphire's
 600-frame windows of stages 1, 3 and 5 (52.9 million instructions) with no difference from Mednafen in any register
-or access; the VDC's waits are next.
+or access. With the VDC's timing in RTL (docs/21-23) the core runs each 600-frame window from models alone and ends where Mednafen ends
+(stage 5 every byte; stages 1 and 3 but a few stack bytes). Next: the FIFO to the SH2 and the hardware page in RTL.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
