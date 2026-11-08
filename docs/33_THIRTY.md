@@ -49,6 +49,11 @@ moved the two tables that fit now, and capped the playback at 30 pictures a seco
   - Both are where the 68000's work falls against the raster. The faster lists move it.
 - **The boss's frames (4408-4477):** 32-68 pixels each, the colour pixels of docs/29.
 
+**Tried: no list sent at once inside the blank** (`-DLIST_FROM=0`; the default stays -29, as before). The idea was
+that a swap asked in the blank comes at once, with its kept runs after the list. 279 at 2 refreshes. The
+screenshots still had errors of the same kind at other frames (line 0 at 4316; line 203 at 4132; lines 205-214
+at 4040), so this is not the cause.
+
 ## Next
 
 1. **The top line's V scroll:** have the stack write VSRAM's entry 0 at the swap itself, from the list (a change to

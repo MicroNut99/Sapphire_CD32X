@@ -881,6 +881,9 @@ static void draw_hook(V32 *v)
 #ifdef VS_SWAP
         if (bg2.vsp_dirty) vsplit_send();                     /* (docs/26: before the list; the stack switches it at the swap) */
 #endif
+#ifndef LIST_FROM
+#define LIST_FROM -29 /* (docs/33: LIST_FROM=0, never in the blank, was tried for line 0's late V scroll: no better) */
+#endif
         {   /* (docs/25) at once if the 68000 can run it before line 200 (about 10 words a line, the masked raster
                interrupt's line 203 kept clear), else at the blank's start */
             const int tpl = 1, d = (int)((wdt_now() - wdt_vbl) * 262 / 94);   /* (94 ticks a refresh: 2.8 lines a tick) */
@@ -888,7 +891,7 @@ static void draw_hook(V32 *v)
 #ifdef LIST_ANYTIME
             if (!cdr_busy && MARS_SYS_COMM0 == 0) {          /* (DIAG, docs/25: the speed with no line to keep clear) */
 #else
-            if (tpl && line + need < 196 && !cdr_busy && MARS_SYS_COMM0 == 0 && line > -30) {
+            if (tpl && line + need < 196 && !cdr_busy && MARS_SYS_COMM0 == 0 && line >= LIST_FROM) {
 #endif
                 bg2_send(BG2_LIST, lst_op); SEC_VS = vs_job; lists_now++;
             } else lst_ready = 1;
