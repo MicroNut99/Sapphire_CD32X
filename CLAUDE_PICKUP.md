@@ -83,6 +83,9 @@ Read `CLAUDE.md` first.
      `pic_check.sh st3 work/sel_st3_600m <tag> ...` with `EXTRA="SEC=2 VS_SEC=1 VSSWAP=1 FPGA_CELLS=1 FIFO=work/fifo_st3.bin"`;
      `work/hist.sh <tag>` reads the pacing histogram (`RTX=-DPACE_HIST`). 264 pictures, exact, but no faster than KEEP.
      Next: docs/27's list; cellstore.sv; what reads the engine window at start-up.
+  25. **docs/30, the background's list faster:** `WIN_FOR_DIRTY`, `win_count` kept, the journal in SDRAM; 311 pictures
+     (70 / 205 / 25 / 11 at 1-4 refreshes), all identical on the PC. `work/prof.sh <tag>` (BG2PROF=1) times bg2's steps.
+     Next: the tiles' hash and mask from the FPGA (the heavy lists' 120 lines).
 
 ## 2. Where things live
 

@@ -88,6 +88,10 @@ endif
 ifeq ($(VSSWAP),1)
 CCFLAGS += -DVS_SWAP
 endif
+# BG2PROF=1 (DIAG, docs/30): bg2_frame's steps timed on the secondary, summed at SDRAM 0x0603E800
+ifeq ($(BG2PROF),1)
+CCFLAGS += -DBG2_PROF
+endif
 # FPGA_CELLS=1 (with FIFO=, ACE=1; ares ARES_CELLS): the FPGA's converted cells (docs/28-29) read from the cart
 ifeq ($(FPGA_CELLS),1)
 CCFLAGS += -DSPR_FPGA_CELLS

@@ -452,8 +452,18 @@ static void bg2_take(void)
 }
 #ifdef SEC_BG
 static void pic_extras(const V32 *v, uint32_t num);
+#ifdef BG2_PROF
+static uint8_t sec_clk(void) { return SH2_WDT_RTCNT; }       /* (DIAG, docs/30: the secondary's own watchdog, no interrupt) */
+#endif
 static int sec_bg_job(const V32 *v, int buf) {
+#ifdef BG2_PROF
+    static int on; if (!on) { on = 1; SH2_WDT_WTCSR_TCNT = 0x5A00; SH2_WDT_WTCSR_TCNT = 0xA53E; extern uint8_t (*bg2_clk)(void); bg2_clk = sec_clk; }
+    const uint8_t t0 = sec_clk();
+#endif
     pic_extras(v, SEC_PN);                                    /* (measured: the master's is the longer side) */
+#ifdef BG2_PROF
+    { const uint8_t t1 = sec_clk(); ((volatile uint32_t *)0x2603E800)[31] += (uint8_t)(t1 - t0); }
+#endif
     const int n = bg2_frame(&bg2, v, buf); return bg2.jn ? n | 0x8000 : n; }
 #endif
 static void bg2_setup(void)

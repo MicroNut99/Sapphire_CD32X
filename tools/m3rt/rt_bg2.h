@@ -69,6 +69,7 @@ typedef struct Bg2 {
        them when vsp_dirty) */
     uint8_t nb; uint16_t bl[3], bx[3], by[3];
     uint8_t nr; int16_t rx[3], ry[3], rn[3];
+    uint8_t mask_chg, wc_ok; int16_t wc_sig[11]; uint8_t win_tiles[256];   /* (docs/30: used[] kept while the window, its map and the tiles' masks are) */
     uint16_t hs_line[3], hs_val[3]; uint8_t hs_n, htab;
     uint32_t vsp_e[3]; uint8_t vsp_n, vsp_dirty;
     uint8_t fails, hold;                            /* (packs failed in a row; pictures left to let be) */
