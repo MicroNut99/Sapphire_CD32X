@@ -48,6 +48,9 @@ Read `CLAUDE.md` first.
      `work/pic_run.sh` / `pic_check.sh` (= tools/m3_picrun.sh, m3_piccheck_ares.sh), `work/pic_<st>_all.bin` (every PC
      picture), the split `work/sel_st3_600m` (SPLIT_MARKS=1). Build: docs/16's how-to with `SEC=2`. The owner said
      not to burn a CD until the game is ready. Next: speed, colours (stages 1-2), sprite line limit, then play.
+  14. **docs/17, speed:** SPLIT / LATE / command-78 shadowing tried, none faster: the background's job reads the live
+     VDC model, so the master waits for it. Next: a copy for that job (map window, colours, tags; the tiles are the
+     hard part, SDRAM has no room for VRAM), then `LATE=1 SPR_CMDS=64` pays.
 
 ## 2. Where things live
 
