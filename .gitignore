@@ -27,3 +27,4 @@ saspeed/build/
 saspeed/cd/
 fpga/quartus/out/
 *.rbf
+reference/

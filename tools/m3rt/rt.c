@@ -467,8 +467,15 @@ static __attribute__((noinline)) void timing_write(Rt *r, uint32_t off, uint8_t 
         f1 != q->dma_pending || f2 != q->dma_running || e0 != q->t_dma_end) timing_changed(r);
 }
 
+#ifdef VW_COUNT
+extern unsigned long io_n[2][9]; static int io_k_(unsigned a) { a &= 0x1FFF; return (a & 0x1E00) == 0x1A00 ? 8 : (int)(a >> 10); }
+#define IOC(w, a) (io_n[w][io_k_(a)]++)
+#else
+#define IOC(w, a) ((void)0)
+#endif
 static uint8_t hw_read_(Rt *r, uint16_t a, int in_block_move)
 {
+    IOC(0, a);
     const unsigned off = a & 0x1FFF;
     if (off < 0x800) r->c.left -= 1;                /* a VDC / VCE access takes a cycle more (docs/11) */
     const int32_t t = t_now(r);
@@ -582,6 +589,7 @@ static inline void budget_cut(Rt *r, int32_t t)
 
 static void hw_write_(Rt *r, uint32_t off, uint8_t v)
 {
+    IOC(1, off);
     off &= 0x1FFF;
     if (off < 0x800) r->c.left -= 1;                /* a VDC / VCE access takes a cycle more (docs/11) */
     const int32_t t = t_now(r);
@@ -779,7 +787,7 @@ static inline int vram_port(Rt *r, uint32_t off, uint8_t v)
     if ((off & 0x1C02) != 2 || d->vp->select != 2 || r->irq_stale) return 0;   /* (irq_stale: hw_write looks again) */
     const int32_t t = r->entry_t + (r->entry_left - (r->c.left - 1)) * mult(&r->c);
     if (t >= vram_at(r)) return 0;
-    r->c.left -= 1;
+    r->c.left -= 1; IOC(1, 2);
     VPort *const p = d->vp;
     if (!(off & 1)) p->latch = v;
     else { PROV_VRAM(p->mawr); VWC(2, 1); if (p->mawr < 0x8000) VWRITE(p, p->mawr, p->latch | v << 8); p->mawr += p->inc; }
@@ -840,6 +848,9 @@ int rt_tia_card_vram(Cpu *c, uint16_t src, uint16_t dst, uint32_t len)
         vw_card = 0;
 #endif
     }
+#ifdef VW_COUNT
+    io_n[1][0] += n; io_n[0][8] += n;
+#endif
     c->left -= 7 * (int32_t)n;
     return (int)n;
 }

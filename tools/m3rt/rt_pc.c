@@ -649,6 +649,7 @@ static void pic_dump(const V32 *v, int b)
 }
 #endif
 #ifdef VW_COUNT
+unsigned long io_n[2][9];
 unsigned long vs_req, vs_run, vs_al[8], vs_distinct, vs_zero, vs_part, cv_n, cv_run, cv_zero; static uint8_t vs_seen[1 << 21];
 void vs_note(uint32_t a) { if (a < (1u << 21) && !vs_seen[a]) { vs_seen[a] = 1; vs_distinct++; } }
 #endif
@@ -1114,6 +1115,8 @@ int main(int argc, char **argv)
     }
     if (rt_ro_hist) { FILE *h = fopen(getenv("RUN_ROHIST"), "wb"); fwrite(rt_ro_hist, 4, 256 << 13, h); fclose(h); }
 #ifdef VW_COUNT
+    { extern unsigned long io_n[2][9]; static const char *nm[9] = { "VDC", "VCE", "PSG", "timer", "pad", "IRQ", "CD", "?", "card" };
+      for (int w = 0; w < 2; w++) { printf("io %s a frame:", w ? "writes" : "reads"); for (int k = 0; k < 9; k++) printf(" %s %.1f", nm[k], io_n[w][k] / (double)frames); printf("\n"); } }
     { extern unsigned long vs_req, vs_run, vs_al[8], vs_distinct, vs_zero, vs_part; printf("sprite cells (docs/18): not the card's %lu, partly %lu; %lu looked up, %lu one card run (odd %lu, even %lu, 128-aligned %lu), %lu different starts\n", vs_zero, vs_part, vs_req, vs_run, vs_al[0], vs_al[1], vs_al[2], vs_distinct); }
     { extern unsigned long cv_n, cv_run, cv_zero; printf("conversions (docs/18): %lu, one card run %lu, none of the card %lu\n", cv_n, cv_run, cv_zero); }
     printf("vram (docs/18), per frame: port writes %.1f, card TIA %.1f, rt.c 771 %.1f, VRAM-VRAM DMA %.1f, port reads %.1f, SAT DMA %.1f\n",

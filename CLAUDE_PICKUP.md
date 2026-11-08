@@ -58,6 +58,10 @@ Read `CLAUDE.md` first.
   16. **docs/19:** `KEEP=1` (cells at cart 0x170000) and `VS_SEC=1` (list sent by pace_vbi at the blank; command 78 by
      the secondary after it). Best build: `SEC=2 KEEP=1 VS_SEC=1`, about 24 game fps, screenshots exact but for
      line 203 now and then. Next: spr_clear, drawing on the secondary, the waits.
+  17. **docs/20, the CPU in the cart** (owner: a solid 30 fps at the game's speed, via the FPGA's HuC6280). `fpga/huc/`
+     (GHDL `ghdl-llvm`; `apt install ghdl ghdl-llvm`, and link libLLVM-18.so.18.1): the core exact on three whole
+     windows. ares is v1.7 now (the owner: "use the new ares"): the engine branch rebased, ares-headless rebuilt.
+     Next: the VDC's timing in RTL, the hardware page, the FIFO, rom1, the SH2's side.
 
 ## 2. Where things live
 

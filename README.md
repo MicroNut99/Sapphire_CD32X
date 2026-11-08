@@ -67,6 +67,10 @@ a frame; stages 2-5 under one)**, the 4 MB plain EverDrive 912-1,246, every hash
 sprites on the 32X, the status bar in its own band (the line-203 raster split by per-line H scroll and command 78).
 Stage 3's screenshots equal the PC's pictures, which equal Mednafen's screen but for the 16-cells-a-line sprite limit.
 Next: speed (22-27 frames a second with drawing; [docs/17](docs/17_SPEED_FIRST_LOOK.md): the background's job must stop holding the game; [docs/18](docs/18_WHERE_THE_FRAME_GOES.md): half the master's time is the sprites' 32-cell cache, which on the 14 MB cart should keep all 512 cells; [docs/19](docs/19_KEPT_CELLS_AND_THE_SPLITS_IN_STEP.md): kept in the cart by the engine's poke, and the status bar's split kept in step by sending the list at the blank), stages 1-2's colours.
+**The CPU in the cart** ([docs/20](docs/20_THE_CPU_IN_THE_CART.md)): for a solid 30 frames a second at the game's speed, the HuC6280 goes into
+the 14 MB cart's FPGA and the 32X only draws. MiSTer's HuC6280 core (GPL, fetched, not copied) runs Sapphire's
+600-frame windows of stages 1, 3 and 5 (52.9 million instructions) with no difference from Mednafen in any register
+or access; the VDC's waits are next.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

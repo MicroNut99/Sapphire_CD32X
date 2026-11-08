@@ -230,7 +230,11 @@ static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int 
         convert(r, c);
         KEEP_PUT(c, (const uint8_t *)tmp);
         k[0] = (uint16_t)t0; k[1] = t[1]; k[2] = t[2]; k[3] = t[3]; kv[c >> 3] |= (uint8_t)(1u << (c & 7));
+#ifdef SPR_SPLIT
+        return KEEP_CELL(c);                       /* (a list: tmp is the next conversion's) */
+#else
         return (const uint8_t *)tmp;
+#endif
     }
 #endif
     int hit = -1, lru = 0;

@@ -84,7 +84,10 @@ static volatile uint32_t sec_vs_, sec_vsdone_;
 #define SEC_VSDONE (*(volatile uint32_t *)((uintptr_t)&sec_vsdone_ | 0x20000000))
 static void vsplit_send(void);
 static Bg2 bg2;
-static uint32_t vs_job; static volatile int lst_ready, lst_op;
+static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
+#define vs_job SH(vs_job_v)
+#define lst_ready SH(lst_ready_v)
+#define lst_op SH(lst_op_v)
 #endif
 #endif
 void secondary(void)
@@ -111,7 +114,19 @@ void secondary(void)
         SH2_CCR = 0x11;
         { extern int spr_ylim; const int yl = *(volatile int *)((uintptr_t)&spr_ylim | 0x20000000);
           spr_draw_cmds((const SprCmd *)((uintptr_t)spr_cmd | 0x20000000), SEC_NC, (int)(j & 1), 0, yl); }
+#ifdef VS_SEC
+        vs_job = j;
+#endif
         sec_send((int)(j & 1), SEC_N);
+#ifdef VS_SEC
+        if (bg2.vsp_dirty) {
+            while (SEC_VS != j) { }
+            while (MARS_SYS_COMM0 != 0) { }
+            while (MARS_VDP_FBCTL & MARS_VDP_VBLK) { }
+            vsplit_send();
+        }
+        SEC_VSDONE = j;
+#endif
         SEC_SENT = j;
         continue;
 #endif
@@ -479,9 +494,14 @@ static void sec_send(int buf, int nn)                         /* (docs/17: the s
 {
     const int n = nn & 0x7FFF; bg2_pairs = (nn & 0x8000) != 0;
     if (n == 0) FB[BG2_LIST >> 1] = 0;
+#ifdef VS_SEC
+    (void)0;                                                  /* (docs/19: pace_vbi sends the list at the blank; 78 after) */
+    pace_req = buf; pal_go = buf; lst_op = 2 + buf; lst_ready = 1;
+#else
     if (bg2.vsp_dirty) vsplit_send();
     bg2_send(BG2_LIST, 2 + buf);
     pace_req = buf; pal_go = buf;
+#endif
 }
 #endif
 static int pal_dirty;                                         /* (cram_pend differs from what the 32X has) */
