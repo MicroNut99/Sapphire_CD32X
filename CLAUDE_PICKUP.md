@@ -33,6 +33,8 @@ Read `CLAUDE.md` first.
      6 banks with `work/sel_f700` (1,846). `/tmp/runf.sh` was the run script (in docs/11's how-to).
      **Waiting on the owner:** the console runs of `Sapphire\console_test\ace` (14 MB + core) and `plain\`
      (4 MB plain EverDrive): a photo of each end screen. Quartus done (docs/10 §2b: 3,677 LEs, timing met).
+  9. **docs/12:** every stage: `work/sp/st{1,2,4,5}.bin`, `work/tr/st*_600`, `work/sel_st*`, `work/stage_run.sh`
+     (= `tools/m3_stagerun.sh`). Next: the 14 MB build's profile, the VRAM in the FPGA, the console results.
 
 ## 2. Where things live
 

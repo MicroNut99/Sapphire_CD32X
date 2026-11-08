@@ -51,6 +51,9 @@ refreshes against 1,947 (2.71 a frame). Next: the Quartus build on the owner's P
 on the 14 MB cart the game's writes to four of its RAM banks go to the cart through the engine (the poke), which
 frees 32 KB of SDRAM. The hot code is now chosen over the whole 600 frames, not the 60-frame check window. Stage
 3: **1,062 refreshes on the 14 MB EverDrive + core (1.77 a frame)**, 1,846 on the 4 MB carts, both exact.
+**Every stage** ([docs/12](docs/12_EVERY_STAGE_ON_BOTH_EVERDRIVES.md)): stages 1-5, each with its own regions, banks
+and hot set from its 600 frames, exact against rt_pc on both carts. With the core 0.91-1.77 refreshes a frame,
+the 4 MB plain EverDrive 1.65-3.08 (the game and runtime only, no drawing yet).
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work
