@@ -73,6 +73,8 @@ Read `CLAUDE.md` first.
      stack's commands 79 / 78. ares's recompiler doesn't step the FRT: the watchdog gives the line.
   21. **docs/26, VSSWAP** (owner: change 79 / 78): CD32X-BootCamp branch `vsswap` (ledger 24b, docs `d696f4b`); the PR
      is the owner's to open/merge. `work/bc3` carries it. 263 pictures / 600 frames. Next: the sprites' cost.
+  22. **docs/27:** 262 pictures: 198 at 2 refreshes, 54 at 3, 10 at 4 (`RTX=-DPACE_HIST`). A picture's drawing must end
+     within ~1.4 refreshes for 2; the list rule (line 196) decides. Next: docs/27's list (sprite clears, tests, bg).
 
 ## 2. Where things live
 

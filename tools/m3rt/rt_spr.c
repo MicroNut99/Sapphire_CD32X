@@ -165,6 +165,7 @@ int spr_ylim = SPR_LINES;                         /* (docs/16: the lines sprites
 #define KEEP_AT 0x170000u                          /* (docs/19: page 0's free part, 512 x 288 bytes to 0x194000) */
 #endif
 static uint16_t kt[512][4]; static uint8_t kv[64];
+static uint16_t kp[512]; uint16_t keep_pic; unsigned long keep_conv, keep_stream, keep_again;   /* (docs/27's measure) */
 void spr_keep_clear(void) { memset(kv, 0, sizeof kv); }
 #ifdef __sh__
 extern void rt_ace_poke_run(uint32_t ca, const uint8_t *src, uint32_t n);
@@ -228,6 +229,13 @@ static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int 
 #endif
             return KEEP_CELL(c); }
         convert(r, c);
+        keep_conv++; if (kp[c] == (uint16_t)(keep_pic - 1)) keep_stream++; else if (kp[c] == keep_pic) keep_again++;
+#ifndef SPR_SPLIT
+        /* (docs/27) a cell converted the picture before too is a stream (an animation the game rewrites each frame):
+           drawn from the conversion, not written to the cart, where it would not be drawn again */
+        if (kp[c] == (uint16_t)(keep_pic - 1)) { kp[c] = keep_pic; kv[c >> 3] &= (uint8_t)~(1u << (c & 7)); return (const uint8_t *)tmp; }
+#endif
+        kp[c] = keep_pic;
         KEEP_PUT(c, (const uint8_t *)tmp);
         k[0] = (uint16_t)t0; k[1] = t[1]; k[2] = t[2]; k[3] = t[3]; kv[c >> 3] |= (uint8_t)(1u << (c & 7));
 #ifdef SPR_SPLIT
@@ -385,6 +393,9 @@ void spr_frame(const V32 *v, int buf)
 {
 #ifdef SPR_SPLIT
     spr_ncmd = 0;
+#endif
+#ifdef SPR_KEEP
+    keep_pic++;
 #endif
     SprBuf *b = &spr_buf[buf];
 #ifdef SPR_SPLIT

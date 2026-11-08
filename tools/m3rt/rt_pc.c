@@ -1062,7 +1062,8 @@ int main(int argc, char **argv)
             case 4: v->color[x & 0x1FF] = (uint16_t)d; break;
             case 5: for (int i = 0; i < v->sp_n; i++) v->spl[i] = v->sp[i];
                 v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
-                if (rt_draw_hook) rt_draw_hook(v);
+                { static long every = -1; if (every < 0) every = getenv("RUN_FIFO_EVERY") ? atol(getenv("RUN_FIFO_EVERY")) : 1;
+                  if (rt_draw_hook && k % every == 0) rt_draw_hook(v); }
                 rt_marks_frame(); k++; break;
             case 6: v->sp_cur = -1; break;
             case 7: if (v->sp_n < 4) { const int j = v->sp_n++; v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
@@ -1071,6 +1072,11 @@ int main(int argc, char **argv)
             }
         }
         printf("fifo: %ld frames played\n", k);
+#ifdef SPR_KEEP
+        { extern uint16_t keep_pic; extern unsigned long keep_conv, keep_stream, keep_again;
+          printf("keep: %u pictures, %lu conversions (%.1f a picture), %lu converted the picture before too, %lu again in the same picture\n",
+                 keep_pic, keep_conv, keep_conv / (double)(keep_pic ? keep_pic : 1), keep_stream, keep_again); }
+#endif
     } else
     rt_run(&rt, frames, on_frame);
     #ifdef RT_IRQ_CHECK

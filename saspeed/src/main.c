@@ -774,6 +774,9 @@ static void draw_hook(V32 *v)
 #endif
         const uint32_t now = gTicks, took = now - pace_last; pace_last = now;
         if (took > 1) pace_missed += took - 1;
+#ifdef PACE_HIST
+        ((volatile uint32_t *)0x2603E900)[took < 7 ? took : 7]++;
+#endif
         if (took > pace_worst) pace_worst = took;
         pace_shown_at = now;
 #ifdef DX_PLAY
@@ -892,6 +895,13 @@ static void draw_hook(V32 *v)
    (docs/24) applied to the VDC model as fifo_v32.c does; at each display start the picture is drawn if no later
    frame is due yet (the newest), else only the frame's splits and marks move on. COMM8: the pictures drawn */
 static uint32_t fifo_pics;
+static int pic_free(void)
+{
+#ifdef VS_SEC
+    if (vs_job && SEC_VSDONE != vs_job) return 0;
+#endif
+    return pace_req < 0 || pal_go < 0;
+}
 static void fifo_play(V32 *v, long frames)
 {
     const uint32_t *f = (const uint32_t *)0x02200000;
@@ -921,7 +931,9 @@ static void fifo_play(V32 *v, long frames)
             for (int i = 0; i < v->sp_n; i++) v->spl[i] = v->sp[i];
             v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
             while ((long)(gTicks - t0) < k) { }                 /* (not due yet: the PC Engine's own rate) */
-            if ((long)(gTicks - t0) < k + 1) { draw_hook(v); fifo_pics++; }   /* (the newest due) */
+            /* (docs/27: drawn only when the picture before is on screen - the frames keep coming meanwhile, their
+               entries applied while the swap is awaited - and when it is the newest due) */
+            if (pic_free() && (long)(gTicks - t0) < k + 1) { draw_hook(v); fifo_pics++; }
             rt_marks_frame();
             k++;
             break;
