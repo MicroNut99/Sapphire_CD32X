@@ -105,5 +105,41 @@ extern void (*v32_line0)(V32 *v);
    the last interrupt's lateness and when it was taken: rt.c) */
 extern void (*v32_scroll)(V32 *v, int reg); extern int32_t v32_line0_t, v32_access_t, v32_irq_late, v32_irq_take;
 #endif
+#ifdef VLOG
+/* VLOG=1 (docs/18): while the secondary SH2 makes a picture's background list from VRAM, the game's next frame does
+   not write VRAM: its writes go to a log (address << 16 | word), applied with their marks once the job is done - at
+   the next picture, at a read of VRAM, when the log is full, or at any write after the job's end. While the log is on
+   every VDC access takes the runtime's way (left_min: the inline paths' test fails) */
+#ifndef VLOG_N
+#define VLOG_N 1024
+#endif
+extern int vlog_on;
+extern uint32_t vlog_buf[VLOG_N], vlog_n;
+extern int (*vlog_done)(void);           /* (the job has ended: the log can go; the PC's: never) */
+extern void (*vlog_wait)(void);          /* (vlog_sync: until the job has ended) */
+void vlog_sync(void);                    /* the job waited for, the log applied, off */
+void vlog_start(VPort *p);
+void vlog_sat(uint16_t *sat, unsigned src, unsigned len);   /* (the log's words over a sprite table's copy) */
+#define VLOG_FORCE(p) do { if (vlog_on && vlog_done()) vlog_sync(); if (vlog_on) { (p)->left_min = 0x7FFFFFFF; (p)->left_min1 = VP_NEVER; } } while (0)
+#define VWRITE(p, a, w) do { if (vlog_on && (vlog_n == VLOG_N || vlog_done())) vlog_sync(); \
+    VW_SRC0(a); if (vlog_on) vlog_buf[vlog_n++] = (uint32_t)(a) << 16 | (uint16_t)(w); \
+    else { (p)->vram[a] = (uint16_t)(w); VMARK(p, a); } } while (0)
+#define VREAD_SYNC() do { if (vlog_on) vlog_sync(); } while (0)
+#define VLOG_ON_() (vlog_on && (!vlog_done() || (vlog_sync(), 0)))
+#else
+#define VLOG_ON_() 0
+#define VLOG_FORCE(p) ((void)0)
+#define VWRITE(p, a, w) do { VW_SRC0(a); (p)->vram[a] = (uint16_t)(w); VMARK(p, a); } while (0)
+#define VREAD_SYNC() ((void)0)
+#endif
+#ifdef VW_COUNT                          /* (docs/18: VRAM traffic measured on the PC) */
+extern unsigned long vw_n[6];            /* port writes, TIA from the card, block-move other, VRAM-VRAM DMA, port reads, SAT DMA */
+#define VWC(k, n) (vw_n[k] += (n))
+extern uint32_t vw_src[32768]; extern int vw_card;   /* (each word's card byte + 1, 0: not the card's) */
+#define VW_SRC0(a) (vw_card ? (void)0 : (void)(vw_src[a] = 0))
+#else
+#define VWC(k, n) ((void)0)
+#define VW_SRC0(a) ((void)0)
+#endif
 #endif
 

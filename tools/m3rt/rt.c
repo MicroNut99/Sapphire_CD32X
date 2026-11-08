@@ -197,6 +197,7 @@ static void vp_update(Rt *r)
     if (r->irq_stale) { p->left_min = 0x7FFFFFFF; p->left_min1 = VP_NEVER; return; }
     const int32_t d = vram_at(r) - r->entry_t;
     if (d <= 0) { p->left_min = 0x7FFFFFFF; p->left_min1 = VP_NEVER; return; }
+    if (VLOG_ON_()) { p->left_min = 0x7FFFFFFF; p->left_min1 = VP_NEVER; return; }   /* (docs/18) */
     const int32_t k = clocks_to_cycles(d, mult(&r->c));              /* ceil(d / m), at most BUDGET_MAX */
     p->left_min = r->entry_left - k;            /* left - 1 > this  <=>  the write's time < t_next */
     p->left_min1 = r->c.MPR[0] == 0xFF ? p->left_min + 1 : VP_NEVER;  /* (the SH2 hot code's test: left > this) */
@@ -265,6 +266,7 @@ void set_mpr(Cpu *c, int i, uint8_t v)
     uint8_t *const p = c->rp[i] ? (uint8_t *)((uintptr_t)c->rp[i] - ((uintptr_t)i << 13)) : 0;
     huc_pg[i] = p; huc_pgw[i] = c->wok[i] ? p : 0;
     if (i == 0) c->vp.left_min1 = v == 0xFF && c->vp.left_min != 0x7FFFFFFF ? c->vp.left_min + 1 : VP_NEVER;
+    VLOG_FORCE(&c->vp);
     slot_hid(r, i);
     if (i == 1 && v != 0xF8) r->unmodelled++;      /* (the translation reads base RAM straight: docs/16) */
 }
@@ -595,7 +597,7 @@ static void hw_write_(Rt *r, uint32_t off, uint8_t v)
                                                        timing register: the next interrupt stays where it was) */
             VPort *const p = d->vp;
             if (!(off & 1)) p->latch = v;
-            else { PROV_VRAM(p->mawr); if (p->mawr < 0x8000) { p->vram[p->mawr] = (uint16_t)(p->latch | v << 8); VMARK(p, p->mawr); } p->mawr += p->inc; }
+            else { PROV_VRAM(p->mawr); VWC(0, 1); if (p->mawr < 0x8000) VWRITE(p, p->mawr, p->latch | v << 8); p->mawr += p->inc; }
         } else if ((off & 3) >= 2 && timing_reg[d->vp->select & 31]) {
             timing_write(r, off, v);
 #ifdef RT_SCHED_CHECK
@@ -768,7 +770,7 @@ static inline int vram_port(Rt *r, uint32_t off, uint8_t v)
     r->c.left -= 1;
     VPort *const p = d->vp;
     if (!(off & 1)) p->latch = v;
-    else { PROV_VRAM(p->mawr); if (p->mawr < 0x8000) { p->vram[p->mawr] = (uint16_t)(p->latch | v << 8); VMARK(p, p->mawr); } p->mawr += p->inc; }
+    else { PROV_VRAM(p->mawr); VWC(2, 1); if (p->mawr < 0x8000) VWRITE(p, p->mawr, p->latch | v << 8); p->mawr += p->inc; }
     return 1;
 }
 
@@ -807,14 +809,24 @@ int rt_tia_card_vram(Cpu *c, uint16_t src, uint16_t dst, uint32_t len)
             r->ac.reads += (long)k;
         }
 #else
+#ifdef VW_COUNT
+        { ACPort tp = r->ac.port[(sb - 0x40) & 3]; extern uint32_t vw_src[32768]; uint16_t mw = p->mawr;
+          for (uint32_t j = 0; j < k; j++) { if (((done + j) & 1) && mw < 0x8000) { vw_src[mw] = 1 + ac_index_of(&tp) - 1; } if ((done + j) & 1) mw += p->inc; ac_step(&tp); } }
+#endif
         ac_stream(&r->ac, sb - 0x40, buf, k);
+#endif
+#ifdef VW_COUNT
+        vw_card = 1;
 #endif
         for (uint32_t j = 0; j < k; j++) {
             const uint32_t at = done + j;
             if (!(at & 1)) p->latch = buf[j];
-            else { PROV_VRAM(p->mawr); if (p->mawr < 0x8000) { p->vram[p->mawr] = (uint16_t)(p->latch | buf[j] << 8); VMARK(p, p->mawr); } p->mawr += p->inc; }
+            else { PROV_VRAM(p->mawr); VWC(1, 1); if (p->mawr < 0x8000) VWRITE(p, p->mawr, p->latch | buf[j] << 8); p->mawr += p->inc; }
         }
         done += k;
+#ifdef VW_COUNT
+        vw_card = 0;
+#endif
     }
     c->left -= 7 * (int32_t)n;
     return (int)n;
@@ -1405,6 +1417,7 @@ static __attribute__((unused)) int tail_quick(Rt *r)   /* (unused with RT_LEAVE_
     const int32_t e = vt - r->entry_t;
     if (e <= 0) { p->left_min = 0x7FFFFFFF; p->left_min1 = VP_NEVER; }
     else { p->left_min = budget - clocks_to_cycles(e, m); p->left_min1 = c->MPR[0] == 0xFF ? p->left_min + 1 : VP_NEVER; }
+    VLOG_FORCE(p);
     if (c->P & IF) { const int32_t f = r->obs_t - r->entry_t; if (f > 0) r->st_min = budget - clocks_to_cycles(f, m) + 1; }   /* st_find's */
     return 1;
 #else

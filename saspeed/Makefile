@@ -74,6 +74,10 @@ CCFLAGS += -DSPR_SPLIT $(if $(SPLIT_Y),-DSPLIT_Y=$(SPLIT_Y))
 endif
 # LATE=1 (with SEC=2): the secondary draws the sprites the master listed and sends the picture, while the master runs
 # the next frame (docs/17)
+# VLOG=1 (with LATE=1): the game's VRAM writes logged while the secondary makes the background (docs/18)
+ifeq ($(VLOG),1)
+CCFLAGS += -DVLOG
+endif
 ifeq ($(LATE),1)
 CCFLAGS += -DSPR_SPLIT -DSPR_LATE $(if $(SPR_CMDS),-DSPR_CMDS=$(SPR_CMDS))
 endif

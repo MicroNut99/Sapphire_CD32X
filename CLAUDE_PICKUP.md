@@ -51,6 +51,10 @@ Read `CLAUDE.md` first.
   14. **docs/17, speed:** SPLIT / LATE / command-78 shadowing tried, none faster: the background's job reads the live
      VDC model, so the master waits for it. Next: a copy for that job (map window, colours, tags; the tiles are the
      hard part, SDRAM has no room for VRAM), then `LATE=1 SPR_CMDS=64` pays.
+  15. **docs/18:** the owner chose the FPGA's way (the 4 MB cart may stay slower). Measured: VRAM traffic small; the
+     write log (`VLOG=1`) exact on the PC but slower in ares; the sprites are half the master (convert 21 %, the cache's
+     search 19 %), 83 % of conversions being cells the 32-slot cache lost. Next: the test build on docs/03's 14 MB
+     layout, then all 512 converted cells kept in the cart (engine pokes), found by number.
 
 ## 2. Where things live
 

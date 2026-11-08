@@ -648,7 +648,21 @@ static void pic_dump(const V32 *v, int b)
     const uint32_t fr = (uint32_t)cur_frame_any; fwrite(&fr, 4, 1, f); fwrite(px, 2, 256 * 224, f); fflush(f);
 }
 #endif
-static void spr_draw_pc(V32 *v)                    /* (rt_draw_hook: at the display's start) */
+#ifdef VW_COUNT
+unsigned long vs_req, vs_run, vs_al[8], vs_distinct, vs_zero, vs_part, cv_n, cv_run, cv_zero; static uint8_t vs_seen[1 << 21];
+void vs_note(uint32_t a) { if (a < (1u << 21) && !vs_seen[a]) { vs_seen[a] = 1; vs_distinct++; } }
+#endif
+static void spr_draw_pc_(V32 *v);
+static void spr_draw_pc(V32 *v)                    /* (docs/18 VLOG: the log applied, the drawing, the log on again) */
+{
+#ifdef VLOG
+    vlog_sync(); spr_draw_pc_(v); vlog_start(v->vp);
+    { static long most; if ((long)vlog_n > most) most = vlog_n; }
+#else
+    spr_draw_pc_(v);
+#endif
+}
+static void spr_draw_pc_(V32 *v)                   /* (rt_draw_hook: at the display's start) */
 {
 #ifdef RT_BG2
     if (getenv("RUN_BG2")) { bg2_run_pc(v); if (!getenv("RUN_SPR_DO")) return; }
@@ -835,6 +849,9 @@ static void on_frame(Rt *r)
             fwrite(r->vdc.vram, 2, 32768, vf); fwrite(z, 2, 32768, vf); fwrite(r->vdc.sat, 2, 256, vf);
             fwrite(r->vdc.color, 2, 512, vf); fflush(vf); }
     }
+#ifdef VLOG
+    vlog_sync();                                      /* (docs/18: the hash with the log applied) */
+#endif
     if (!quiet || r->frame == last_frame) printf("frame %ld hash %08x %08x\n", r->frame, rt_hash(r, 1), rt_hash(r, 0));
 }
 static void on_idle(Rt *r)
@@ -1096,6 +1113,12 @@ int main(int argc, char **argv)
         }
     }
     if (rt_ro_hist) { FILE *h = fopen(getenv("RUN_ROHIST"), "wb"); fwrite(rt_ro_hist, 4, 256 << 13, h); fclose(h); }
+#ifdef VW_COUNT
+    { extern unsigned long vs_req, vs_run, vs_al[8], vs_distinct, vs_zero, vs_part; printf("sprite cells (docs/18): not the card's %lu, partly %lu; %lu looked up, %lu one card run (odd %lu, even %lu, 128-aligned %lu), %lu different starts\n", vs_zero, vs_part, vs_req, vs_run, vs_al[0], vs_al[1], vs_al[2], vs_distinct); }
+    { extern unsigned long cv_n, cv_run, cv_zero; printf("conversions (docs/18): %lu, one card run %lu, none of the card %lu\n", cv_n, cv_run, cv_zero); }
+    printf("vram (docs/18), per frame: port writes %.1f, card TIA %.1f, rt.c 771 %.1f, VRAM-VRAM DMA %.1f, port reads %.1f, SAT DMA %.1f\n",
+           vw_n[0] / (double)frames, vw_n[1] / (double)frames, vw_n[2] / (double)frames, vw_n[3] / (double)frames, vw_n[4] / (double)frames, vw_n[5] / (double)frames);
+#endif
     printf("banks written:");
     for (int b = 0; b < 256; b++) if (rt.bank_dirty[b] || (b == 0xF8)) printf(" %02X", b);
     printf("\n");

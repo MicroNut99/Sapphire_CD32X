@@ -112,6 +112,11 @@ void spr_init(const uint8_t *cells)
 static void convert(const V32 *r, unsigned c)
 {
     const uint16_t *w = r->vram + (c & 0x1FF) * 64;
+#ifdef VW_COUNT
+    { extern uint32_t vw_src[32768]; extern unsigned long cv_n, cv_run, cv_zero; const uint32_t *q = vw_src + (c & 0x1FF) * 64;
+      int run = q[0] != 0, z = 1; for (int i = 0; i < 64; i++) { if (q[i]) z = 0; if (i && q[i] != q[0] + 2u * i) run = 0; }
+      cv_n++; cv_run += run; cv_zero += z; }
+#endif
     uint8_t *b = (uint8_t *)tmp, *o = b + C_ODD; unsigned mask = 0;
     for (int y = 0; y < 16; y++, o += 9) {
         const unsigned p0 = w[y], p1 = w[16 + y], p2 = w[32 + y], p3 = w[48 + y];
@@ -163,6 +168,16 @@ static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int 
 {
 #ifdef SPR_SPLIT
     src_unkept = 0;
+#endif
+#ifdef VW_COUNT
+    {   /* (docs/18's measure: the cell's 64 words from one run of the card, 2 bytes a word) */
+        extern uint32_t vw_src[32768]; extern unsigned long vs_req, vs_run, vs_al[8]; extern void vs_note(uint32_t);
+        const uint32_t s0 = vw_src[c * 64]; int run = s0 != 0;
+        for (int i = 1; i < 64 && run; i++) run = vw_src[c * 64 + i] == s0 + 2u * i;
+        { int z = 1, cd = 0; for (int i = 0; i < 64; i++) { if (vw_src[c * 64 + i]) { z = 0; cd++; } }
+          extern unsigned long vs_zero, vs_part; if (z) vs_zero++; else if (!run) vs_part++; }
+        vs_req++; if (run) { vs_run++; vs_al[((s0 - 1) & 127) ? (((s0 - 1) & 1) ? 0 : 1) : 2]++; vs_note(s0 - 1); }
+    }
 #endif
     const uint16_t *t = &rt_marks.v[c * 4];
     const unsigned t0 = t[0], tg = rt_marks.tag;

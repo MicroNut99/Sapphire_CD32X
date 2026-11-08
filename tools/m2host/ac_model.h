@@ -20,6 +20,7 @@ void ac_state(const ArcadeCard *ac, uint32_t *state);  /* the same 19 words */
 void ac_start_regions(ArcadeCard *ac, const uint32_t *state, const uint8_t *const reg[32]);
 uint8_t ac_read(ArcadeCard *ac, uint32_t a);           /* a: the hardware page's address ($1A00-$1AFF) */
 /* (Sapphire docs/15) n data reads of port k into out, as n ac_read()s of its data register (Sapphire's TIA to VRAM) */
+uint32_t ac_index_of(const ACPort *p); void ac_step(ACPort *p);
 void ac_stream(ArcadeCard *ac, int k, uint8_t *out, uint32_t n);
 void ac_write(ArcadeCard *ac, uint32_t a, uint8_t v);
 /* banks 40-43 (physical address pa) are ports 0-3's data register */

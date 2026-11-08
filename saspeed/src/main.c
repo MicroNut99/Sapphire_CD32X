@@ -682,6 +682,12 @@ static void play_pad(void)                                    /* (draw_hook: the
 #ifdef SPR_LATE
 static uint32_t late_job;
 #endif
+#ifdef VLOG
+#include <stddef.h>
+static union { uint8_t b[offsetof(V32, vram)]; uint32_t align; } v32_head;   /* (docs/18) */
+static int vlog_job_done(void) { return SEC_DONE == late_job; }
+static void vlog_job_wait(void) { while (SEC_DONE != late_job) { } }
+#endif
 static void draw_hook(V32 *v)
 {
 #ifdef SEC_TIMES
@@ -717,7 +723,13 @@ static void draw_hook(V32 *v)
 #ifdef SPR_SEC
     static uint32_t sec_n;
     const uint32_t job = (++sec_n << 1) | (uint32_t)(cur ^ 1);
+#ifdef VLOG
+    vlog_sync();                                              /* (docs/18: the frame's VRAM writes in, the job before done) */
+    memcpy(&v32_head, v, offsetof(V32, vram));                /* (the registers, the colours, the splits: the job's copy) */
+    SEC_V = (const V32 *)&v32_head;
+#else
     SEC_V = v;
+#endif
 #ifdef SEC_BG
     SEC_PN = pace_n;
 #endif
@@ -726,7 +738,11 @@ static void draw_hook(V32 *v)
 #ifdef SPR_LATE
     spr_frame_list(v, cur ^ 1);
     SEC_NC = spr_ncmd; SEC_LIST = job; late_job = job;       /* (the secondary draws them, then sends the picture) */
+#ifdef VLOG
+    vlog_start(v->vp);                                        /* (docs/18: the game runs on, its VRAM writes logged) */
+#else
     while (SEC_DONE != job) { }                               /* (its background's list made: nothing it reads changes) */
+#endif
     pace_n++;
     MARS_SYS_COMM6 = (short)pace_missed;
     return;
@@ -979,6 +995,9 @@ int main(void)
         spr_buf[0].ovl = (uint8_t *)0x24020000 + 0x200 + 32; spr_buf[0].nrm = (uint8_t *)0x24000000 + 0x200 + 32;
         spr_buf[0].tail = (uint8_t *)0x24000000 + 0x1D000;  /* (the buffer's spare part: the picture ends at 0x11A00; 9 KB) */
         spr_buf[1] = spr_buf[0];
+#ifdef VLOG
+        vlog_done = vlog_job_done; vlog_wait = vlog_job_wait; bg2_vram = rt.vdc.vram;   /* (docs/18) */
+#endif
 #ifndef SPR_NOHOOK
         rt_draw_hook = draw_hook;                             /* (SPR_NOHOOK, DIAG: the build without the drawing) */
 #endif

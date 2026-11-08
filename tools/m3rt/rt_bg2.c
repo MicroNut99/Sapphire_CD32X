@@ -13,6 +13,7 @@
 #else
 #define ST(x) (x)
 #endif
+static const uint16_t *VRp;                       /* (bg2_frame's VRAM, docs/18) */
 static const uint16_t bit16[16] = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
 #define B16(i) (bit16[i])                  /* (the SH2 shifts by a variable count in a library call: a table) */
 #define B8(i) ((uint8_t)bit16[i])
@@ -149,7 +150,7 @@ static int repack(Bg2 *b, const V32 *v, uint16_t *chgd)
 static void recount(Bg2 *b, const V32 *v)
 {
     memset(b->used, 0, sizeof b->used);
-    WIN_FOR(b, a, { const uint16_t e = v->vram[a]; b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; });
+    WIN_FOR(b, a, { const uint16_t e = VRp[a]; b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; });
 }
 static void win_count(Bg2 *b, const V32 *v)       /* (Sapphire docs/16: the window's indices, exactly) */
 {
@@ -243,14 +244,14 @@ void bg2_fill(Bg2 *b, int cur)                     /* a buffer's tables, at the 
 }
 static uint16_t tile_hash(const V32 *v, unsigned t)
 {
-    const uint16_t *w = v->vram + t * 16; uint32_t h = 0x811C9DC5u;
+    const uint16_t *w = VRp + t * 16; uint32_t h = 0x811C9DC5u;
     for (int k = 0; k < 16; k++) h = (h ^ w[k]) * 0x01000193u;
     return (uint16_t)(h ^ h >> 16);
 }
 static void tile_mask(Bg2 *b, const V32 *v, unsigned t)
 {   /* (the colour indices a tile shows: four rows at a time, the 8 pixels of a row in a byte of each plane - an index
        is there if any pixel's four plane bits are its four bits) */
-    const uint16_t *w = v->vram + t * 16; uint32_t A[2][4], B[2][4];
+    const uint16_t *w = VRp + t * 16; uint32_t A[2][4], B[2][4];
     for (int h = 0; h < 2; h++) {
         const uint16_t *r = w + 4 * h;
         const uint32_t x01 = r[0] | (uint32_t)r[1] << 16, x23 = r[2] | (uint32_t)r[3] << 16;
@@ -269,7 +270,7 @@ static void tile_mask(Bg2 *b, const V32 *v, unsigned t)
 }
 static void convert(Bg2 *b, const V32 *v, unsigned t, int p, unsigned s)   /* 16 words into the list */
 {
-    const uint16_t *w = v->vram + t * 16; const uint8_t *m = b->m[p];
+    const uint16_t *w = VRp + t * 16; const uint8_t *m = b->m[p];
     vram_at(b, s * 32);
     for (int y = 0; y < 8; y++) {
         const unsigned p01 = w[y], p23 = w[8 + y]; uint32_t row = 0;
@@ -330,8 +331,10 @@ static unsigned new_slot(Bg2 *b, unsigned t, int p)  /* a slot no entry uses (th
 }
 static void set_dirty(Bg2 *b, int a) { if (!(b->dirty[a >> 3] & B8(a & 7))) { b->dirty[a >> 3] |= B8(a & 7); b->ndirty++; } }
 
+const uint16_t *bg2_vram;                         /* (docs/18: the VRAM read when v is a copy of the registers only) */
 int bg2_frame(Bg2 *b, const V32 *v, int cur)
 {
+    VRp = bg2_vram ? bg2_vram : v->vram;
     const unsigned geom = v->MWR & 0x70;          /* (Sapphire docs/16: any size up to 4,096 entries, not only 64 x 64) */
     const int mw = bg2_mw(geom), mh = bg2_mh(geom);
     if (mw * mh > 4096) return 0;
@@ -388,7 +391,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
     if (nbat) for (int t = 0; t < (b->mn >> 4); t++) if (batchg[t >> 3] & B8(t & 7))
         for (int a = t * 16; a < t * 16 + 16; a++) set_dirty(b, a);
     if (ntchg) ST(b->st.scan_t++);
-    if (ntchg) for (int a = 0; a < b->mn; a++) { const unsigned t = v->vram[a] & 0x7FF;
+    if (ntchg) for (int a = 0; a < b->mn; a++) { const unsigned t = VRp[a] & 0x7FF;
         if (tchg[t >> 3] & B8(t & 7)) set_dirty(b, a); }
     /* (Sapphire docs/16) the window the picture can show: 33 x 29 entries from the scroll. Only its entries count for
        the colours (exactly, each picture) and are sent - Sapphire's 128-wide map holds far more colours than a screen;
@@ -413,7 +416,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
     if (!ok) ST(b->st.misfit++);
     int any = 0; for (int p = 0; p < 16; p++) any |= chgd[p];
     if (any) ST(b->st.scan_c++);
-    if (any) for (int a = 0; a < b->mn; a++) { const uint16_t e = v->vram[a];
+    if (any) for (int a = 0; a < b->mn; a++) { const uint16_t e = VRp[a];
         if (chgd[e >> 12] & tget(b, T_MASK(e & 0x7FF))) set_dirty(b, a);
         else if (chgd[e >> 12] == 0xFFFF) set_dirty(b, a); }
     /* 4. the entries to send: each its tile converted for its palette's map (kept by (tile, palette)), its word */
@@ -422,7 +425,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         if (stop || !b->ndirty) break;
         if (!(b->dirty[a >> 3] & B8(a & 7))) continue;
         if (!jroom(b, 12) || b->ln + 40 > BG2_LIST_WORDS) { stop = 1; break; }
-        const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF; const int p = e >> 12;
+        const uint16_t e = VRp[a]; const unsigned t = e & 0x7FF; const int p = e >> 12;
         if (tget(b, T_TAG(t)) != rt_marks.v[t] && tget(b, T_TAG(t)) != (uint16_t)~rt_marks.v[t]) { ST(b->st.unseen++); continue; }   /* (its tile not looked at yet: later; a copy under way is looked at each picture) */
         const unsigned u0 = tget(b, T_MASK(t)), u = u0 & ~1u;
         if (!(u0 & 1)) tset(b, T_MASK(t), (uint16_t)(u0 | 1));   /* (named by the plane from now on) */

@@ -51,6 +51,8 @@ static void ac_add_offset(ACPort *p)
     p->base = (p->base + p->offset) & 0xFFFFFF;
 }
 
+uint32_t ac_index_of(const ACPort *p) { return ac_index(p); }   /* (docs/18's measure) */
+void ac_step(ACPort *p) { ac_auto_increment(p); }
 void ac_stream(ArcadeCard *ac, int k, uint8_t *out, uint32_t n)
 {
     ACPort *p = &ac->port[k & 3];

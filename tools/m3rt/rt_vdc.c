@@ -8,6 +8,33 @@
  * bit), the sprite fetch, the VDC clock's grid against the line (a few master clocks), lines shorter than the VCE's. */
 #include <string.h>
 #include "rt_vdc.h"
+#ifdef VW_COUNT
+unsigned long vw_n[6]; uint32_t vw_src[32768]; int vw_card;
+#endif
+#ifdef VLOG
+int vlog_on; uint32_t vlog_buf[VLOG_N], vlog_n;
+static int vlog_never(void) { return 0; }
+static void vlog_nowait(void) { }
+int (*vlog_done)(void) = vlog_never;
+void (*vlog_wait)(void) = vlog_nowait;
+static void sat_copy(uint16_t *d, const uint16_t *s, uint32_t n);
+static VPort *vlog_vp;
+void vlog_start(VPort *p) { vlog_vp = p; vlog_n = 0; vlog_on = 1; VLOG_FORCE(p); }
+void vlog_sync(void)
+{
+    if (!vlog_on) return;
+    vlog_on = 0;
+    vlog_wait();
+    VPort *const p = vlog_vp;
+    for (uint32_t i = 0; i < vlog_n; i++) { const unsigned a = vlog_buf[i] >> 16; p->vram[a] = (uint16_t)vlog_buf[i]; VMARK(p, a); }
+    vlog_n = 0;
+}
+void vlog_sat(uint16_t *sat, unsigned src, unsigned len)
+{   /* (the copy is the sprite table as the game wrote it: its writes still in the log on top, in order) */
+    for (uint32_t i = 0; i < vlog_n; i++) { const unsigned a = vlog_buf[i] >> 16;
+        if (a - src < len) { uint16_t w = (uint16_t)vlog_buf[i]; sat_copy(&sat[a - src], &w, 1); } }
+}
+#endif
 #ifdef RT_PROV
 void prov_vram(unsigned a);                         /* DIAG (docs/45, rt_pc.c): a VRAM word written */
 #define PROV_VRAM(a) prov_vram(a)
@@ -78,10 +105,11 @@ static void start_dma(VTime *s, Ctx *x, int32_t t)            /* VRAM to VRAM, d
     s->t_dma_end = t + (int32_t)words * 4 * s->ratio;
     if (x->m) {
         V32 *v = x->m;
+        VREAD_SYNC();
         for (uint32_t i = 0; i < words; i++) {
             const uint16_t w = v->SOUR < 0x8000 ? v->vram[v->SOUR] : 0;
             if (v->DESR < 0x8000) {
-                v->vram[v->DESR] = w;
+                v->vram[v->DESR] = w; VWC(3, 1); VW_SRC0(v->DESR);
 #ifdef HUC_MARKS
                 rt_marks.v[v->DESR >> 4] = rt_marks.code;        /* (a VRAM DMA: the code's, docs/53) */
 #endif
@@ -213,7 +241,10 @@ static __attribute__((noinline)) void rare(VTime *s, Ctx *x, int k, int32_t n)
             s->satb_pending = 0; s->t_sat_end = n + 1024 * s->ratio;
             if (m && m->DVSSR < 0x8000) {
                 const uint32_t len = m->DVSSR > 0x8000 - 0x100 ? 0x8000u - m->DVSSR : 256;
-                sat_copy(m->sat, &m->vram[m->DVSSR], len);
+                sat_copy(m->sat, &m->vram[m->DVSSR], len); VWC(5, len);
+#ifdef VLOG
+                if (vlog_on) vlog_sat(m->sat, m->DVSSR, len);
+#endif
             }
         } else set_burst(s, x, n);
         break;
@@ -571,7 +602,8 @@ uint8_t v32_read(V32 *v, unsigned a)
         VPort *const p = v->vp;
         const uint8_t r = msb ? (uint8_t)(p->read_buffer >> 8) : (uint8_t)p->read_buffer;
         if (p->select == 2 && msb) {
-            p->read_buffer = p->marr < 0x8000 ? v->vram[p->marr] : 0;
+            VREAD_SYNC();
+            p->read_buffer = p->marr < 0x8000 ? v->vram[p->marr] : 0; VWC(4, 1);
             p->marr += vram_inc[(v->t.CR >> 11) & 3];
         }
         return r;
@@ -595,12 +627,12 @@ void v32_write(V32 *v, unsigned a, uint8_t val)
     switch (v->vp->select) {
     case 0x00: SETB(v->vp->mawr, val, msb); break;
     case 0x01: SETB(v->vp->marr, val, msb);
-        if (msb) { v->vp->read_buffer = v->vp->marr < 0x8000 ? v->vram[v->vp->marr] : 0; v->vp->marr += vram_inc[(s->CR >> 11) & 3]; }
+        if (msb) { VREAD_SYNC(); v->vp->read_buffer = v->vp->marr < 0x8000 ? v->vram[v->vp->marr] : 0; v->vp->marr += vram_inc[(s->CR >> 11) & 3]; }
         break;
     case 0x02:
         if (!msb) v->vp->latch = val;
         else {
-            PROV_VRAM(v->vp->mawr); if (v->vp->mawr < 0x8000) { v->vram[v->vp->mawr] = (uint16_t)(v->vp->latch | val << 8); VMARK(v->vp, v->vp->mawr); }
+            PROV_VRAM(v->vp->mawr); VWC(0, 1); if (v->vp->mawr < 0x8000) VWRITE(v->vp, v->vp->mawr, v->vp->latch | val << 8);
             v->vp->mawr += v->vp->inc;
         }
         break;

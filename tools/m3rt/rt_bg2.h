@@ -83,6 +83,7 @@ void bg2_fill(Bg2 *b, int cur);            /* each buffer's tables, once, at the
 /* one picture at the display start, into buffer cur (the one the SH2 sees); returns the list's words (in the buffer
    at BG2_LIST, ended by 0; its kept runs, 0x3nnn, at the end); 0 if the map has more than 4,096 entries (128 x 64:
    more than a Genesis plane; Sapphire docs/16: every other size, 32-128 wide, 32-64 tall) */
+extern const uint16_t *bg2_vram;
 int bg2_frame(Bg2 *b, const V32 *v, int cur);
 /* (Sapphire docs/16) the map's size from MWR: width 32 / 64 / 128 (bits 4-5), height 32 / 64 (bit 6) */
 static inline int bg2_mw(unsigned mwr) { const int w = (mwr >> 4) & 3; return w == 0 ? 32 : w == 1 ? 64 : 128; }
