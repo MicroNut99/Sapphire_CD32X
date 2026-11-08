@@ -26,7 +26,8 @@ typedef struct { uint32_t n; uint32_t addr; uint8_t kind, v, pad[2]; } Io;
 static uint8_t base_[8192], cdram[65536], sup[196608], bram[2048], rom[262144];
 static Ins *ins; static long nins, ii; static Io *io; static long nio, iio;
 static long limit, bad, cyc_bad, cyc_first = -1, checked;
-static int stub_on = 1, irq_line;                    /* irq_line: bit 0 IRQ2, 1 IRQ1, 2 timer (held low) */
+static int stub_on = 1, irq_line;
+long tb_started;                                     /* (vsys.cpp: the window's first instruction reached) */                    /* irq_line: bit 0 IRQ2, 1 IRQ1, 2 timer (held low) */
 static uint8_t stub[64]; static int stub_n; static uint16_t stub_at = 0xE000, target;
 static uint8_t scratch_v[256]; static int scratch_ok[256];
 static long last_cyc = -1; static uint32_t last_ts;
@@ -142,7 +143,7 @@ int tb_ins(int pc, int a, int x, int y, int s, int p, int m0, int m1, int m2, in
     if (got_int) return irq_line;                                /* (an interrupt's entry, not an instruction) */
     if (stub_on) {
         if (pc != target) return 0;
-        stub_on = 0; ii = 0;
+        stub_on = 0; ii = 0; tb_started = 1;
     }
     if (ii >= limit) {
         fprintf(stderr, "tb: %ld instructions checked, %ld failures, %ld cycle differences (first at %ld); %ld of %ld accesses used\n",
