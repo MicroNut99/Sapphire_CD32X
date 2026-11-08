@@ -83,6 +83,11 @@ endif
 ifneq ($(FIFO),)
 CCFLAGS += -DFIFO_PLAY
 endif
+# VSSWAP=1 (with VS_SEC=1; the stack built VSSWAP=1, docs/26): command 78 sent by the master before the list - the
+# stack switches the V splits at command 79's swap - and nothing after it
+ifeq ($(VSSWAP),1)
+CCFLAGS += -DVS_SWAP
+endif
 # KEEP=1 (with ACE=1, the 14 MB cart): every sprite cell kept converted in the cart, by the engine's poke (docs/19)
 ifeq ($(KEEP),1)
 CCFLAGS += -DSPR_KEEP

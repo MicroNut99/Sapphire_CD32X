@@ -142,7 +142,11 @@ void secondary(void)
 #endif
         SEC_DONE = j;
 #ifdef VS_SEC
+#ifdef VS_SWAP
+        if (0) {                                              /* (docs/26: the master sent it, before the list) */
+#else
         if (bg2.vsp_dirty) {
+#endif
             while (SEC_VS != j) { }                           /* (the master has sent the list) */
             while (MARS_SYS_COMM0 != 0) { }                   /* (the 68000 has run it) */
             while (MARS_VDP_FBCTL & MARS_VDP_VBLK) { }        /* (not in a blank: pace_vbi's) */
@@ -840,6 +844,9 @@ static void draw_hook(V32 *v)
         /* (docs/19: the list sent by pace_vbi at the next blank's start, so the 68000 runs it while no raster split is
            due - level 4 is masked while it runs - and command 78 the secondary's, after it) */
         vs_job = job; lst_op = 2 + (cur ^ 1);
+#ifdef VS_SWAP
+        if (bg2.vsp_dirty) vsplit_send();                     /* (docs/26: before the list; the stack switches it at the swap) */
+#endif
         {   /* (docs/25) at once if the 68000 can run it before line 200 (about 10 words a line, the masked raster
                interrupt's line 203 kept clear), else at the blank's start */
             const int tpl = 1, d = (int)((wdt_now() - wdt_vbl) * 262 / 94);   /* (94 ticks a refresh: 2.8 lines a tick) */

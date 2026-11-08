@@ -71,6 +71,8 @@ Read `CLAUDE.md` first.
   20. **docs/25:** `FIFO=work/fifo_st3.bin` in EXTRA plays the recorded FIFO in the picture build (screenshots after
      ares frame 4000: the disc loads 1.85 MB first). 24 pictures a second at the game's full speed; the waits are the
      stack's commands 79 / 78. ares's recompiler doesn't step the FRT: the watchdog gives the line.
+  21. **docs/26, VSSWAP** (owner: change 79 / 78): CD32X-BootCamp branch `vsswap` (ledger 24b, docs `d696f4b`); the PR
+     is the owner's to open/merge. `work/bc3` carries it. 263 pictures / 600 frames. Next: the sprites' cost.
 
 ## 2. Where things live
 

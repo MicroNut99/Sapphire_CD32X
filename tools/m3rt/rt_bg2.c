@@ -487,7 +487,13 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
             e[k] = (uint32_t)b->bl[k] << 20 | o << 10 | o; }
         /* (entry 0 too while a split is on: command 78 writes it after line 223 for the next picture - the top's V -
            so it must be this picture's; with no split, only the change to none) */
+#ifdef VS_SWAP
+        /* (Sapphire docs/26: the stack takes the top entry from VSRAM at each swap: only the splits' own entries count) */
+        int chg = n != b->vsp_n; for (int k = 1; k < n && !chg; k++) chg = e[k] != b->vsp_e[k];
+        if (!chg) b->vsp_e[0] = e[0];
+#else
         int chg = n != b->vsp_n; for (int k = n > 1 ? 0 : 1; k < n && !chg; k++) chg = e[k] != b->vsp_e[k];
+#endif
         if (chg) { for (int k = 0; k < n; k++) b->vsp_e[k] = e[k]; b->vsp_n = (uint8_t)n; b->vsp_dirty = 1; }
     }
     for (int c0 = 1; c0 < 64; ) {
