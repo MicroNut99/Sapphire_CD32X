@@ -269,6 +269,9 @@ static uint32_t __attribute__((noinline)) wdt_now(void)            /* ticks of 4
         return (c + ((f & 0x80) && w < 128)) << 8 | w;   /* (a wrap whose interrupt is not taken yet) */
     }
 }
+#ifdef SPR_PROF
+uint32_t (*spr_clk)(void) = wdt_now;                          /* (DIAG, docs/32) */
+#endif
 static void prof_init(void)
 {
     SH2_WDT_VCR = (uint16_t)(65 << 8 | (SH2_WDT_VCR & 0xFF));     /* vector 65 (crt0: pri_irq, levels 2-3) */
@@ -583,7 +586,13 @@ static void pic_extras(const V32 *v, uint32_t num)
         pd |= cram_pend[i] != cram_shadow[i];
     }
     pal_dirty = pd;
+    /* (docs/32: only the blocks that differ from what this buffer shows - its number two pictures ago - and every
+       block each 64th picture, in case something else wrote there) */
+    static uint32_t shown[2] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+    const int buf = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1;       /* (the buffer drawn: not the one shown) */
+    const uint32_t chg = (num & 63) < 2 ? 0x1FF : (num ^ shown[buf]) & 0x1FF; shown[buf] = num;
     for (int bit = 0; bit < 9; bit++) {                       /* (the number: blocks at x 4-27, 12 lines each) */
+        if (!(chg >> bit & 1)) continue;
         const uint16_t w = (num >> bit) & 1 ? 0x2020 : 0x1010;
         for (int y = bit * 16; y < bit * 16 + 12; y++) for (int x = 2; x < 14; x++) FB[0x100 + y * 160 + x] = w;
     }

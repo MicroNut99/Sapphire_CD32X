@@ -89,6 +89,9 @@ Read `CLAUDE.md` first.
   26. **docs/31, the tiles' hash and mask from the FPGA:** `cs_tile` (cellstore.c), `BG2_FPGA_TILES` / saspeed
      `FPGA_TILES=1`, ares window 0x1B8000. 320 pictures (76 / 214 / 25 / 5). PC check: rt_pc with `-DSPR_FPGA_CELLS
      [-DBG2_FPGA_TILES]` + `EXTRA_C=fpga/huc/cellstore.c`, `RUN_FIFO_CS=1 RUN_BG2_TILE_CHECK=1`. Next: the boss's sprites.
+  27. **docs/32:** pic_extras' number blocks drawn only where they change (37 -> 19 lines); `SPRPROF=1` times the
+     master's sprites (1,800 clocks a cell: the frame buffer shared with bg2's tables). Next: VRAM read from the FPGA,
+     the 64 KB freed, rt_bg2's tables to SDRAM (no journal).
 
 ## 2. Where things live
 
