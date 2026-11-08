@@ -13,6 +13,10 @@
 #include "../../fpga/huc/cellstore.h"
 const uint8_t *spr_fpga_cell(unsigned c) { return cs_cell(c); }
 #endif
+#ifdef BG2_FPGA_TILES
+#include "../../fpga/huc/cellstore.h"
+uint32_t bg2_fpga_tile(unsigned t) { return cs_tile(t); }   /* (docs/31) */
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"

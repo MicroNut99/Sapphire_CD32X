@@ -86,6 +86,9 @@ Read `CLAUDE.md` first.
   25. **docs/30, the background's list faster:** `WIN_FOR_DIRTY`, `win_count` kept, the journal in SDRAM; 311 pictures
      (70 / 205 / 25 / 11 at 1-4 refreshes), all identical on the PC. `work/prof.sh <tag>` (BG2PROF=1) times bg2's steps.
      Next: the tiles' hash and mask from the FPGA (the heavy lists' 120 lines).
+  26. **docs/31, the tiles' hash and mask from the FPGA:** `cs_tile` (cellstore.c), `BG2_FPGA_TILES` / saspeed
+     `FPGA_TILES=1`, ares window 0x1B8000. 320 pictures (76 / 214 / 25 / 5). PC check: rt_pc with `-DSPR_FPGA_CELLS
+     [-DBG2_FPGA_TILES]` + `EXTRA_C=fpga/huc/cellstore.c`, `RUN_FIFO_CS=1 RUN_BG2_TILE_CHECK=1`. Next: the boss's sprites.
 
 ## 2. Where things live
 

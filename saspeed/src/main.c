@@ -941,6 +941,10 @@ const uint8_t *spr_fpga_cell(unsigned c)
     if (CS_RD(0xc7) >> (c & 15) & 1) return (const uint8_t *)(0x22000000u + 0x194000u + c * 288u);
     return (const uint8_t *)(0x02000000u + 0x170000u + c * 288u);
 }
+#ifdef BG2_FPGA_TILES
+/* (docs/31) tile t's hash << 16 | colour mask as at the lock: the FPGA picks the frozen value or the live one */
+uint32_t bg2_fpga_tile(unsigned t) { return *(volatile uint32_t *)(0x22000000u + 0x1B8000u + (t & 2047) * 4u); }
+#endif
 static void cs_purge(void)
 {
     for (unsigned g = 0; g < 64; g++) if (cs_dirty[g]) {

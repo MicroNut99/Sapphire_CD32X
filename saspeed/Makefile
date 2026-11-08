@@ -92,6 +92,10 @@ endif
 ifeq ($(BG2PROF),1)
 CCFLAGS += -DBG2_PROF
 endif
+# FPGA_TILES=1 (with FPGA_CELLS=1): the background tiles' hash and colour mask from the FPGA too (docs/31)
+ifeq ($(FPGA_TILES),1)
+CCFLAGS += -DBG2_FPGA_TILES
+endif
 # FPGA_CELLS=1 (with FIFO=, ACE=1; ares ARES_CELLS): the FPGA's converted cells (docs/28-29) read from the cart
 ifeq ($(FPGA_CELLS),1)
 CCFLAGS += -DSPR_FPGA_CELLS

@@ -11,5 +11,6 @@ void cs_boundary(void);                 /* a frame boundary (the display starts)
 void cs_release(void);                  /* the SH2: its picture before is on screen */
 const uint8_t *cs_cell(unsigned c);     /* the cell as at the lock (the SH2's read) */
 int cs_locked(void);
+uint32_t cs_tile(unsigned t);           /* (docs/31) tile t's hash << 16 | colour mask, as at the lock */
 extern unsigned long cs_freezes, cs_updates;
 #endif

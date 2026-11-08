@@ -289,7 +289,7 @@ static uint16_t tile_hash(const V32 *v, unsigned t)
     for (int k = 0; k < 16; k++) h = (h ^ w[k]) * 0x01000193u;
     return (uint16_t)(h ^ h >> 16);
 }
-static void tile_mask(Bg2 *b, const V32 *v, unsigned t)
+static unsigned tile_mask_of(unsigned t)
 {   /* (the colour indices a tile shows: four rows at a time, the 8 pixels of a row in a byte of each plane - an index
        is there if any pixel's four plane bits are its four bits) */
     const uint16_t *w = VRp + t * 16; uint32_t A[2][4], B[2][4];
@@ -307,10 +307,18 @@ static void tile_mask(Bg2 *b, const V32 *v, unsigned t)
         { if ((A[0][i & 3] & B[0][i >> 2]) | (A[1][i & 3] & B[1][i >> 2])) m |= 1u << i;
           if ((A[0][(i + 1) & 3] & B[0][(i + 1) >> 2]) | (A[1][(i + 1) & 3] & B[1][(i + 1) >> 2])) m |= 1u << (i + 1); }
     if ((A[0][1] & B[0][0]) | (A[1][1] & B[1][0])) m |= 2;
+    return m;
+}
+static void tile_mask_set(Bg2 *b, unsigned t, unsigned m)
+{
     const uint16_t o = tget(b, T_MASK(t));
     if (((o ^ m) & ~1u) && (b->win_tiles[t >> 3] & B8(t & 7))) b->mask_chg = 1;   /* (docs/30: a tile the window names) */
     tset(b, T_MASK(t), (uint16_t)(m | (o & 1)));   /* (bit 0: an entry of the plane names it) */
 }
+#ifdef BG2_FPGA_TILES
+/* (docs/31) the FPGA keeps each tile's hash and colour mask as at the lock (fpga/huc/cellstore.c cs_tile): hash << 16 | mask */
+uint32_t bg2_fpga_tile(unsigned t);
+#endif
 static void convert(Bg2 *b, const V32 *v, unsigned t, int p, unsigned s)   /* 16 words into the list */
 {
     const uint16_t *w = VRp + t * 16; const uint8_t *m = b->m[p];
@@ -426,13 +434,26 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         if (tget(b, T_TAG(t)) == tag) continue;   /* (a copy under way reads ~tag: looked at each picture) */
         const int underway = tag == rt_marks.tag && !VSRC_IS_CODE(tag);   /* (a copy still going on: looked at again) */
         const uint16_t want = underway ? (uint16_t)~tag : tag;
+#ifdef BG2_FPGA_TILES
+        const uint32_t ti = bg2_fpga_tile((unsigned)t); const uint16_t h = (uint16_t)(ti >> 16); ST(b->st.hashed++);
+#ifndef __sh__
+        if (getenv("RUN_BG2_TILE_CHECK") && (h != tile_hash(v, (unsigned)t) || (ti & 0xFFFF) != tile_mask_of((unsigned)t))) {
+            printf("bg2: the FPGA's tile %03X differs, picture %ld\n", t, b->st.frames); exit(1); }
+#endif
+#else
         const uint16_t h = tile_hash(v, (unsigned)t); ST(b->st.hashed++);
+#endif
         if (underway) { whole = 0; ST(b->st.underway_t++); }
         if (h == tget(b, T_HASH(t)) && tget(b, T_TAG(t)) != NONE) {   /* (its words as they were: only the tag noted) */
             if (tget(b, T_TAG(t)) != want) tset(b, T_TAG(t), want);
             continue;
         }
-        tile_mask(b, v, (unsigned)t); tset(b, T_TAG(t), want); tset(b, T_HASH(t), h); ST(b->st.masked++);
+#ifdef BG2_FPGA_TILES
+        tile_mask_set(b, (unsigned)t, ti & 0xFFFF);
+#else
+        tile_mask_set(b, (unsigned)t, tile_mask_of((unsigned)t));
+#endif
+        tset(b, T_TAG(t), want); tset(b, T_HASH(t), h); ST(b->st.masked++);
         if (tget(b, T_MASK(t)) & 1) { tchg[t >> 3] |= B8(t & 7); ntchg++; }   /* (a tile no entry names - a
                                                      sprite's cell - changes nothing of the plane) */
         if (t < (b->mn >> 4)) { batchg[t >> 3] |= B8(t & 7); nbat++; }
