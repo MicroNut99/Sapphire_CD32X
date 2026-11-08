@@ -721,6 +721,18 @@ static void ace_poke(uint8_t *p, uint8_t v)
     *(volatile uint32_t *)(0x40000000u | ((uint32_t)(uintptr_t)p & 0x1FFFFFF0u)) = 0;   /* (the line purged) */
 #endif
 }
+/* (docs/19) n bytes written to cart byte address ca by the engine's poke, the lines purged (SPR_KEEP's cells) */
+void rt_ace_poke_run(uint32_t ca, const uint8_t *src, uint32_t n)
+{
+    for (int i = 0; i < 3; i++)
+        if (ace_poke_next == 0xFFFFFFFFu || ((ca ^ ace_poke_next) >> 8 * i) & 0xFF)
+            ace_rd(ACE_WR_OFF(ACE_REG_POKE_A + i, (ca >> 8 * i) & 0xFF));
+    for (uint32_t k = 0; k < n; k++) ace_rd(ACE_WR_OFF(ACE_REG_POKE, src[k]));
+    ace_poke_next = ca + n; rt_ace_pokes += (long)n;
+#ifdef __32X__
+    for (uint32_t a = ca & ~15u; a < ca + n; a += 16) *(volatile uint32_t *)(0x42000000u | a) = 0;
+#endif
+}
 static void ace_load(Rt *r, const RtState *st)       /* the state's card into the engine */
 {
     const uint32_t *s = st->ac_regs;

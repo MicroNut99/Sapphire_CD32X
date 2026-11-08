@@ -19,9 +19,12 @@
 #include "rt.h"
 #ifdef SPR_DRAW
 #include "rt_spr.h"
+#ifdef VS_SEC
+#include "rt_bg2.h"
+#endif
 /* LATE=1 (docs/17): the secondary draws the sprites the master listed and sends the picture itself, while the master
    runs the next frame. What both SH2s use for the swap is read and written past the cache (SH) */
-#ifdef SPR_LATE
+#if defined(SPR_LATE) || defined(VS_SEC)
 #define SH(x) (*(__typeof__(&(x)))((uintptr_t)&(x) | 0x20000000))
 #else
 #define SH(x) (x)
@@ -73,6 +76,16 @@ static void sec_send(int buf, int nn);
 #define SEC_NC   (*(volatile int *)((uintptr_t)&sec_nc_ | 0x20000000))
 #endif
 #define SEC_N    (*(volatile int *)((uintptr_t)&sec_nw_ | 0x20000000))
+#ifdef VS_SEC
+/* VS_SEC=1 (docs/19): command 78 sent by the secondary once the 68000 has run the picture's list (command 79 op 2 /
+   3), outside a blank: the V splits' switch is then at the vblank of the 32X's swap, which the list's end decides */
+static volatile uint32_t sec_vs_, sec_vsdone_;
+#define SEC_VS     (*(volatile uint32_t *)((uintptr_t)&sec_vs_ | 0x20000000))
+#define SEC_VSDONE (*(volatile uint32_t *)((uintptr_t)&sec_vsdone_ | 0x20000000))
+static void vsplit_send(void);
+static Bg2 bg2;
+static uint32_t vs_job; static volatile int lst_ready, lst_op;
+#endif
 #endif
 void secondary(void)
 {
@@ -112,6 +125,15 @@ void secondary(void)
         spr_frame(SEC_V, (int)(j & 1));
 #endif
         SEC_DONE = j;
+#ifdef VS_SEC
+        if (bg2.vsp_dirty) {
+            while (SEC_VS != j) { }                           /* (the master has sent the list) */
+            while (MARS_SYS_COMM0 != 0) { }                   /* (the 68000 has run it) */
+            while (MARS_VDP_FBCTL & MARS_VDP_VBLK) { }        /* (not in a blank: pace_vbi's) */
+            vsplit_send();
+        }
+        SEC_VSDONE = j;
+#endif
     }
 }
 #else
@@ -473,6 +495,13 @@ static int pal_dirty;                                         /* (cram_pend diff
    swap not yet shown: the next blank (the 68000's FBCTL write takes effect there) */
 static void pace_vbi(void)
 {
+#ifdef VS_SEC
+    if (lst_ready) {                                          /* (docs/19: the picture's list, at the blank's start) */
+        if (cdr_busy || MARS_SYS_COMM0 != 0) { bg2_late++; return; }
+        bg2_send(BG2_LIST, lst_op); lst_ready = 0; SEC_VS = vs_job;
+        return;
+    }
+#endif
     if (pal_go < 0) return;
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
     if (cdr_busy) { bg2_late++; return; }                     /* (a sector read or command 78 under way: the COMM registers are its) */
@@ -679,6 +708,10 @@ static void play_pad(void)                                    /* (draw_hook: the
     if (k & SEGA_CTRL_START) menu();
 }
 #endif
+#ifdef KEEP_TEST
+unsigned keep_bad;
+#endif
+
 #ifdef SPR_LATE
 static uint32_t late_job;
 #endif
@@ -696,6 +729,9 @@ static void draw_hook(V32 *v)
     { static uint32_t e0; if (e0 && ta - e0 > 94) sec_t[6]++; e0 = ta; }
 #else
     uint32_t ta = 0;
+#endif
+#ifdef VS_SEC
+    if (vs_job) while (SEC_VSDONE != vs_job) { }             /* (docs/19: its command 78 sent) */
 #endif
 #ifdef SPR_LATE
     if (late_job) while (SEC_SENT != late_job) { }           /* (docs/17: the picture before sent) */
@@ -776,14 +812,24 @@ static void draw_hook(V32 *v)
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);
         bg2_sent++; bg2_words += (uint32_t)n;
+#ifdef VS_SEC
+        /* (docs/19: the list sent by pace_vbi at the next blank's start, so the 68000 runs it while no raster split is
+           due - level 4 is masked while it runs - and command 78 the secondary's, after it) */
+        vs_job = job; lst_op = 2 + (cur ^ 1); lst_ready = 1;
+#else
         if (bg2.vsp_dirty) vsplit_send();                     /* (docs/16: before the list that asks for the swap) */
         bg2_send(BG2_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
+#endif
         SEC_T(4, ta);
 #ifdef SEC_TIMES
         sec_last = ta;
 #endif
         pace_req = cur ^ 1; pal_go = cur ^ 1;                 /* (the swap: pace_vbi, at the next blank) */
+#ifdef KEEP_TEST
+        { extern unsigned keep_bad; MARS_SYS_COMM6 = (short)keep_bad; }
+#else
         MARS_SYS_COMM6 = (short)pace_missed;
+#endif
         return;
     }
 #endif

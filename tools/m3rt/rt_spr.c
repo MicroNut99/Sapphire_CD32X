@@ -160,6 +160,22 @@ static const uint8_t *cell_src(const V32 *r, unsigned c, int buf, int odd)
 static inline const uint8_t *cell_src(const V32 *r, unsigned c, int buf, int odd) { int k; return cell_src_(r, c, buf, odd, &k); }
 #endif
 int spr_ylim = SPR_LINES;                         /* (docs/16: the lines sprites show on) */
+#ifdef SPR_KEEP
+#ifndef KEEP_AT
+#define KEEP_AT 0x170000u                          /* (docs/19: page 0's free part, 512 x 288 bytes to 0x194000) */
+#endif
+static uint16_t kt[512][4]; static uint8_t kv[64];
+void spr_keep_clear(void) { memset(kv, 0, sizeof kv); }
+#ifdef __sh__
+extern void rt_ace_poke_run(uint32_t ca, const uint8_t *src, uint32_t n);
+#define KEEP_CELL(c) ((const uint8_t *)(0x02000000u + KEEP_AT + SPR_CELL * (c)))
+#define KEEP_PUT(c, s) rt_ace_poke_run(KEEP_AT + SPR_CELL * (c), (s), SPR_CELL)
+#else
+static uint8_t keep_pc[512 * SPR_CELL];
+#define KEEP_CELL(c) ((const uint8_t *)keep_pc + SPR_CELL * (c))
+#define KEEP_PUT(c, s) memcpy(keep_pc + SPR_CELL * (c), (s), SPR_CELL)
+#endif
+#endif
 #ifdef SPR_SPLIT
 static int src_unkept;                             /* (SPLIT: the last cell came from tmp: drawn now, not listed) */
 static uint32_t list_clock;                        /* (docs/17: sc_clock when the list was last empty) */
@@ -196,6 +212,27 @@ static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int 
             if (i != 0xFFFF) { spr_stat.cart++; *kind = 0; return spr_pool + SPR_CELL * i; }
         }
     }
+#ifdef SPR_KEEP
+    /* (docs/19, the 14 MB cart) every cell kept, converted, in the cart at KEEP_AT: its place is its number, the
+       marks it was converted under in kt. A change: converted, written there by the engine's poke */
+    {
+        uint16_t *const k = kt[c];
+        if ((kv[c >> 3] & (1u << (c & 7))) && k[0] == t0 && k[1] == t[1] && k[2] == t[2] && k[3] == t[3]) {
+            spr_stat.hits++; *kind = 0; (void)buf; (void)odd;
+#ifdef KEEP_TEST
+            convert(r, c);
+            { static unsigned bc, bu; const uint8_t *kc = KEEP_CELL(c), *ku = (const uint8_t *)((uintptr_t)kc | 0x20000000);
+              int dc = 0, du = 0; for (int i = 0; i < SPR_CELL; i++) { dc |= kc[i] != ((uint8_t *)tmp)[i]; du |= ku[i] != ((uint8_t *)tmp)[i]; }
+              bc += dc; bu += du; { extern unsigned keep_bad; keep_bad = (bc < 255 ? bc : 255) << 8 | (bu < 255 ? bu : 255); } }
+            return (const uint8_t *)tmp;
+#endif
+            return KEEP_CELL(c); }
+        convert(r, c);
+        KEEP_PUT(c, (const uint8_t *)tmp);
+        k[0] = (uint16_t)t0; k[1] = t[1]; k[2] = t[2]; k[3] = t[3]; kv[c >> 3] |= (uint8_t)(1u << (c & 7));
+        return (const uint8_t *)tmp;
+    }
+#endif
     int hit = -1, lru = 0;
     for (int j = 0; j < SPR_SC; j++) {
         if (sc[j].cell == c && sc[j].t[0] == t0 && sc[j].t[1] == t[1] && sc[j].t[2] == t[2] && sc[j].t[3] == t[3]) { hit = j; break; }
