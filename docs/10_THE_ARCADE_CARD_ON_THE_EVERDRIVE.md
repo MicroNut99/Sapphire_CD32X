@@ -78,14 +78,16 @@ docs/11's poke):
 | krikzz's `map_ssf` alone (Metal Slug's README) | 1,754 (11 %) | | 114,688 (22 %) | | met |
 | **`map_sapphire`** (the SSF mapper + the engine) | **3,585 (23 %)** | 1,596 | 114,688 (22 %) | 8 (7 %) | **met: +6.09 ns / +0.45 ns** |
 
-So the engine takes about 1,830 logic elements, and **11,800 stay free** for docs/10's second step (a HuC6280
+| **`map_sapphire` with docs/11's poke** (16:43) | **3,677 (24 %)** | 1,620 | 114,688 (22 %) | 8 (7 %) | **met: +6.61 ns / +0.44 ns** |
+
+So the engine takes about 1,830 logic elements (1,920 with the poke), and **11,800 stay free** for docs/10's second step (a HuC6280
 core). Quartus put the shift and rotate register's shifters in multipliers. `mega-pro.rbf` (186,409 bytes) is in
-`Sapphire\fpga\quartus\out`, not in git. **To build again for docs/11's poke** (the files on the PC are
-updated): the same `.bat`.
+`Sapphire\fpga\quartus\out`, not in git. The poke build's `mega-pro.rbf` (187,190 bytes, md5 `960d2e22...`) is the one in the console kit
+(`Sapphire\\console_test\\ace`, docs/11 §5).
 
 ## 3. To do
 
-1. **Quartus** (the owner's PC; done once, §2b, again for the poke): run `Sapphire\fpga\quartus\build_sapphire.bat`. It copies the project into
+1. **Quartus** (the owner's PC; done, §2b): run `Sapphire\fpga\quartus\build_sapphire.bat`. It copies the project into
    krikzz's tree in `fpga_work` (as Metal Slug's builds), compiles, and copies the fit and timing summaries and
    `mega-pro.rbf` into `fpga\quartus\out`. Then the room (krikzz's `map_ssf` alone: 1,754 logic elements) and
    whether timing is met.

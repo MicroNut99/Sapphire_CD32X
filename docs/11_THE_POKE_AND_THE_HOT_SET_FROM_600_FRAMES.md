@@ -79,6 +79,15 @@ stack page differs (`85BA6E7E`). An SDRAM dump at the end compared with the 600 
 live stack is equal. DraculaX checks without the stack page for this reason (its docs/17). The likely cause:
 small routines run in line through a `JSR` never push the return address.
 
+## 5. The console kit (in the owner's `Sapphire\console_test`, not in git: the discs hold game data)
+
+- **`ace\`:** the 14 MB EverDrive PRO with Sapphire's core. It holds `EDCD_SASPEED.32X`, `mega-pro.rbf` (the poke
+  build, docs/10 §2b) and the speed test disc (`ACE=1`, banks 69 85, `SPLIT_MIN=300`).
+- **`plain\`:** the 4 MB option on a plain EverDrive PRO (krikzz's firmware, no `.rbf`), six banks, `SPLIT_MIN=700`.
+
+ares's end screens are in its `README.txt`. The main HASH should be `66AC699E` on both; the refresh counts are
+ares's, not the console's.
+
 ## 4. Next
 
 - The other stages' windows over their whole 600 frames (`tr/<st>_600`), each with its own hot set.

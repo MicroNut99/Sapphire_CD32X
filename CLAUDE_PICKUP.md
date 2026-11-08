@@ -31,6 +31,8 @@ Read `CLAUDE.md` first.
   8. **docs/11:** the poke (engine registers `$1AC2-$1AC5`), the hot set from `work/tr/st3_600` (the whole 600
      frames). Best: 14 MB + core `SDRAM_BANKS=0x69,0x85 ACE=1` with `work/sel_f300` (1,062 refreshes); 4 MB
      6 banks with `work/sel_f700` (1,846). `/tmp/runf.sh` was the run script (in docs/11's how-to).
+     **Waiting on the owner:** the console runs of `Sapphire\console_test\ace` (14 MB + core) and `plain\`
+     (4 MB plain EverDrive): a photo of each end screen. Quartus done (docs/10 §2b: 3,677 LEs, timing met).
 
 ## 2. Where things live
 
