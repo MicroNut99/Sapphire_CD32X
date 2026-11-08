@@ -42,6 +42,8 @@ Read `CLAUDE.md` first.
   12. **docs/15:** m3_sh2 `SPLIT_DYN_LOADS`, PATCH_ALTS inline; `ac_stream`; `work/prof_run.sh` (ares profile by part:
      `PSTART`/`PEND` frames inside the test, which starts near frame 3300 now). Next: VRAM in the cart on the 14 MB
      (docs/15 §4), measured first.
+     **Waiting on the owner:** `Sapphire\console_test` now holds docs/15's stage 3 builds (ares: core 552
+     refreshes, plain 1,140, HASH `66AC699E`); a photo of each end screen before more is built on the engine.
 
 ## 2. Where things live
 
