@@ -8,12 +8,12 @@ static void ace_region(AcEngine *e, int k)
     e->ac.reg[k] = e->unit[k] == ACE_NONE ? 0 : e->cart + ((uint32_t)e->unit[k] << 8);
 }
 
-void ace_reset(AcEngine *e, const uint8_t *cart)
+void ace_reset(AcEngine *e, uint8_t *cart)
 {
     static const uint32_t zero[19];
     const uint8_t *const none[32] = { 0 };
     ac_start_regions(&e->ac, zero, none);
-    e->cart = cart; e->misses = 0;
+    e->cart = cart; e->misses = 0; e->poke_a = 0; e->pokes = 0;
     for (int k = 0; k < 32; k++) { e->unit[k] = ACE_NONE; ace_region(e, k); }
 }
 
@@ -45,6 +45,13 @@ uint16_t ace_bus_read(AcEngine *e, uint32_t off)
         ace_region(e, k);
     } else if (r == ACE_REG_SHIFT_RAW) e->ac.shift_bits = v & 0xF;
     else if (r == ACE_REG_ROT_RAW) e->ac.rotate_bits = v & 0xF;
+    else if (r >= ACE_REG_POKE_A && r < ACE_REG_POKE_A + 3) {
+        const unsigned sh = (r - ACE_REG_POKE_A) * 8;
+        e->poke_a = (e->poke_a & ~(0xFFu << sh)) | (uint32_t)v << sh;
+    } else if (r == ACE_REG_POKE) {
+        if (ace_poke_ok(e->poke_a)) { e->cart[e->poke_a] = v; e->pokes++; }
+        e->poke_a = (e->poke_a + 1) & 0xFFFFFF;
+    }
     else if (r < 0x80 || r >= 0xE0) ac_write(&e->ac, 0x1A00 | r, v);
     return 0xFFFF;
 }

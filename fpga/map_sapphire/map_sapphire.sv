@@ -40,17 +40,17 @@ module map_sapphire(
 	8'hff;	
 //*************************************************************************************
 	
-	assign rom0.dati[15:0] 	= cpu.data[15:0];
+	assign rom0.dati[15:0] 	= ace_sel ? ace_di : cpu.data[15:0];	// Sapphire: the poke's byte
 	assign rom0.addr[22:0] 	= ace_sel ? {ace_addr[22:1], 1'b0} : rom_addr[22:0];		// Sapphire: the engine's byte
 	assign rom0.oe 			= ace_sel ? ace_oe & !ace_addr[23] : rom_ce & !cpu_oe & mem_ce == 0;
-	assign rom0.we_lo 		= rom_ce & !cpu.we_lo & mem_ce == 0 & wr_on;
-	assign rom0.we_hi			= rom_ce & !cpu.we_hi & mem_ce == 0 & wr_on;
+	assign rom0.we_lo 		= ace_sel ? ace_we_lo & !ace_addr[23] : rom_ce & !cpu.we_lo & mem_ce == 0 & wr_on;	// Sapphire: the poke
+	assign rom0.we_hi			= ace_sel ? ace_we_hi & !ace_addr[23] : rom_ce & !cpu.we_hi & mem_ce == 0 & wr_on;
 	
-	assign rom1.dati[15:0] 	= cpu.data[15:0];
+	assign rom1.dati[15:0] 	= ace_sel ? ace_di : cpu.data[15:0];
 	assign rom1.addr[22:0] 	= ace_sel ? {ace_addr[22:1], 1'b0} : rom_addr[22:0];
 	assign rom1.oe 			= ace_sel ? ace_oe &  ace_addr[23] : rom_ce & !cpu_oe & mem_ce == 1;
-	assign rom1.we_lo 		= rom_ce & !cpu.we_lo & mem_ce == 1 & wr_on;
-	assign rom1.we_hi 		= rom_ce & !cpu.we_hi & mem_ce == 1 & wr_on;
+	assign rom1.we_lo 		= ace_sel ? ace_we_lo &  ace_addr[23] : rom_ce & !cpu.we_lo & mem_ce == 1 & wr_on;
+	assign rom1.we_hi 		= ace_sel ? ace_we_hi &  ace_addr[23] : rom_ce & !cpu.we_hi & mem_ce == 1 & wr_on;
 	
 	assign bram.dati[15:0] 	= cpu.data[15:0];
 	assign bram.addr[22:0] 	= rom_addr[22:0];
@@ -73,13 +73,14 @@ module map_sapphire(
 //************************************************************************************* Sapphire: the Arcade Card
 	// (Sapphire CD32X docs/10: reads of cart 0x1C0000-0x1FFFFF are the engine's, fpga/ac_engine.sv; window 0's
 	// page 0 there is free in Sapphire's layout. Everything else is krikzz's SSF mapper, unchanged)
-	wire ace_sel, ace_oe;
-	wire [15:0]ace_do;
+	wire ace_sel, ace_oe, ace_we_hi, ace_we_lo;
+	wire [15:0]ace_do, ace_di;
 	wire [23:0]ace_addr;
 	wire [15:0]ace_mem_do = ace_addr[23] ? mai.rom1_do : mai.rom0_do;
 	ac_engine ace_inst(
 		.clk(clk), .rst(mai.map_rst), .addr(cpu.addr[21:1]), .rd(rom_ce & !cpu_oe),
-		.sel(ace_sel), .dout(ace_do), .mem_addr(ace_addr), .mem_oe(ace_oe), .mem_do(ace_mem_do)
+		.sel(ace_sel), .dout(ace_do), .mem_addr(ace_addr), .mem_oe(ace_oe), .mem_do(ace_mem_do),
+		.mem_we_hi(ace_we_hi), .mem_we_lo(ace_we_lo), .mem_di(ace_di)
 	);
 	
 	wire [1:0]mem_ce = 

@@ -1,7 +1,7 @@
 From 8212bf8a29a4b374c0b9d033d85efce173445ef1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 7 Nov 2026 15:36:17 -0800
-Subject: [PATCH] EverDrive PRO board: Sapphire CD32X's Arcade Card engine
+Subject: [PATCH 1/2] EverDrive PRO board: Sapphire CD32X's Arcade Card engine
  (ARES_ACE=1)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -192,6 +192,87 @@ index c053564..7f6813f 100644
      for(u32 n : range(8)) bank[n] = n;
      mode32x = 0;
      led = 0;
+-- 
+2.43.0
+
+
+From 30a367284f4e9b20dc6788b2a38bf8ef72890398 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 16:15:26 -0800
+Subject: [PATCH 2/2] Arcade Card engine: bank 31 never read; the poke
+ (registers $1AC2-$1AC5)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/arcade-card-engine.hpp | 14 ++++++++++++++
+ ares/md/cartridge/board/everdrive-pro.cpp      |  9 ++++++++-
+ 2 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/ares/md/cartridge/board/arcade-card-engine.hpp b/ares/md/cartridge/board/arcade-card-engine.hpp
+index 44e8469..0ddd30e 100644
+--- a/ares/md/cartridge/board/arcade-card-engine.hpp
++++ b/ares/md/cartridge/board/arcade-card-engine.hpp
+@@ -16,11 +16,14 @@ struct ArcadeCardEngine {
+   n32 latch;
+   n4 shiftBits, rotateBits;
+   n16 unit[32];
++  n24 pokeAddress;
++  i32 poked = -1;                //the byte the last access wrote (the board invalidates it), or -1
+ 
+   auto reset() -> void {
+     for(auto& p : port) p = {};
+     latch = 0; shiftBits = 0; rotateBits = 0;
+     for(auto& u : unit) u = 0xffff;
++    pokeAddress = 0; poked = -1;
+   }
+ 
+   static auto index(const Port& p) -> u32 {
+@@ -41,6 +44,7 @@ struct ArcadeCardEngine {
+   //a read of the window at offset off; ram: the cart's 16 MB as words, big-endian
+   template<typename Ram> auto access(u32 off, Ram& ram, u32 words) -> n16 {
+     u32 r = off >> 1 & 0xff;
++    poked = -1;
+     if(!(off & 0x20000)) {
+       if(r < 0x80) {
+         auto& p = port[r >> 4 & 3];
+@@ -96,6 +100,16 @@ struct ArcadeCardEngine {
+     } else if(r < 0xc0) {
+       if(r & 1) unit[r >> 1 & 31].byte(1) = v; else unit[r >> 1 & 31].byte(0) = v;
+     } else if(r == 0xc0) shiftBits = v & 15;
++    else if(r >= 0xc2 && r <= 0xc4) pokeAddress.byte(r - 0xc2) = v;
++    else if(r == 0xc5) {  //the poke (Sapphire docs/11): v into the cart, not bank 31, not this window
++      u32 a = pokeAddress;
++      if(a < 0xf80000 && (a < 0x1c0000 || a >= 0x200000)) {
++        u32 w = (a >> 1) & (words - 1);
++        if(a & 1) ram[w].byte(0) = v; else ram[w].byte(1) = v;
++        poked = a;
++      }
++      pokeAddress = pokeAddress + 1;
++    }
+     else if(r == 0xc1) rotateBits = v & 15;
+     else if(r >= 0xe0) {
+       switch(r & 0x1f) {
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 7f6813f..692a5b0 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -164,7 +164,14 @@ struct EverDrivePro : Interface {
+   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+     if(aceOn) {
+       n22 local = address;
+-      if(local >= 0x1c0000) if(local < 0x200000) return ace.access(local - 0x1c0000, ram, ram.size());
++      if(local >= 0x1c0000) if(local < 0x200000) {
++        n16 d = ace.access(local - 0x1c0000, ram, ram.size());
++        if(ace.poked >= 0) {  //a poke: the windows that show it see the new byte (the SH2s' code included)
++          u32 word = (u32)ace.poked >> 1;
++          for(u32 n : range(8)) if(bank[n] == word >> 18) invalidate(n << 19 | (word << 1 & 0x7ffff), 2);
++        }
++        return d;
++      }
+     }
+     u32 word = offset(address) >> 1;
+     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
 -- 
 2.43.0
 

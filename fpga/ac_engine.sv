@@ -21,7 +21,11 @@ module ac_engine(
     // the card's RAM: the cart's PSRAM, 16-bit words, big-endian (the byte at an even address is the high one)
     output     [23:0] mem_addr,     // byte address in the 16 MB (bit 23: rom1)
     output            mem_oe,
-    input      [15:0] mem_do
+    input      [15:0] mem_do,
+    // the poke (docs/11): the game's writes to its RAM banks kept in the cart, made during the CPU's read of $1AC5
+    output            mem_we_hi,    // the even byte
+    output            mem_we_lo,    // the odd byte
+    output     [15:0] mem_di
 );
     localparam [21:18] WINDOW = 4'b0111;   // cart 0x1C0000-0x1FFFFF
 
@@ -48,8 +52,14 @@ module ac_engine(
     wire        hit = u != 16'hFFFF && ca[23:19] != 5'd31;   // (bank 31, the EverDrive's battery RAM: never)
     wire        dport = !wr_op && r < 8'h80 && r[3:1] == 3'd0;   // a data port read
 
-    assign mem_addr = ca;
-    assign mem_oe   = sel && dport && hit;
+    reg  [23:0] poke_a;
+    wire        poke    = sel && wr_op && r == 8'hC5;
+    wire        poke_ok = poke_a[23:19] != 5'd31 && poke_a[23:18] != 6'b000111;   // (not bank 31, not this window)
+    assign mem_addr  = poke ? poke_a : ca;
+    assign mem_oe    = sel && dport && hit;
+    assign mem_we_hi = poke && poke_ok && !poke_a[0];
+    assign mem_we_lo = poke && poke_ok &&  poke_a[0];
+    assign mem_di    = {v, v};
     wire  [7:0] mem_byte = ca[0] ? mem_do[7:0] : mem_do[15:8];
 
     // ---- a register read (ac_read)
@@ -114,7 +124,7 @@ module ac_engine(
         if (rst) begin
             for (i = 0; i < 4; i = i + 1) begin base[i] <= 0; offs[i] <= 0; incr[i] <= 0; ctrl[i] <= 0; end
             for (i = 0; i < 32; i = i + 1) unit[i] <= 16'hFFFF;
-            latch <= 0; shift_bits <= 0; rotate_bits <= 0;
+            latch <= 0; shift_bits <= 0; rotate_bits <= 0; poke_a <= 0;
         end else if (done) begin
             if (!h_wr) begin
                 if (h_r < 8'h80 && h_r[3:1] == 3'd0 && ctrl[h_p][0]) begin          // a data read: auto-increment
@@ -140,6 +150,10 @@ module ac_engine(
                 if (h_r[0]) unit[h_r[5:1]][15:8] <= h_v; else unit[h_r[5:1]][7:0] <= h_v;
             end else if (h_r == 8'hC0) shift_bits  <= h_sh;
             else if (h_r == 8'hC1) rotate_bits <= h_sh;
+            else if (h_r == 8'hC2) poke_a[7:0]   <= h_v;
+            else if (h_r == 8'hC3) poke_a[15:8]  <= h_v;
+            else if (h_r == 8'hC4) poke_a[23:16] <= h_v;
+            else if (h_r == 8'hC5) poke_a        <= poke_a + 24'd1;          // (the write was made during the read)
             else if (h_r >= 8'hE0) begin
                 case (h_r[4:0])
                     5'h00: latch[7:0]   <= h_v;

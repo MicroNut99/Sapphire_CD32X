@@ -47,6 +47,10 @@ EverDrive PRO with Sapphire's FPGA core (krikzz's SSF mapper plus the card as ha
 EverDrive and the 4 MB RAM cart (card in software); bank 31 is never used. The engine matches the PC model on
 every read (the game's 501,783 and 300,064 random ones). In ares the speed test is exact with it, in 1,625
 refreshes against 1,947 (2.71 a frame). Next: the Quartus build on the owner's PC, then the console.
+**The engine writes the cart; the hot set from 600 frames** ([docs/11](docs/11_THE_POKE_AND_THE_HOT_SET_FROM_600_FRAMES.md)):
+on the 14 MB cart the game's writes to four of its RAM banks go to the cart through the engine (the poke), which
+frees 32 KB of SDRAM. The hot code is now chosen over the whole 600 frames, not the 60-frame check window. Stage
+3: **1,062 refreshes on the 14 MB EverDrive + core (1.77 a frame)**, 1,846 on the 4 MB carts, both exact.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

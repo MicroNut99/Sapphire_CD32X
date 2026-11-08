@@ -34,10 +34,18 @@ int main(int argc, char **argv)
         case 4: OP(ACE_WR_OFF(r & 0x7F, v)); break;                              /* port registers */
         case 5: OP(ACE_WR_OFF(0xE0 | (r & 0x1F), v)); break;                      /* the shift register's */
         case 6: OP(ACE_RD_OFF(0xE0 | (r & 0x1F))); break;
-        default: OP(ACE_WR_OFF(r < 0x80 || r >= 0xC2 ? r : 0xE4, v)); break;     /* any but the table */
+        case 7:
+            if ((x >> 24) & 1) {                                                 /* a poke (docs/11), in the 2 MB */
+                const uint32_t a0 = e.poke_a;
+                if (r & 1) OP(ACE_WR_OFF(ACE_REG_POKE_A + (r >> 1) % 3, ((r >> 1) % 3) == 2 ? v & 0x1F : v));
+                else { OP(ACE_WR_OFF(ACE_REG_POKE, v));
+                       for (uint32_t m = 2 << 20; m < (16u << 20); m += 2 << 20) cart[m + (a0 & 0x1FFFFF)] = cart[a0 & 0x1FFFFF]; }
+                break;
+            }
+            OP(ACE_WR_OFF(r < 0x80 || r >= 0xC2 ? (r >= 0xC2 && r <= 0xC5 ? 0xE4 : r) : 0xE4, v)); break;   /* any other */
         }
     }
     fclose(f);
-    printf("%ld operations, %ld reads of a region not here\n", n + 64, e.misses);
+    printf("%ld operations, %ld reads of a region not here, %ld pokes made\n", n + 64, e.misses, e.pokes);
     return 0;
 }

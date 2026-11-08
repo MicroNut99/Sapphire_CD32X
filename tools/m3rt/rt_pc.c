@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
+uint32_t *rt_ro_hist;
 #ifdef RT_AC_FPGA
 #include "ac_engine.h"
 #endif
@@ -874,9 +875,10 @@ int main(int argc, char **argv)
 #endif
     banks[0xF8] = malloc(8192); banks[0xF7] = malloc(2048);
 #ifdef RT_AC_FPGA
-    { extern const uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob;
+    { extern uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob;
       if (getenv("RUN_ACE_LOG")) rt_ace_log = fopen(getenv("RUN_ACE_LOG"), "wb"); }   /* (docs/10: the engine's cart is the state's bytes) */
 #endif
+    if (getenv("RUN_ROHIST")) rt_ro_hist = calloc(256 << 13, 4);   /* (each lost write's place, docs/11) */
     static Rt rt; rt_init(&rt, &st, banks);
     rt.on_idle = on_idle; quiet = getenv("RUN_QUIET") != 0;
     if (argc > 3 && getenv("RUN_DISC")) {                       /* the CD drive, as the PC host has it */
@@ -1001,8 +1003,10 @@ int main(int argc, char **argv)
     {                                                           /* (docs/10: the card's registers at the end) */
 #ifdef RT_AC_FPGA
         extern AcEngine rt_ace; const ArcadeCard *acp = &rt_ace.ac;
-        printf("Arcade Card engine (RT_AC_FPGA): %ld reads of a region not here\n", rt_ace.misses);
-        { extern FILE *rt_ace_log; if (rt_ace_log) fclose(rt_ace_log); }
+        { extern long rt_ace_pokes; printf("Arcade Card engine (RT_AC_FPGA): %ld reads of a region not here; %ld writes to the cart (pokes), %ld made\n", rt_ace.misses, rt_ace_pokes, rt_ace.pokes); }
+        { extern FILE *rt_ace_log; if (rt_ace_log) { fclose(rt_ace_log);        /* (and the cart after the pokes) */
+            char q[600]; snprintf(q, sizeof q, "%s.cart", getenv("RUN_ACE_LOG")); FILE *g = fopen(q, "wb");
+            extern uint8_t *rt_ace_cart; fwrite(rt_ace_cart, 1, (size_t)n, g); fclose(g); } }
 #else
         const ArcadeCard *acp = &rt.ac;
 #endif
@@ -1010,6 +1014,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < 19; i++) h = (h ^ w[i]) * 16777619u;
         printf("Arcade Card registers at the end: %08x\n", h);
     }
+    if (rt_ro_hist) { FILE *h = fopen(getenv("RUN_ROHIST"), "wb"); fwrite(rt_ro_hist, 4, 256 << 13, h); fclose(h); }
     printf("banks written:");
     for (int b = 0; b < 256; b++) if (rt.bank_dirty[b] || (b == 0xF8)) printf(" %02X", b);
     printf("\n");

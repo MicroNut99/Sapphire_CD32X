@@ -5,11 +5,18 @@
 module tb;
     reg clk = 0; always #5 clk = ~clk;
     reg rst = 1; reg [21:1] addr = 0; reg rd = 0;
-    wire sel, mem_oe; wire [15:0] dout; wire [23:0] mem_addr;
+    wire sel, mem_oe, mem_we_hi, mem_we_lo; wire [15:0] dout, mem_di; wire [23:0] mem_addr;
     reg [15:0] mem [0:(1 << 20) - 1];                    // 2 MB of the cart: the state file from address 0
     wire [15:0] mem_do = mem[mem_addr[20:1]];
     ac_engine dut(.clk(clk), .rst(rst), .addr(addr), .rd(rd), .sel(sel), .dout(dout),
-                  .mem_addr(mem_addr), .mem_oe(mem_oe), .mem_do(mem_do));
+                  .mem_addr(mem_addr), .mem_oe(mem_oe), .mem_do(mem_do),
+                  .mem_we_hi(mem_we_hi), .mem_we_lo(mem_we_lo), .mem_di(mem_di));
+    always @(posedge clk) begin                          // (the poke: the PSRAM written during the read)
+        if (mem_we_hi) mem[mem_addr[20:1]][15:8] <= mem_di[15:8];
+        if (mem_we_lo) mem[mem_addr[20:1]][7:0]  <= mem_di[7:0];
+    end
+    integer pokes = 0; always @(posedge clk) if (sel && dut.poke && !sel_d) pokes = pokes + 1;
+    reg sel_d; always @(posedge clk) sel_d <= sel;
     integer f, n, bad, got_n; reg [31:0] off; reg [15:0] want;
     initial begin
         $readmemh(`MEMHEX, mem);
@@ -28,7 +35,8 @@ module tb;
                 n = n + 1;
             end
         end
-        $display("%0d reads, %0d differ", n, bad);
+        $display("%0d reads, %0d differ (%0d pokes)", n, bad, pokes);
+        $writememh("mem_end.hex", mem);
         $finish;
     end
 endmodule

@@ -676,7 +676,7 @@ static void ac_write_rt(Rt *r, uint32_t a, uint8_t v) { ac_write(&r->ac, a, v); 
 static inline uint8_t ace_rd(uint32_t off) { return (uint8_t)*(volatile uint16_t *)(0x22000000u + ACE_WINDOW + off); }
 #else
 #include <stdio.h>
-AcEngine rt_ace; const uint8_t *rt_ace_cart; FILE *rt_ace_log;   /* (RUN_ACE_LOG: each read, u32 offset u16 word, LE) */
+AcEngine rt_ace; uint8_t *rt_ace_cart; FILE *rt_ace_log;   /* (RUN_ACE_LOG: each read, u32 offset u16 word, LE) */
 static inline uint8_t ace_rd(uint32_t off)
 {
     const uint16_t w = ace_bus_read(&rt_ace, off);
@@ -699,6 +699,26 @@ static void ac_write_rt(Rt *r, uint32_t a, uint8_t v)
     ace_rd(ACE_WR_OFF(g, v));
 }
 #define AC_READ(r, a) ac_read_fpga(r, a)
+/* (docs/11) a game write to a RAM bank kept in the cart: the engine writes it there (the poke); the address bytes
+   only when they changed; on the SH2 the cache line is purged so the next read fetches the byte */
+long rt_ace_pokes; static uint32_t ace_poke_next = 0xFFFFFFFFu;
+static void ace_poke(uint8_t *p, uint8_t v)
+{
+#ifdef __32X__
+    const uint32_t ca = (uint32_t)(uintptr_t)p & 0x3FFFFF;
+#else
+    const uint32_t ca = (uint32_t)(p - rt_ace_cart);
+#endif
+    if (ca != ace_poke_next) {
+        for (int i = 0; i < 3; i++)
+            if (ace_poke_next == 0xFFFFFFFFu || ((ca ^ ace_poke_next) >> 8 * i) & 0xFF)
+                ace_rd(ACE_WR_OFF(ACE_REG_POKE_A + i, (ca >> 8 * i) & 0xFF));
+    }
+    ace_rd(ACE_WR_OFF(ACE_REG_POKE, v)); ace_poke_next = ca + 1; rt_ace_pokes++;
+#ifdef __32X__
+    *(volatile uint32_t *)(0x40000000u | ((uint32_t)(uintptr_t)p & 0x1FFFFFF0u)) = 0;   /* (the line purged) */
+#endif
+}
 static void ace_load(Rt *r, const RtState *st)       /* the state's card into the engine */
 {
     const uint32_t *s = st->ac_regs;
@@ -832,6 +852,12 @@ void wr_slow(Cpu *c, uint16_t a, uint8_t v)
 #endif
 #ifdef RT_WCLASS
     if (rt_wclass_wr && r->bank[b] && b >= 0x68 && b < 0x88) { rt_wclass_wr(b, a & 0x1FFF, v); r->bank[b][a & 0x1FFF] = v; r->bank_dirty[b] = 1; return; }
+#endif
+#if !defined(__32X__) && !defined(NO_STDIO)
+    { extern uint32_t *rt_ro_hist; if (rt_ro_hist && r->bank[b]) rt_ro_hist[(uint32_t)b << 13 | (a & 0x1FFF)]++; }   /* (RUN_ROHIST) */
+#endif
+#ifdef RT_AC_FPGA
+    if (r->bank[b]) { ace_poke(r->bank[b] + (a & 0x1FFF), v); return; }   /* (docs/11: the engine writes the cart) */
 #endif
     if (r->bank[b]) { r->ro_writes++; r->ro_write_bank = b; }   /* a RAM bank kept read-only (in the cart): lost */
 }

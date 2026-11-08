@@ -28,6 +28,9 @@ Read `CLAUDE.md` first.
      `fpga/ares/*.patch`), `ARES_ACE=1`. **Waiting on the owner:** `Sapphire\fpga\quartus\build_sapphire.bat`
      (fit / timing / `mega-pro.rbf` into `fpga\quartus\out`). Carts: 14 MB EverDrive PRO + core (`EDCD=1 ACE=1`),
      4 MB plain EverDrive (`EDCD=1`), 4 MB RAM cart; bank 31 never. Then: the HuC6280 core on the cart (step 2).
+  8. **docs/11:** the poke (engine registers `$1AC2-$1AC5`), the hot set from `work/tr/st3_600` (the whole 600
+     frames). Best: 14 MB + core `SDRAM_BANKS=0x69,0x85 ACE=1` with `work/sel_f300` (1,062 refreshes); 4 MB
+     6 banks with `work/sel_f700` (1,846). `/tmp/runf.sh` was the run script (in docs/11's how-to).
 
 ## 2. Where things live
 

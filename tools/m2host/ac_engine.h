@@ -15,6 +15,10 @@
  *                                     card byte i is cart[(unit[i >> 16] << 8) + (i & 0xFFFF)]; 0xFFFF: not here (0xFF)
  *                                     a byte at or past 0xF80000 (bank 31, the EverDrive's battery RAM) reads 0xFF
  *   $1AC0, $1AC1                      the shift and rotate counts set as they are (a state's), without shifting
+ *   $1AC2, $1AC3, $1AC4               the poke address (cart byte address, 24 bits), low, middle, high byte
+ *   $1AC5                             poke: v written to the cart at the poke address, which steps (docs/11: the
+ *                                     game's writes to its RAM banks kept in the cart). Not in bank 31, not in
+ *                                     the engine's window: refused (the address still steps)
  * The card's RAM is read only (the game never writes it in play: docs/02 §4); a data port's write steps the address.
  */
 #ifndef AC_ENGINE_H
@@ -29,17 +33,21 @@
 #define ACE_REG_UNIT       0x80                      /* + 2k: region k's unit, low byte; + 2k + 1 the high */
 #define ACE_REG_SHIFT_RAW  0xC0
 #define ACE_REG_ROT_RAW    0xC1
+#define ACE_REG_POKE_A     0xC2                      /* 0xC2-0xC4 */
+#define ACE_REG_POKE       0xC5
 #define ACE_NONE           0xFFFFu
-#define ACE_BANK31         0xF80000u                 /* bank 31 (the EverDrive's battery RAM) is never read: 0xFF */
+#define ACE_BANK31         0xF80000u                 /* bank 31 (the EverDrive's battery RAM): never read (0xFF), never poked */
+static inline int ace_poke_ok(uint32_t a) { return a < ACE_BANK31 && (a < ACE_WINDOW || a >= ACE_WINDOW + ACE_SIZE); }
 
 /* the PC's model of the engine (ac_engine_model.c): the cart as the engine sees it, and its state */
 #include "ac_model.h"
 typedef struct {
     ArcadeCard ac;                                   /* the ports and the shift register, as the card's */
     uint16_t unit[32];
-    const uint8_t *cart;                             /* the cart's bytes, from address 0 */
+    uint8_t *cart;                                   /* the cart's bytes, from address 0 (pokes write them) */
+    uint32_t poke_a; long pokes;
     long misses;
 } AcEngine;
-void ace_reset(AcEngine *e, const uint8_t *cart);
+void ace_reset(AcEngine *e, uint8_t *cart);
 uint16_t ace_bus_read(AcEngine *e, uint32_t off);    /* a read at window + off: the word the cart bus sees */
 #endif
