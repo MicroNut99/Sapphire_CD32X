@@ -72,6 +72,11 @@ endif
 ifeq ($(SPLIT),1)
 CCFLAGS += -DSPR_SPLIT $(if $(SPLIT_Y),-DSPLIT_Y=$(SPLIT_Y))
 endif
+# LATE=1 (with SEC=2): the secondary draws the sprites the master listed and sends the picture, while the master runs
+# the next frame (docs/17)
+ifeq ($(LATE),1)
+CCFLAGS += -DSPR_SPLIT -DSPR_LATE $(if $(SPR_CMDS),-DSPR_CMDS=$(SPR_CMDS))
+endif
 ifeq ($(BG),1)
 CCFLAGS += -DBG2_DRAW
 BG_OBJ = $(BUILD)/rt_bg2.o

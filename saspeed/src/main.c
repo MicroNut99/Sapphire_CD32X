@@ -19,6 +19,13 @@
 #include "rt.h"
 #ifdef SPR_DRAW
 #include "rt_spr.h"
+/* LATE=1 (docs/17): the secondary draws the sprites the master listed and sends the picture itself, while the master
+   runs the next frame. What both SH2s use for the swap is read and written past the cache (SH) */
+#ifdef SPR_LATE
+#define SH(x) (*(__typeof__(&(x)))((uintptr_t)&(x) | 0x20000000))
+#else
+#define SH(x) (x)
+#endif
 #endif
 
 volatile uint32_t gTicks = 0;
@@ -57,6 +64,11 @@ static volatile int sec_nw_; static volatile uint32_t sec_pn_;
 #define SPLIT_Y 112
 #endif
 static volatile uint32_t sec_list_; static volatile int sec_nc_;
+#ifdef SPR_LATE
+static volatile uint32_t sec_sent_;
+#define SEC_SENT (*(volatile uint32_t *)((uintptr_t)&sec_sent_ | 0x20000000))
+static void sec_send(int buf, int nn);
+#endif
 #define SEC_LIST (*(volatile uint32_t *)((uintptr_t)&sec_list_ | 0x20000000))
 #define SEC_NC   (*(volatile int *)((uintptr_t)&sec_nc_ | 0x20000000))
 #endif
@@ -80,6 +92,16 @@ void secondary(void)
                                                                  model and the tags past the cache) */
 #ifdef SEC_BG
         SEC_N = sec_bg_job(SEC_V, (int)(j & 1));
+#ifdef SPR_LATE
+        SEC_DONE = j;                                         /* (the background's list made: the master runs the game on) */
+        while (SEC_LIST != j) { }
+        SH2_CCR = 0x11;
+        { extern int spr_ylim; const int yl = *(volatile int *)((uintptr_t)&spr_ylim | 0x20000000);
+          spr_draw_cmds((const SprCmd *)((uintptr_t)spr_cmd | 0x20000000), SEC_NC, (int)(j & 1), 0, yl); }
+        sec_send((int)(j & 1), SEC_N);
+        SEC_SENT = j;
+        continue;
+#endif
 #ifdef SPR_SPLIT
         while (SEC_LIST != j) { }                             /* (the master's list of the sprites' cells) */
         { extern int spr_ylim; const int yl = *(volatile int *)((uintptr_t)&spr_ylim | 0x20000000);   /* (Sapphire docs/16: the
@@ -105,7 +127,8 @@ extern void CacheControl(int mode);
 
 #define COMM8_32   (*(volatile uint32_t *)0x20004028)
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
-static volatile int cdr_busy;                                 /* (docs/69: a sector read under way) */
+static volatile int cdr_busy_v;                               /* (docs/69: a sector read under way) */
+#define cdr_busy SH(cdr_busy_v)
 #endif
 #define COMM12_16  (*(volatile uint16_t *)0x2000402C)
 #define FB         ((volatile uint16_t *)&MARS_FRAMEBUFFER)
@@ -334,9 +357,11 @@ static void draw_hook(V32 *v) { const uint16_t a = frt_(); spr_frame(v, 0); spr_
    its kept runs - the scroll, the colours - are committed after the swap, from the vertical blank's interrupt
    (op 1: the 68000's own RAM, no frame buffer). bg2_wait: a commit still under way before the next command */
 static Bg2 bg2;
-static volatile int bg2_given;                                /* (the frame buffer is the 68000s: op 0 or the commit) */
+static volatile int bg2_given_v;                                /* (the frame buffer is the 68000s: op 0 or the commit) */
 static uint32_t bg2_sent, bg2_words, bg2_fail, bg2_late;
-static volatile int bg2_pairs;                                /* (the picture's list has pairs: op 1 after its swap) */     /* (late: blanks the list was still running at) */
+static volatile int bg2_pairs_v;                                /* (the picture's list has pairs: op 1 after its swap) */     /* (late: blanks the list was still running at) */
+#define bg2_given SH(bg2_given_v)
+#define bg2_pairs SH(bg2_pairs_v)
 static void bg2_wait(void) { for (int n = 0; n < 2000000 && MARS_SYS_COMM0 != 0; n++) { } }
 static int bg2_run(uint32_t off)                              /* a list at off in the buffer seen: 1 done */
 {
@@ -422,8 +447,21 @@ static void bg2_setup(void)
 }
 #endif
 static uint16_t cram_shadow[256], cram_pend[256];
-static int pace_req = -1; static uint32_t pace_n, pace_last, pace_missed, pace_worst, pace_shown_at;
-static volatile int pal_go = -1;                              /* (the buffer whose colours are in cram_pend) */
+static volatile int pace_req_v = -1;
+#define pace_req SH(pace_req_v)
+static uint32_t pace_n, pace_last, pace_missed, pace_worst, pace_shown_at;
+static volatile int pal_go_v = -1;                            /* (the buffer whose colours are in cram_pend) */
+#define pal_go SH(pal_go_v)
+#ifdef SPR_LATE
+static void sec_send(int buf, int nn)                         /* (docs/17: the secondary sends its picture) */
+{
+    const int n = nn & 0x7FFF; bg2_pairs = (nn & 0x8000) != 0;
+    if (n == 0) FB[BG2_LIST >> 1] = 0;
+    if (bg2.vsp_dirty) vsplit_send();
+    bg2_send(BG2_LIST, 2 + buf);
+    pace_req = buf; pal_go = buf;
+}
+#endif
 static int pal_dirty;                                         /* (cram_pend differs from what the 32X has) */
 #define PAL_DIRTY (*(volatile int *)((uintptr_t)&pal_dirty | 0x20000000))   /* (SEC=2: the secondary's: past the cache) */
 /* the colours at the vblank the picture comes on in, however late the next drawing is */
@@ -641,6 +679,9 @@ static void play_pad(void)                                    /* (draw_hook: the
     if (k & SEGA_CTRL_START) menu();
 }
 #endif
+#ifdef SPR_LATE
+static uint32_t late_job;
+#endif
 static void draw_hook(V32 *v)
 {
 #ifdef SEC_TIMES
@@ -649,6 +690,9 @@ static void draw_hook(V32 *v)
     { static uint32_t e0; if (e0 && ta - e0 > 94) sec_t[6]++; e0 = ta; }
 #else
     uint32_t ta = 0;
+#endif
+#ifdef SPR_LATE
+    if (late_job) while (SEC_SENT != late_job) { }           /* (docs/17: the picture before sent) */
 #endif
     if (pace_req >= 0) {
 #ifdef BG2_DRAW
@@ -679,7 +723,14 @@ static void draw_hook(V32 *v)
 #endif
     SEC_JOB = job;                                            /* (the sprites: the secondary, meanwhile the background) */
 #ifdef SEC_BG
-#ifdef SPR_SPLIT
+#ifdef SPR_LATE
+    spr_frame_list(v, cur ^ 1);
+    SEC_NC = spr_ncmd; SEC_LIST = job; late_job = job;       /* (the secondary draws them, then sends the picture) */
+    while (SEC_DONE != job) { }                               /* (its background's list made: nothing it reads changes) */
+    pace_n++;
+    MARS_SYS_COMM6 = (short)pace_missed;
+    return;
+#elif defined(SPR_SPLIT)
     spr_frame_list(v, cur ^ 1);
     SEC_T(8, ta);
     SEC_NC = spr_ncmd; SEC_LIST = job;                        /* (the cells' list: the secondary draws its band) */

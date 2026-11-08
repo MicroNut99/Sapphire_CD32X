@@ -154,8 +154,10 @@ static const uint8_t *cell_src(const V32 *r, unsigned c, int buf, int odd)
 #else
 static inline const uint8_t *cell_src(const V32 *r, unsigned c, int buf, int odd) { int k; return cell_src_(r, c, buf, odd, &k); }
 #endif
+int spr_ylim = SPR_LINES;                         /* (docs/16: the lines sprites show on) */
 #ifdef SPR_SPLIT
 static int src_unkept;                             /* (SPLIT: the last cell came from tmp: drawn now, not listed) */
+static uint32_t list_clock;                        /* (docs/17: sc_clock when the list was last empty) */
 #endif
 static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int *kind)
 {
@@ -202,6 +204,10 @@ static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int 
         sc[hit].valid |= (uint16_t)bit;
     } else {
         hit = lru; slot = (uint32_t *)(spr_buf[buf].tail + SPR_CELL * hit);
+#ifdef SPR_SPLIT
+        /* (docs/17: a slot a listed cell still points at, about to be written over: the list drawn first, whole) */
+        if (sc[lru].use > list_clock && spr_ncmd) { spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, spr_ylim); spr_ncmd = 0; list_clock = sc_clock; }
+#endif
         sc[hit].cell = (uint16_t)c; sc[hit].t[0] = (uint16_t)t0; sc[hit].t[1] = t[1]; sc[hit].t[2] = t[2]; sc[hit].t[3] = t[3];
         sc[hit].valid = (uint16_t)bit; sc[hit].use = ++sc_clock;
     }
@@ -252,7 +258,6 @@ static void draw_cell(const uint8_t *cell, uint8_t *ovl, int px, int py, int hf,
 
 /* (Sapphire docs/16) the lines sprites show on: the picture's, cut where the CR in force turns them off (a raster
    split below which the game shows no sprites - Sapphire's status bar from line 203); set at each picture */
-int spr_ylim = SPR_LINES;
 static void set_ylim(const V32 *v)
 {
     int y = (v->t.CR & 0x40) ? SPR_LINES : 0;
@@ -284,7 +289,9 @@ static inline uint16_t cols(const Geo *g) { return (uint16_t)(colmask[(g->x1 + 1
 SprCmd spr_cmd[SPR_CMDS];
 #endif
 int spr_ncmd;
+#ifdef __sh__
 _Static_assert(SPR_CMDS * sizeof(SprCmd) <= 960, "the list's room");
+#endif
 void spr_draw_cmds(const SprCmd *k, int n, int buf, int ya, int yb)
 {
     uint8_t *const ovl = spr_buf[buf].ovl; uint32_t loc[(C_MASK + 4) / 4];
@@ -324,6 +331,9 @@ void spr_frame(const V32 *v, int buf)
     spr_ncmd = 0;
 #endif
     SprBuf *b = &spr_buf[buf];
+#ifdef SPR_SPLIT
+    list_clock = sc_clock;
+#endif
     set_ylim(v);                                   /* (docs/16) */
     uint16_t dirty[SPR_LINES / 16] = { 0 };
     uint8_t same[64];
@@ -378,7 +388,7 @@ void spr_frame(const V32 *v, int buf)
 #ifdef SPR_SPLIT
             const uint8_t *src = cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1);
             if (src_unkept || spr_ncmd == SPR_CMDS) {   /* (a cell not kept, or the list full: what is listed now, whole) */
-                spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, spr_ylim); spr_ncmd = 0;
+                spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, spr_ylim); spr_ncmd = 0; list_clock = sc_clock;
                 if (src_unkept) { draw_cell(src, b->ovl, px, py, hf, vf, pal, 0, spr_ylim); continue; }
             }
             SprCmd *k = &spr_cmd[spr_ncmd++];

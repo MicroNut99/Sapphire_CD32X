@@ -66,7 +66,7 @@ a frame; stages 2-5 under one)**, the 4 MB plain EverDrive 912-1,246, every hash
 **The picture** ([docs/16](docs/16_THE_PICTURE.md)): **the game on screen in ares**, the background on the Genesis plane, the
 sprites on the 32X, the status bar in its own band (the line-203 raster split by per-line H scroll and command 78).
 Stage 3's screenshots equal the PC's pictures, which equal Mednafen's screen but for the 16-cells-a-line sprite limit.
-Next: speed (22-27 frames a second with drawing), stages 1-2's colours.
+Next: speed (22-27 frames a second with drawing; [docs/17](docs/17_SPEED_FIRST_LOOK.md): the background's job must stop holding the game), stages 1-2's colours.
 
 No game data is in this repository: no disc tracks, BIOS, save states, captures or anything converted from
 the game (`.gitignore`). You supply the disc and the System Card; everything made from them stays in a work

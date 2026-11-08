@@ -25,7 +25,10 @@ void spr_last_clear(int buf);
 #ifdef SPR_SPLIT
 /* (docs/67) the cells to draw, in order: their source, place, flips (bit 0 H, bit 1 V) and palette */
 typedef struct SprCmd { const uint8_t *src; int16_t px, py; uint8_t hv, pal; } SprCmd;
-#define SPR_CMDS 80                    /* (a full list is drawn whole and started again) */
+#ifndef SPR_CMDS
+#define SPR_CMDS 80
+#endif
+/* (SPR_CMDS: a full list is drawn whole and started again; docs/17: 64 with LATE=1) */
 #ifdef __sh__
 #define spr_cmd ((SprCmd *)0x0603F440)  /* (the 960 bytes between the master's stack top and 0x0603F800, which docs/35
                                            left unused: SDRAM has no other room on stage 4) */
