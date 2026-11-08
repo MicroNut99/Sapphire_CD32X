@@ -8,5 +8,6 @@ F="-O1 $XF -DHUC_TIMED -DHUC_IDLE_EXIT -I $G -I $H -I $R"
 mkdir -p $O
 ls $G/*.c | xargs -P 2 -I{} sh -c 'f={}; b=$(basename $f .c); o='$O'/$b.o; [ $o -nt $f ] || gcc '"$F"' -c $f -o $o || echo FAIL $b'
 for f in rt rt_vdc rt_state rt_pc $EXTRA_RT; do gcc $F -Wall -c $R/$f.c -o $O/$f.o || echo FAIL $f; done
+for f in $EXTRA_C; do gcc $F -Wall -c $f -o $O/$(basename $f .c).o || echo FAIL $f; done   # (EXTRA_C: more C files, with their paths)
 for f in io_model scsi_model ac_model; do gcc $F -c $H/$f.c -o $O/$f.o 2>/dev/null || echo FAIL $f; done
 gcc -o $O/rt_pc $O/*.o && echo built $O/rt_pc

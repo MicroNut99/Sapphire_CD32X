@@ -9,6 +9,10 @@
  * trace_check --run prints the same "idle" hashes (RUN_IDLE_HASH), from the model checked against Mednafen.
  * RUN_QUIET: the last frame's hashes only (what dxspeed shows), for timing and profiling the runtime alone. */
 #include <stdio.h>
+#ifdef SPR_FPGA_CELLS
+#include "../../fpga/huc/cellstore.h"
+const uint8_t *spr_fpga_cell(unsigned c) { return cs_cell(c); }
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
@@ -1038,6 +1042,59 @@ int main(int argc, char **argv)
         ln_off = getenv("RUN_BG_LOFF") ? atol(getenv("RUN_BG_LOFF")) : 0; v32_scroll = scroll_hook; }
 #endif
 #endif
+#endif
+#ifdef SPR_FPGA_CELLS
+    if (getenv("RUN_FIFO") && getenv("RUN_FIFO_CS")) {   /* (docs/28) the FPGA's cell store against the playback:
+        two cursors on the FIFO. The SH2's applies everything and draws frame k every RUN_FIFO_EVERY frames; the FPGA's
+        applies the VRAM words and boundaries to cellstore.c, released just before boundary k and run on to just
+        before the next release (the most it can be ahead), so the cells are read while the game is frames on */
+        FILE *ff = fopen(getenv("RUN_FIFO"), "rb"); fseek(ff, 0, SEEK_END); const long ne = ftell(ff) / 4; fseek(ff, 0, SEEK_SET);
+        uint32_t *E = malloc(ne * 4); if (fread(E, 4, ne, ff) != (size_t)ne) return 1; fclose(ff);
+        const long every = getenv("RUN_FIFO_EVERY") ? atol(getenv("RUN_FIFO_EVERY")) : 2;
+        cs_init(rt.vdc.vram);
+        long fi = 0, fk = 0; unsigned faddr = 0;                /* (the FPGA's cursor: entry, boundaries passed) */
+        auto_fpga_to: ;
+        V32 *v = &rt.vdc; unsigned addr = 0; long k = 0, pics = 0;
+        #define FPGA_TO(kk) while (fi < ne && fk < (kk)) { const uint32_t e_ = E[fi++]; const unsigned t_ = e_ >> 28, d_ = e_ & 0xFFFF; \
+            if (t_ == 2) faddr = d_; else if (t_ == 1) { cs_vram(faddr, (uint16_t)d_); faddr = (faddr + 1) & 0xFFFF; } \
+            else if (t_ == 5) { cs_boundary(); fk++; } }
+        for (long i = 0; i < ne && k < frames; i++) {
+            const uint32_t e = E[i]; const unsigned t = e >> 28, x = (e >> 16) & 0xFFF, d = e & 0xFFFF;
+            switch (t) {
+            case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag; } addr = (addr + 1) & 0xFFFF; break;
+            case 2: addr = d; break;
+            case 3: { const unsigned sel = x >> 1, hi = x & 1;
+#define SETB_(r, val) (r) = (uint16_t)(hi ? (((r) & 0x00FF) | (val) << 8) : (((r) & 0xFF00) | (val)))
+                switch (sel) {
+                case 5: SETB_(v->t.CR, d); if (v->sp_cur >= 0) { v->sp[v->sp_cur].cr = v->t.CR; v->sp[v->sp_cur].wrote |= 4; } break;
+                case 6: SETB_(v->t.RCR, d); v->t.RCR &= 0x3FF; break;
+                case 7: SETB_(v->BXR, d); v->BXR &= 0x3FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].bxr = v->BXR; v->sp[v->sp_cur].wrote |= 1; } break;
+                case 8: SETB_(v->BYR, d); v->BYR &= 0x1FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].byr = v->BYR; v->sp[v->sp_cur].wrote |= 2; } break;
+                case 9: SETB_(v->MWR, d); break;
+                case 0x13: SETB_(v->DVSSR, d); break;
+                }
+#undef SETB_
+                break; }
+            case 4: v->color[x & 0x1FF] = (uint16_t)d; break;
+            case 5: for (int j = 0; j < v->sp_n; j++) v->spl[j] = v->sp[j];
+                v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
+                if (k % every == 0) {
+                    FPGA_TO(k); cs_release();                 /* (just before boundary k: the SH2's picture before is shown) */
+                    FPGA_TO(k + every);                       /* (locked at k; on to just before the next release) */
+                    if (rt_draw_hook) rt_draw_hook(v);
+                    pics++;
+                }
+                rt_marks_frame(); k++; break;
+            case 6: v->sp_cur = -1; break;
+            case 7: if (v->sp_n < 4) { const int j = v->sp_n++; v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
+                                       v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
+            case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(v->sat, &v->vram[d], len * 2); } break;
+            }
+        }
+        #undef FPGA_TO
+        (void)&&auto_fpga_to;
+        printf("fifo+cellstore: %ld frames, %ld pictures; cellstore %lu updates, %lu cells frozen\n", k, pics, cs_updates, cs_freezes);
+    } else
 #endif
     if (getenv("RUN_FIFO")) {   /* (Sapphire docs/25) the CPU in the cart's FIFO played into the VDC model, every frame
                                    drawn (rt_draw_hook), instead of the game: saspeed's FIFO_PLAY, on the PC */

@@ -196,6 +196,10 @@ static const uint8_t *cell_src_(const V32 *r, unsigned c, int buf, int odd, int 
         vs_req++; if (run) { vs_run++; vs_al[((s0 - 1) & 127) ? (((s0 - 1) & 1) ? 0 : 1) : 2]++; vs_note(s0 - 1); }
     }
 #endif
+#ifdef SPR_FPGA_CELLS
+    /* (docs/28) the FPGA keeps every cell converted, as at the frame the picture is of: nothing to convert here */
+    { extern const uint8_t *spr_fpga_cell(unsigned c); (void)buf; (void)odd; *kind = 0; spr_stat.hits++; return spr_fpga_cell(c); }
+#endif
     const uint16_t *t = &rt_marks.v[c * 4];
     const unsigned t0 = t[0], tg = rt_marks.tag;
     /* a unit of the load list's copy under way at the display's start: the picture has it as VRAM has it now (docs/08's

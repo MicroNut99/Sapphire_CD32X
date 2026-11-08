@@ -75,6 +75,9 @@ Read `CLAUDE.md` first.
      is the owner's to open/merge. `work/bc3` carries it. 263 pictures / 600 frames. Next: the sprites' cost.
   22. **docs/27:** 262 pictures: 198 at 2 refreshes, 54 at 3, 10 at 4 (`RTX=-DPACE_HIST`). A picture's drawing must end
      within ~1.4 refreshes for 2; the list rule (line 196) decides. Next: docs/27's list (sprite clears, tests, bg).
+  23. **docs/28** (owner: FPGA cell conversion, exact): `fpga/huc/cellstore.c` (copy-on-write from a frame boundary);
+     rt_pc `-DSPR_FPGA_CELLS` + `RUN_FIFO_CS=1` (EXTRA_C=fpga/huc/cellstore.c): pictures identical. Next: cellstore.sv,
+     the SH2's read path, the ares board model.
 
 ## 2. Where things live
 

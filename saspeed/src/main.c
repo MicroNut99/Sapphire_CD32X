@@ -748,6 +748,9 @@ static union { uint8_t b[offsetof(V32, vram)]; uint32_t align; } v32_head;   /* 
 static int vlog_job_done(void) { return SEC_DONE == late_job; }
 static void vlog_job_wait(void) { while (SEC_DONE != late_job) { } }
 #endif
+#ifdef PACE_HIST
+uint32_t ph_t0, ph_t7, ph_t3;
+#endif
 static void draw_hook(V32 *v)
 {
 #ifdef SEC_TIMES
@@ -756,6 +759,9 @@ static void draw_hook(V32 *v)
     { static uint32_t e0; if (e0 && ta - e0 > 94) sec_t[6]++; e0 = ta; }
 #else
     uint32_t ta = 0;
+#endif
+#ifdef PACE_HIST
+    ph_t0 = wdt_now();
 #endif
 #ifdef VS_SEC
     if (vs_job) while (SEC_VSDONE != vs_job) { }             /* (docs/19: its command 78 sent) */
@@ -827,6 +833,9 @@ static void draw_hook(V32 *v)
 #endif
     pace_n++;
     SEC_T(7, ta);
+#ifdef PACE_HIST
+    ph_t7 = wdt_now();
+#endif
 #ifdef BG2_DRAW
     {
 #ifdef SEC_BG
@@ -842,6 +851,9 @@ static void draw_hook(V32 *v)
 #endif
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);
+#ifdef PACE_HIST
+        { extern uint32_t ph_t3; ph_t3 = wdt_now(); }
+#endif
         bg2_sent++; bg2_words += (uint32_t)n;
 #ifdef VS_SEC
         /* (docs/19: the list sent by pace_vbi at the next blank's start, so the 68000 runs it while no raster split is
@@ -861,6 +873,15 @@ static void draw_hook(V32 *v)
 #endif
                 bg2_send(BG2_LIST, lst_op); SEC_VS = vs_job; lists_now++;
             } else lst_ready = 1;
+#ifdef PACE_HIST
+            {   /* (docs/28) a ring of 64 pictures: the lines at start / sprites done / list made, the list's words, sent at once */
+                static uint32_t ri, all; extern uint32_t ph_t0, ph_t7, ph_t3; const uint32_t te = wdt_now(); all++;
+                if ((te - ph_t0) * 262 / 94 > 300) {      /* (the slow ones: lines from the start) */
+                    volatile uint32_t *q = (volatile uint32_t *)0x2603E940 + (ri++ & 63) * 6;
+                    q[0] = (ph_t7 - ph_t0) * 262 / 94; q[1] = (ph_t3 - ph_t0) * 262 / 94; q[2] = (uint32_t)line; q[3] = (uint32_t)n;
+                    q[4] = (uint32_t)spr_stat.conv; q[5] = all; }
+            }
+#endif
         }
 #else
         if (bg2.vsp_dirty) vsplit_send();                     /* (docs/16: before the list that asks for the swap) */
