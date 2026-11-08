@@ -88,6 +88,10 @@ endif
 ifeq ($(VSSWAP),1)
 CCFLAGS += -DVS_SWAP
 endif
+# FPGA_CELLS=1 (with FIFO=, ACE=1; ares ARES_CELLS): the FPGA's converted cells (docs/28-29) read from the cart
+ifeq ($(FPGA_CELLS),1)
+CCFLAGS += -DSPR_FPGA_CELLS
+endif
 # KEEP=1 (with ACE=1, the 14 MB cart): every sprite cell kept converted in the cart, by the engine's poke (docs/19)
 ifeq ($(KEEP),1)
 CCFLAGS += -DSPR_KEEP

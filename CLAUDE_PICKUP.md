@@ -78,6 +78,11 @@ Read `CLAUDE.md` first.
   23. **docs/28** (owner: FPGA cell conversion, exact): `fpga/huc/cellstore.c` (copy-on-write from a frame boundary);
      rt_pc `-DSPR_FPGA_CELLS` + `RUN_FIFO_CS=1` (EXTRA_C=fpga/huc/cellstore.c): pictures identical. Next: cellstore.sv,
      the SH2's read path, the ares board model.
+  24. **docs/29, the store in ares:** board model `fpga/ares/0002-ares-sapphire-cells.patch` (`ARES_CELLS`, `ARES_CELLS_VRAM`,
+     `ARES_CELLS_LEAD=0`); the store follows the SH2's count (reg 0xca) and answers only after the unlock (0xcb a5/5a).
+     `pic_check.sh st3 work/sel_st3_600m <tag> ...` with `EXTRA="SEC=2 VS_SEC=1 VSSWAP=1 FPGA_CELLS=1 FIFO=work/fifo_st3.bin"`;
+     `work/hist.sh <tag>` reads the pacing histogram (`RTX=-DPACE_HIST`). 264 pictures, exact, but no faster than KEEP.
+     Next: docs/27's list; cellstore.sv; what reads the engine window at start-up.
 
 ## 2. Where things live
 

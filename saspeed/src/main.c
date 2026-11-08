@@ -916,6 +916,32 @@ static void draw_hook(V32 *v)
    (docs/24) applied to the VDC model as fifo_v32.c does; at each display start the picture is drawn if no later
    frame is due yet (the newest), else only the frame's splits and marks move on. COMM8: the pictures drawn */
 static uint32_t fifo_pics;
+#ifdef SPR_FPGA_CELLS
+/* (docs/29) the FPGA's cell store: the live cells at cart 0x170000 (cached: the cells the FIFO changed are purged
+   before a picture), the frozen ones at 0x194000 (past the cache: written anew each lock); the frozen bits, the
+   release, the locked frame and this CPU's frame count through the engine's window (registers 0xc6-0xca, answering after the unlock: 0xcb = 0xa5, then 0x5a) */
+#define CS_ACE(off) (*(volatile uint16_t *)(0x22000000u + 0x1C0000u + (off)))
+#define CS_WR(r, v) ((void)CS_ACE(0x20000u | (uint32_t)(v) << 9 | (uint32_t)(r) << 1))
+#define CS_RD(r) CS_ACE((uint32_t)(r) << 1)
+static uint8_t cs_dirty[64];
+const uint8_t *spr_fpga_cell(unsigned c)
+{
+    c &= 511;
+    CS_WR(0xc6, c >> 4);
+    if (CS_RD(0xc7) >> (c & 15) & 1) return (const uint8_t *)(0x22000000u + 0x194000u + c * 288u);
+    return (const uint8_t *)(0x02000000u + 0x170000u + c * 288u);
+}
+static void cs_purge(void)
+{
+    for (unsigned g = 0; g < 64; g++) if (cs_dirty[g]) {
+        for (unsigned c = g * 8; c < g * 8 + 8; c++) if (cs_dirty[g] >> (c & 7) & 1) {
+            const uint32_t a0 = (0x02170000u + c * 288u) & ~15u, a1 = 0x02170000u + c * 288u + 288u;
+            for (uint32_t a = a0; a < a1; a += 16) *(volatile uint32_t *)(0x40000000u | a) = 0;
+        }
+        cs_dirty[g] = 0;
+    }
+}
+#endif
 static int pic_free(void)
 {
 #ifdef VS_SEC
@@ -927,11 +953,18 @@ static void fifo_play(V32 *v, long frames)
 {
     const uint32_t *f = (const uint32_t *)0x02200000;
     const uint32_t t0 = gTicks; long k = 0; unsigned addr = 0;
+#ifdef SPR_FPGA_CELLS
+    CS_WR(0xcb, 0xa5); CS_WR(0xcb, 0x5a);                     /* (docs/29: the store's start - its registers answer from here) */
+#endif
     while (k < frames) {
         const uint32_t e = __builtin_bswap32(*f++);           /* (the FIFO file is little-endian, as the PC wrote it) */
         const unsigned t = e >> 28, x = (e >> 16) & 0xFFF, d = e & 0xFFFF;
         switch (t) {
-        case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag; } addr = (addr + 1) & 0xFFFF; break;
+        case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag;
+#ifdef SPR_FPGA_CELLS
+                      cs_dirty[addr >> 9] |= (uint8_t)(1u << (addr >> 6 & 7));
+#endif
+                  } addr = (addr + 1) & 0xFFFF; break;
         case 2: addr = d; break;
         case 3: {
             const unsigned sel = x >> 1, hi = x & 1;
@@ -954,7 +987,17 @@ static void fifo_play(V32 *v, long frames)
             while ((long)(gTicks - t0) < k) { }                 /* (not due yet: the PC Engine's own rate) */
             /* (docs/27: drawn only when the picture before is on screen - the frames keep coming meanwhile, their
                entries applied while the swap is awaited - and when it is the newest due) */
+#ifdef SPR_FPGA_CELLS
+            /* (docs/29) released as soon as the picture before is on screen; drawn at the frame the FPGA then locked */
+            /* (the release before the count: the store, which follows this count, locks at this very frame) */
+            { static int released; static uint32_t want = 0xFFFFFFFFu;
+              if (!released && pic_free()) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu; }
+              CS_WR(0xca, (k + 1) & 0xFF);                       /* (the boundaries this CPU has passed: the store's pace) */
+              if (released && want == 0xFFFFFFFFu) { const uint16_t l = CS_RD(0xc9); if (l != 0xFFFF) want = l; }
+              if (released && (uint32_t)(k + 1) == want) { cs_purge(); draw_hook(v); fifo_pics++; released = 0; } }
+#else
             if (pic_free() && (long)(gTicks - t0) < k + 1) { draw_hook(v); fifo_pics++; }
+#endif
             rt_marks_frame();
             k++;
             break;
