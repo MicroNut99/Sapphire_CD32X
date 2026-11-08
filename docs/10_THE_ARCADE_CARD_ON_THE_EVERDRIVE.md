@@ -68,9 +68,24 @@ regions 256-byte aligned (flag 8).
 ares's cart read time is its model's, not the console's, and its engine answers in one cart read. **A green
 ares run is not a console pass.**
 
+## 2b. Quartus (the owner's PC, 7 Nov 2026, 16:14)
+
+`build_sapphire.bat`, Quartus Prime 25.1std Lite, EP4CE15F23C8, the engine with the bank-31 rule (before
+docs/11's poke):
+
+| | Logic elements | Registers | Memory bits | 9-bit multipliers | Timing (slow 85 C, setup / hold) |
+|---|---|---|---|---|---|
+| krikzz's `map_ssf` alone (Metal Slug's README) | 1,754 (11 %) | | 114,688 (22 %) | | met |
+| **`map_sapphire`** (the SSF mapper + the engine) | **3,585 (23 %)** | 1,596 | 114,688 (22 %) | 8 (7 %) | **met: +6.09 ns / +0.45 ns** |
+
+So the engine takes about 1,830 logic elements, and **11,800 stay free** for docs/10's second step (a HuC6280
+core). Quartus put the shift and rotate register's shifters in multipliers. `mega-pro.rbf` (186,409 bytes) is in
+`Sapphire\fpga\quartus\out`, not in git. **To build again for docs/11's poke** (the files on the PC are
+updated): the same `.bat`.
+
 ## 3. To do
 
-1. **Quartus** (the owner's PC): run `Sapphire\fpga\quartus\build_sapphire.bat`. It copies the project into
+1. **Quartus** (the owner's PC; done once, §2b, again for the poke): run `Sapphire\fpga\quartus\build_sapphire.bat`. It copies the project into
    krikzz's tree in `fpga_work` (as Metal Slug's builds), compiles, and copies the fit and timing summaries and
    `mega-pro.rbf` into `fpga\quartus\out`. Then the room (krikzz's `map_ssf` alone: 1,754 logic elements) and
    whether timing is met.
