@@ -19,6 +19,8 @@ module vdc_timing (
 	output logic        wr_vram, output logic [15:0] wr_addr, wr_data,
 	output logic        wr_reg,  output logic [4:0]  wr_sel,
 	output logic [8:0]  scanline,
+	// the picture's events for the SH2 (docs/24): the display starts (line 0), it ends, a raster-compare match (its next line)
+	output logic        ev_line0, ev_vend, ev_rcr, output logic [9:0] ev_rcr_line,
 	output logic [9:0]  rcr_count_o
 );
 	// ---- the registers (vdc_model.c)
@@ -90,7 +92,7 @@ module vdc_timing (
 	// the state as the whole step makes it: blocking assignments in one always_ff, as the C runs
 	always_ff @(posedge clk) begin
 		logic tick;
-		wr_vram <= 0; wr_reg <= 0;
+		wr_vram <= 0; wr_reg <= 0; ev_line0 <= 0; ev_vend <= 0; ev_rcr <= 0;
 		if (ce) begin
 			// --- vt_run for one master clock: the VDC's clock, then the VCE's line and frame
 			clkdiv = clkdiv + 1; hblank_ctr = hblank_ctr - 1; vblank_ctr = vblank_ctr - 1;
@@ -261,6 +263,7 @@ module vdc_timing (
 		vphase_ctr = vphase_ctr - 1;
 		if (vphase_ctr <= 0) begin
 			vphase = vphase + 1;
+			if (vphase == V_VDW) ev_line0 <= 1; else ev_vend <= 1;
 			case (vphase)
 			V_VDS: vphase_ctr = $signed({24'd0, vds_c}) + 2;
 			V_VDW: begin
@@ -280,6 +283,6 @@ module vdc_timing (
 			endcase
 		end
 		if (vphase == V_VDW && !burst_mode) spr_fetch = sprites_on(rcr_count);
-		if ({6'd0, rcr_count} == RCR - 16'h40 && CR[2]) status = status | 8'h04;
+		if ({6'd0, rcr_count} == RCR - 16'h40 && CR[2]) begin status = status | 8'h04; ev_rcr <= 1; ev_rcr_line <= rcr_count + 1; end
 	endtask
 endmodule

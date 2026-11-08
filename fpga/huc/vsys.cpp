@@ -17,7 +17,7 @@ int tb_ins(int, int, int, int, int, int, int, int, int, int, int, int, int, int,
 extern long tb_started;
 #ifdef SYSRUN
 extern int64_t sys_now; int sys_irq_mask(void); void sys_vram(unsigned, unsigned); void sys_sat_copy(unsigned);
-int sys_frame_end(void); void sys_vdc_start(const Vdc *);
+int sys_frame_end(void); void sys_vdc_start(const Vdc *); void sys_fifo(unsigned, unsigned, unsigned);
 #endif
 }
 static Vvdc_timing *v;
@@ -90,8 +90,17 @@ int main() {
         v->cpu_rd = rd; v->cpu_wr = wr; v->a = a; v->d = dd; v->clk = 1; v->eval(); v->clk = 0; v->eval();
         const int sl = R(scanline_r);
 #ifdef SYSRUN
-        if (v->wr_vram) sys_vram(v->wr_addr, v->wr_data);
-        { static int32_t was; const int32_t sd = (int32_t)R(sat_dma); if (sd > 0 && was <= 0) sys_sat_copy(R(DVSSR)); was = sd; }   // (the copy starts)
+        // the FIFO (docs/24): the display's events in the RTL's order, then a committed VRAM word, the sprite table's copy
+        if (v->ev_line0) sys_fifo(5, 0, 0);
+        if (v->ev_vend) sys_fifo(6, 0, 0);
+        if (v->ev_rcr) sys_fifo(7, 0, v->ev_rcr_line);
+        if (v->wr_vram) {
+            static unsigned next = 0xFFFFFFFF;
+            if (v->wr_addr != next) sys_fifo(2, 0, v->wr_addr);
+            sys_fifo(1, 0, v->wr_data); next = (v->wr_addr + 1) & 0xFFFF;
+            sys_vram(v->wr_addr, v->wr_data);
+        }
+        { static int32_t was; const int32_t sd = (int32_t)R(sat_dma); if (sd > 0 && was <= 0) { sys_sat_copy(R(DVSSR)); sys_fifo(9, 0, R(DVSSR)); } was = sd; }   // (the copy starts)
 #endif
         if (sl != last_sl) { if (sl == 123 || sl == 14 + 243) ws_counter = 0; last_sl = sl;
 #ifdef SYSRUN
@@ -142,7 +151,13 @@ int main() {
                         if (vtick) vstep(0, 0, 0, 0);
                         continue;                                            // (the access: once the stall ends)
                     }
+#ifdef SYSRUN
+                    const unsigned sel_was = R(select);
+#endif
                     vstep(rd, !rd, off & 0x7FF, rd ? 0 : c->DO); did = 1;
+#ifdef SYSRUN
+                    if (!rd && off < 0x400 && (off & 2) && sel_was >= 5) sys_fifo(3, sel_was << 1 | (off & 1), c->DO);   // (a register's byte)
+#endif
 #ifdef SYSRUN
                     if (off >= 0x400) { if (rd) di = tb_rd(pa); else tb_wr(pa, c->DO); }   // (the VCE: the colours are sys_host's)
                     else if (rd) di = v->rd_d;

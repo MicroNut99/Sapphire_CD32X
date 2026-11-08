@@ -65,6 +65,9 @@ Read `CLAUDE.md` first.
   18. **docs/21-23:** `fpga/huc/vdc_timing.sv` (= the C model: run_eq.sh), the core in Verilator (run_vtb.sh: GHDL synth
      to `/tmp/vhuc/huc_cpu_dbg.v` first), the two together (run_vsys.sh; `RUN=1`: from models, the end against
      Mednafen's). Next: the FIFO and the SH2's side, the hardware page in RTL, Quartus.
+  19. **docs/24, the FIFO:** `TB_FIFO=` on `RUN=1 run_vsys.sh` writes it; `fpga/huc/fifo_v32.c` rebuilds each picture's
+     state from it; rt_pc `RUN_V32HASH=1` (`work/rtvh`) gives the runtime's. Next: the FPGA in ares (ares's PCE CPU as
+     a stand-in), the SH2's build from the FIFO, the FPGA logic and Quartus.
 
 ## 2. Where things live
 

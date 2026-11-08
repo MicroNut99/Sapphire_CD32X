@@ -31,7 +31,15 @@ static uint16_t *inp; static long ninp, frame, frames_max;
 static int stub_on = 1; static uint8_t stub[64]; static int stub_n; static uint16_t stub_at = 0xE000, target;
 static uint8_t scratch_v[256]; static int scratch_ok[256];
 static int cur_blk; static uint8_t mpr[8];
-long tb_started; int64_t sys_now;                          /* (vsys.cpp: master clocks since the window's start) */
+long tb_started; int64_t sys_now;
+/* the FIFO to the SH2 (docs/24), TB_FIFO=<file>: u32 entries, type << 28 | x << 16 | d */
+static FILE *fifo_f; long fifo_n;
+void sys_fifo(unsigned type, unsigned x, unsigned d)
+{
+    if (!fifo_f) return;
+    const uint32_t e = (uint32_t)type << 28 | (x & 0xFFF) << 16 | (d & 0xFFFF);
+    fwrite(&e, 4, 1, fifo_f); fifo_n++;
+}                          /* (vsys.cpp: master clocks since the window's start) */
 
 static void *load(const char *f, long *n)
 {
@@ -48,7 +56,7 @@ void sys_vdc_start(const Vdc *c) { memcpy(vv.vram, c->vram, sizeof vv.vram); mem
 int tb_init(int dummy)
 {
     (void)dummy; long n;
-    dir = getenv("TB_DIR"); frames_max = getenv("TB_FRAMES") ? atol(getenv("TB_FRAMES")) : 600;
+    dir = getenv("TB_DIR"); if (getenv("TB_FIFO")) fifo_f = fopen(getenv("TB_FIFO"), "wb"); frames_max = getenv("TB_FRAMES") ? atol(getenv("TB_FRAMES")) : 600;
     uint8_t *s = load("start.bin", &n);
     memcpy(base_, s, 8192); memcpy(cdram, s + 8192, 65536); memcpy(sup, s + 8192 + 65536, 196608); memcpy(bram, s + 8192 + 65536 + 196608, 2048);
     uint8_t *r = load("rom.bin", &n); memcpy(rom, r, n < 262144 ? n : 262144);
@@ -114,7 +122,13 @@ int tb_wr(int pa, int v)
     const unsigned b = (unsigned)pa >> 13, o = (unsigned)pa & 0x1FFF;
     if (stub_on) { if (o >= 0x100 && o < 0x200) { scratch_v[o & 0xFF] = (uint8_t)v; scratch_ok[o & 0xFF] = 1; } return 0; }
     if (b == 0xFF) {
-        if (o >= 0x400 && o < 0x800) { vce_write(&vv, o, (uint8_t)v); return 0; }
+        if (o >= 0x400 && o < 0x800) {
+            const unsigned ix = vv.ctaddress & 0x1FF;
+            vce_write(&vv, o, (uint8_t)v);
+            if ((o & 7) == 4 || (o & 7) == 5) sys_fifo(4, ix, vv.color[ix]);   /* (a colour) */
+            return 0;
+        }
+        if (o >= 0x800 && o < 0xC00) sys_fifo(0xA, o & 0xF, (uint8_t)v);         /* (the PSG's, for the sound) */
         if ((o & 0x1E00) == 0x1A00) { ac_write(&ac, o, (uint8_t)v); return 0; }
         io_run(&hw, sys_now);
         if (!io_write(&hw, o, (uint8_t)v)) fprintf(stderr, "sys: a write of %04X = %02X the models don't cover (%s), frame %ld\n", o, v, hw.why ? hw.why : "-", frame);
@@ -198,6 +212,7 @@ static void frame_end_now(void)
     const uint32_t *ae = load("ac_end.bin", &n); if (ae) bad |= cmp("card RAM", acram, ae + 19, 0x200000);
     const uint16_t *ve = load("vdc_end.bin", &n);
     if (ve) { bad |= cmp("VRAM", vv.vram, ve, 65536 * 2); bad |= cmp("sprite table", vv.sat, ve + 65536, 512); bad |= cmp("colours", vv.color, ve + 65536 + 256, 1024); }
+    if (fifo_f) { fclose(fifo_f); printf("  FIFO: %ld entries, %.0f a frame\n", fifo_n, fifo_n / (double)frame); }
     exit(bad ? 1 : 0);
 }
 /* (scsi_model.c's disc read for the 32X runtime: not here, as in trace_main.c) */

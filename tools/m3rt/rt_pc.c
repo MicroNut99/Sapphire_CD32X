@@ -654,8 +654,27 @@ unsigned long vs_req, vs_run, vs_al[8], vs_distinct, vs_zero, vs_part, cv_n, cv_
 void vs_note(uint32_t a) { if (a < (1u << 21) && !vs_seen[a]) { vs_seen[a] = 1; vs_distinct++; } }
 #endif
 static void spr_draw_pc_(V32 *v);
+/* RUN_V32HASH (Sapphire docs/24): at each display start, the state a picture is made from - VRAM, the sprite table,
+   the colours, BXR, BYR, CR, MWR and the frame's raster splits - hashed, as fpga/huc/fifo_v32.c hashes its own */
+static uint32_t v32_hash(const V32 *v)
+{
+    uint32_t h = 2166136261u;
+#define HW(x) do { const uint16_t w_ = (uint16_t)(x); h = (h ^ (w_ & 0xFF)) * 16777619u; h = (h ^ (w_ >> 8)) * 16777619u; } while (0)
+    for (int i = 0; i < 32768; i++) HW(v->vram[i]);
+    for (int i = 0; i < 256; i++) HW(v->sat[i]);
+    for (int i = 0; i < 512; i++) HW(v->color[i]);
+    HW(v->BXR); HW(v->BYR); HW(v->t.CR); HW(v->MWR); HW(v->spl_n);
+    for (int i = 0; i < v->spl_n; i++) { HW(v->spl[i].line); HW(v->spl[i].bxr); HW(v->spl[i].byr); HW(v->spl[i].cr); }
+#undef HW
+    return h;
+}
 static void spr_draw_pc(V32 *v)                    /* (docs/18 VLOG: the log applied, the drawing, the log on again) */
 {
+    if (getenv("RUN_V32HASH")) { static long k; printf("pic %ld v32 %08x", k++, v32_hash(v));
+        if (getenv("RUN_V32PARTS")) printf(" | BXR %03X BYR %03X CR %04X MWR %04X splits %d L%d %03X %03X %04X", v->BXR, v->BYR, v->t.CR, v->MWR, v->spl_n, v->spl_n ? v->spl[0].line : 0, v->spl_n ? v->spl[0].bxr : 0, v->spl_n ? v->spl[0].byr : 0, v->spl_n ? v->spl[0].cr : 0);
+        if (getenv("RUN_V32PARTS")) { uint32_t a = 0, b = 0, c = 0; for (int i = 0; i < 32768; i++) a = a * 31 + v->vram[i]; for (int i = 0; i < 256; i++) b = b * 31 + v->sat[i]; for (int i = 0; i < 512; i++) c = c * 31 + v->color[i]; printf(" vram %08x sat %08x col %08x", a, b, c); }
+        if (getenv("RUN_V32DUMP") && atol(getenv("RUN_V32DUMP")) == k - 1) { FILE *f = fopen("/tmp/pc_vram.bin", "wb"); fwrite(v->vram, 2, 32768, f); fclose(f); }
+        printf("\n"); return; }
 #ifdef VLOG
     vlog_sync(); spr_draw_pc_(v); vlog_start(v->vp);
     { static long most; if ((long)vlog_n > most) most = vlog_n; }
@@ -1010,6 +1029,7 @@ int main(int argc, char **argv)
     if (getenv("RUN_BGSTAT")) rt_draw_hook = spr_draw_pc;
 #ifdef RT_BG2
     if (getenv("RUN_BG2")) rt_draw_hook = spr_draw_pc;
+    if (getenv("RUN_V32HASH")) rt_draw_hook = spr_draw_pc;
 #endif
 #ifdef RT_BG
     if (getenv("RUN_BG")) rt_draw_hook = spr_draw_pc;
