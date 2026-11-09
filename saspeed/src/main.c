@@ -1050,8 +1050,10 @@ static int pic_free(void)
 #if defined(FIFO_LIVE) && defined(FIFO_CDDA)
 /* (docs/41) the CD audio the game asked for (FIFO type B: x = 1 to loop, d = the PC Engine's track, 0 to stop): the
    stack's command 45 on the CD32X disc, where the PC Engine's audio tracks 3-16 are tracks 2-15 */
+uint32_t cdda_log[4] __attribute__((used));                    /* (DIAG: calls, the last track, loop, COMM12 after) */
 static void fifo_cdda(int loop, unsigned trk)
 {
+    cdda_log[0]++; cdda_log[1] = trk; cdda_log[2] = (uint32_t)loop;
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
     cdr_busy = 1;                                             /* (pace_vbi sends nothing meanwhile) */
 #endif
@@ -1059,6 +1061,7 @@ static void fifo_cdda(int loop, unsigned trk)
                                                                  which drops the list in flight: the title kept the
                                                                  loading screen's tiles, docs/41) */
     if (trk >= 3) cd_music_play((int)trk - 1, !loop); else cd_music_stop();
+    cdda_log[3] = COMM12_16;
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
     cdr_busy = 0;
 #endif

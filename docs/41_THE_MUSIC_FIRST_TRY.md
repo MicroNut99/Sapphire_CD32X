@@ -62,9 +62,19 @@ So:
 - **The background art fails:** the title's background is a whole-screen picture, and `rt_bg2`'s Genesis plane (its
   tiles and 4 palettes of 16 colours) does not show it. The stages' and briefings' backgrounds come out right.
 
+## 5. Found: the music works, but the tracks are silent
+
+**Command 45 from the FIFO works.** In ares, with the stack's test tone as the only music track:
+- the SH2's music commands play it, with sound at ares t = 74 s and 105 s;
+- with the full disc, the SH2's log (`cdda_log`) shows the calls answered (COMM12 = 1).
+
+**There is no sound because the work folder's audio tracks are silent.** `work/disc/a01.bin` and `a03.bin`-`a16.bin`
+are all zeros: the placeholders docs/02 made, since only the data tracks (`Track 02.iso`, `Track 17.iso`) were
+uploaded. The real music needs the disc's audio tracks from the owner.
+
+**The title on the music disc** (§3's broken background) was the background of §4, now drawn by docs/42's `BG32=1`.
+
 ## Next
 
-1. Screens like the title (more than 4 background palettes): the background drawn on the 32X's 256-colour layer
-   behind the sprites, and the Genesis plane blanked, chosen picture by picture.
-2. Command 45 from the FIFO, and the sound in ares.
+1. The disc's audio tracks (the owner): then `tools/m3_music.py` again, and command 45 from the FIFO, and the sound in ares.
 3. ADPCM and PSG.
