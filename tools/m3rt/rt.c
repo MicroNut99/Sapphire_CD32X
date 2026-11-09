@@ -297,6 +297,7 @@ void set_mpr(Cpu *c, int i, uint8_t v)
 /* ---- the frame's end: the pad's next buttons (Mednafen takes them where line 257 starts, docs/14) ---- */
 static void (*frame_hook)(Rt *r);
 #ifdef RT_PLAY
+int32_t rt_io_until;                                 /* (docs/44: master clocks from an I/O write to its frame's end) */
 volatile int32_t rt_pad_live = -1;                  /* (RT_PLAY: the pad's libretro mask for the frames from here on, or
                                                        -1: the state's recorded masks) */
 #endif
@@ -646,6 +647,7 @@ static void hw_write_(Rt *r, uint32_t off, uint8_t v)
 #ifdef RT_DEBUG
         if ((off & 0x1C00) == 0x1000) printf("pad write %02X frame %ld at %lld (frame end %lld, line %d)\n", v, r->frame, (long long)t, (long long)r->frame_end_at, r->vdc.t.scanline);
 #endif
+        rt_io_until = (int32_t)(r->frame_end_at - t);        /* (docs/44: a PSG write's place in its frame) */
         if (!io_write(&r->hw, off, v)) r->unmodelled++;
         if ((off & 0x1C00) == 0x1400) irq_changed(r);
     }

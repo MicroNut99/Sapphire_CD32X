@@ -51,6 +51,10 @@ endif
 ifeq ($(BG32),1)
 CCFLAGS += -DBG32
 endif
+# PWM_SOUND=1 (docs/44, with FIFO_LIVE=1): the cart CPU's PSG and ADPCM through the 32X's PWM
+ifeq ($(PWM_SOUND),1)
+CCFLAGS += -DPWM_SOUND
+endif
 ifeq ($(FIFO_LIVE),1)
 CCFLAGS += -DFIFO_LIVE
 endif

@@ -95,3 +95,4 @@ int io_cd_bytes(Hw *io, unsigned n, int32_t per, uint8_t *out);
 int io_ad_poll(Hw *io, int m, int32_t left, int32_t *used, unsigned *reads);   /* docs/76 (rt_adstep) */
 int scsi_quiet(const Hw *io);                       /* no drive, its bus free and not selected, or waiting for the CPU */
 void io_stuff_subchannels(Hw *io, unsigned n);      /* n sub-channel bytes at once (CD-DA run in one go) */
+extern void (*io_psg_hook)(unsigned reg, uint8_t v);   /* (docs/44: each PSG register write, 0-15) */

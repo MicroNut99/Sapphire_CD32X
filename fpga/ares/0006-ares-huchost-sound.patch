@@ -1,0 +1,67 @@
+From dcc39c35de3d85d7fda3d9bc766022328649af22 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:08:13 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in - the sound ring for
+ the 32X's PWM (docs/44)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/everdrive-pro.cpp    |  1 +
+ ares/md/cartridge/board/sapphire-huchost.hpp | 14 +++++++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 7c2e743..3959b88 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -230,6 +230,7 @@ struct EverDrivePro : Interface {
+           }
+           cells.write(r, v, [&](u32 l) -> u16 { return ram[offset(l) >> 1]; });
+         }
++        else if(huc.on && r == 0xcc) return (n16)huc.samples;   //(docs/44: the PWM samples written so far)
+         else if(!cells.live_) {}
+         else if(r == 0xc7) return cells.bits();
+         else if(r == 0xc9) return (n16)cells.lockedAt;
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index 12c36b1..952cfa0 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -15,14 +15,18 @@ struct SapphireHuc {
+   u32 lead = 4;
+   u16 pad = 0, padLow = 0;
+   int (*frameFn)(u16, const u32**) = nullptr;
++  int (*audioFn)(const s16**) = nullptr;
++  u32 samples = 0;            //(docs/44: PWM samples written to the ring at cart 0x3F0000, 32,768 of them; register 0xcc)
++  static constexpr u32 PwmCycle = 1044;
+ 
+   auto power() -> void {
+-    on = false; produced = 0; pictures = 0; pad = 0;
++    on = false; produced = 0; pictures = 0; pad = 0; samples = 0;
+     auto so = getenv("ARES_HUCHOST"); if(!so) return;
+     void* h = dlopen(so, RTLD_NOW | RTLD_LOCAL);
+     if(!h) { fprintf(stderr, "huchost: %s\n", dlerror()); return; }
+     auto init = (int (*)(const char*, const char*))dlsym(h, "huchost_init");
+     frameFn = (int (*)(u16, const u32**))dlsym(h, "huchost_frame");
++    audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
+     if(!init || !frameFn || !init(getenv("ARES_HUC_STATE"), getenv("ARES_HUC_TRACK"))) { fprintf(stderr, "huchost: not started\n"); return; }
+     if(auto e = getenv("ARES_HUC_LEAD")) lead = atoi(e);
+     on = true;
+@@ -32,6 +36,14 @@ struct SapphireHuc {
+   template<typename Put> auto produce(u32 want, Put put) -> void {
+     while(on && pictures < want) {
+       const u32* e = nullptr; int n = frameFn(pad, &e);
++      if(audioFn) {   //(docs/44) the frame's sound as the PWM's pulse widths, 1..cycle-1 about the middle
++        const s16* a = nullptr; int na = audioFn(&a);
++        for(int i = 0; i < na; i++) {
++          s32 w = PwmCycle / 2 + (s32)a[i] * (s32)(PwmCycle / 2 - 2) / 32768;
++          put(0x3f0000 + (samples & 0x7fff) * 2, (u16)w);
++          samples++;
++        }
++      }
+       for(int i = 0; i < n; i++) {
+         u32 l = 0x200000 + (u32)(produced % Ring) * 4, x = e[i];
+         put(l, (u16)((x & 0xff) << 8 | (x >> 8 & 0xff)));          //(little-endian, as the files the PC wrote)
+-- 
+2.43.0
+

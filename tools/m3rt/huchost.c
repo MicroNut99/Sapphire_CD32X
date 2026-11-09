@@ -17,6 +17,7 @@
 #include "rt.h"
 #include "ac_engine.h"
 #include "fifo_synth.h"
+#include "pce_sound.h"
 
 uint32_t *rt_ro_hist, *rt_interp_hist;                  /* (rt_pc's DIAG histograms: none) */
 #ifdef HUCHOST_INTERP
@@ -25,6 +26,8 @@ const BlockDef blocks[] = { { 0, NULL, NULL, NULL, NULL } };   /* (no translated
 #endif
 
 static Rt rt; static RtState st; static uint8_t *cart16; static FILE *track;
+static int16_t snd[2048]; static int nsnd;
+#define SND_RATE 22044                                      /* (the 32X's PWM: 23.01 MHz / 1,044) */
 static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 << 18;
 
 int rt_disc_sector(int32_t sector, uint8_t *out)
@@ -67,6 +70,7 @@ int huchost_init(const char *state, const char *trk)
     memcpy(shadow.vram, rt.vdc.vram, sizeof shadow.vram); memcpy(shadow.color, rt.vdc.color, sizeof shadow.color);
     memcpy(shadow.sat, rt.vdc.sat, sizeof shadow.sat); shadow.dvssr = 0xFFFF; shadow.cur = 0x10000; shadow.started = 1;
     rt_draw_hook = draw;
+    io_psg_hook = psnd_write;
     return 1;
 }
 
@@ -91,8 +95,14 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
 {
     rt_pad_live = pad;
     nents = 0;
+    const unsigned a0 = rt.hw.read_addr; const int n0 = rt.hw.nibble, p0 = rt.hw.playing;
     rt_run(&rt, rt.frame + 1, 0);
     cdda_events();
+    /* (docs/44) the frame's sound: the PSG as written, the ADPCM the playback passed over */
+    nsnd = psnd_frame(rt.hw.ram, a0, n0, rt.hw.read_addr, rt.hw.nibble, p0 || rt.hw.playing, snd, SND_RATE, 59.8261);
     *entries = ents;
     return nents;
 }
+
+/* (docs/44) the samples the last frame made: 16-bit mono at 22,044 Hz */
+int huchost_audio(const int16_t **samples) { *samples = snd; return nsnd; }

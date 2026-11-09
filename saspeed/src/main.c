@@ -94,6 +94,14 @@ static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
 void secondary(void)
 {
     uint32_t seen = 0;
+#ifdef PWM_SOUND
+    /* (docs/44) the PWM: 22,044 Hz (23.01 MHz / 1,044), both channels, an interrupt every 3 samples to this SH2,
+       which fills the FIFO from the sound ring (crt0.s sec_pwm_irq) */
+    MARS_PWM_CYCLE = 1045;
+    MARS_PWM_CTRL = 0x0305;
+    *(volatile uint8_t *)0x20004001 = 0x01;                   /* (this SH2's interrupts: the PWM's) */
+    __asm__ volatile("ldc %0,sr" : : "r"(0x50));             /* (levels 6 and up: the PWM's) */
+#endif
     for (;;) {
         uint32_t j;
         while ((j = SEC_JOB) == seen) for (int i = 0; i < 200; i++) __asm__ volatile("");
@@ -235,6 +243,7 @@ static void line(int y, const char *label, uint32_t v, int hex, uint8_t c)
 #define SDTEXT __attribute__((section(".sdtext")))   /* (in SDRAM with the runtime, dxspeed.ld: run each frame, docs/38) */
 static SDTEXT uint16_t frt(void) { const uint8_t h = SH2_FRT_FRCH; const uint8_t l = SH2_FRT_FRCL; return (uint16_t)(h << 8 | l); }
 uint32_t end_hash[2] __attribute__((used));
+volatile uint32_t pwm_on, pwm_rd;                             /* (docs/44: crt0.s sec_pwm_irq's - the PWM fed from the sound ring) */
 static uint16_t t_last; static uint32_t t_sum, t_max, t_min = 0xFFFFFFFF, nframes, hash, hash_stack;
 static long frames_to_run; static uint32_t frt_check;
 uint32_t fifo_frt_check(void) { return frt_check; } static volatile uint32_t ticks_end;
@@ -1109,6 +1118,13 @@ static void fifo_play(V32 *v, long frames)
         }
         case 4: v->color[x & 0x1FF] = (uint16_t)d; break;
         case 5:
+#if defined(FIFO_LIVE) && defined(PWM_SOUND)
+            if (!pwm_on) {                                    /* (docs/44: the sound on once the ring holds 3,000 samples,
+                                                                 played 2,200 behind what was written) */
+                const uint16_t n = *(volatile uint16_t *)(0x22000000u + 0x1C0000u + (0xccu << 1));
+                if (n >= 3000) { pwm_rd = (uint32_t)(n - 2200); pwm_on = 1; }
+            }
+#endif
             for (int i = 0; i < v->sp_n; i++) v->spl[i] = v->sp[i];
             v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
             while ((long)(gTicks - t0) < k) { }                 /* (not due yet: the PC Engine's own rate) */

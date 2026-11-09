@@ -355,10 +355,11 @@ int io_read(Hw *io, unsigned off, int in_block_move, uint8_t *v)
     return 0;
 }
 
+void (*io_psg_hook)(unsigned reg, uint8_t v);          /* (docs/44: the PSG's register writes, to a synthesizer) */
 int io_write(Hw *io, unsigned off, uint8_t v)
 {
     switch (off & 0x1C00) {
-    case 0x0800: io->io_bus = v; return 1;                                  /* the PSG (sound: M4) */
+    case 0x0800: io->io_bus = v; if (io_psg_hook) io_psg_hook(off & 0xF, v); return 1;   /* the PSG (sound: docs/44's hook) */
     case 0x0C00: io->io_bus = v; note(io, "timer write"); return 1;
     case 0x1000: {
         io->io_bus = v;

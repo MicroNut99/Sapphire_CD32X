@@ -1066,11 +1066,71 @@ sec_pwm_irq:
         nop
         nop
 
-        ! handle PWM IRQ (remove nops if more than 8 cycles)
-
+        ! Sapphire docs/44: the PWM's FIFO filled from the sound ring the cart's CPU writes (cart 0x3F0000, 32,768
+        ! pulse widths; register 0xcc of the engine's window: how many so far), at most 3 a time; when the ring has
+        ! nothing new, the middle. Off until the master sets _pwm_on (src/main.c)
+        mov.l   r3,@-r15
+        mov.l   r4,@-r15
+        mov.l   r5,@-r15
+        mov.l   r6,@-r15
+        mov.l   spi_pwm_on,r1
+        mov.l   @r1,r0
+        tst     r0,r0
+        bt      9f
+        mov.l   spi_pwm_rd,r3
+        mov.l   @r3,r4                  /* the next sample to play */
+        mov.l   spi_ace_cc,r1
+        mov.w   @r1,r2
+        extu.w  r2,r2                   /* the samples written (low 16 bits) */
+        mov.l   spi_pwm_mono,r1
+        mov     #3,r6
+1:
+        mov.w   @r1,r0                  /* bit 15: the FIFO full */
+        cmp/pz  r0
+        bf      8f
+        extu.w  r4,r0
+        cmp/eq  r0,r2
+        bt      2f
+        mov.l   spi_mask,r5
+        and     r4,r5
+        shll    r5
+        mov.l   spi_ring,r0
+        add     r0,r5
+        mov.w   @r5,r0
+        add     #1,r4
+        bra     3f
+        nop
+2:
+        mov.w   spi_mid,r0
+3:
+        mov.w   r0,@r1
+        dt      r6
+        bf      1b
+8:
+        mov.l   r4,@r3
+9:
+        mov.l   @r15+,r6
+        mov.l   @r15+,r5
+        mov.l   @r15+,r4
+        mov.l   @r15+,r3
         rts
         nop
 
+        .align  2
+spi_pwm_on:
+        .long   _pwm_on + 0x20000000
+spi_pwm_rd:
+        .long   _pwm_rd + 0x20000000
+spi_ace_cc:
+        .long   0x22000000 + 0x1C0000 + (0xcc << 1)
+spi_pwm_mono:
+        .long   0x20004038
+spi_mask:
+        .long   0x7FFF
+spi_ring:
+        .long   0x223F0000
+spi_mid:
+        .word   522
         .align  2
 spi_mars_adapter:
         .long   0x20004000

@@ -134,7 +134,10 @@ Read `CLAUDE.md` first.
      more than 4 palettes drawn on the 32X layer in the sprite palettes' free entries. The title as the reference's.
   38. **docs/43, the music:** the owner's `Session 1/Track NN.wav` (uploads), linked as `work/music_cd32x/TrackNN.wav`
      (n - 1) and in `work/bc3/saspeed/music`; `EXTRA="BG32=1 FIFO_CDDA=1"`: the music in ares through the title and
-     stage 1. Title presses: hold RUN ~30 frames. Next: ADPCM, PSG.
+     stage 1. Title presses: hold RUN ~30 frames.
+  39. **docs/44, PSG and ADPCM:** `tools/m3rt/pce_sound.c` (in huchost.so; `io_psg_hook`, `rt_io_until`), ares patch
+     `fpga/ares/0006` (ring at cart 0x3F0000, reg 0xcc), saspeed `PWM_SOUND=1` (crt0.s `sec_pwm_irq`). Effects heard in
+     ares in stage 1. Next: ADPCM check, levels with the music.
 
 ## 2. Where things live
 
