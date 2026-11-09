@@ -693,7 +693,7 @@ static void spr_draw_pc(V32 *v)                    /* (docs/18 VLOG: the log app
     if (getenv("RUN_V32HASH")) { static long k; printf("pic %ld v32 %08x", k++, v32_hash(v));
         if (getenv("RUN_V32PARTS")) printf(" | BXR %03X BYR %03X CR %04X MWR %04X splits %d L%d %03X %03X %04X", v->BXR, v->BYR, v->t.CR, v->MWR, v->spl_n, v->spl_n ? v->spl[0].line : 0, v->spl_n ? v->spl[0].bxr : 0, v->spl_n ? v->spl[0].byr : 0, v->spl_n ? v->spl[0].cr : 0);
         if (getenv("RUN_V32PARTS")) { uint32_t a = 0, b = 0, c = 0; for (int i = 0; i < 32768; i++) a = a * 31 + v->vram[i]; for (int i = 0; i < 256; i++) b = b * 31 + v->sat[i]; for (int i = 0; i < 512; i++) c = c * 31 + v->color[i]; printf(" vram %08x sat %08x col %08x", a, b, c); }
-        if (getenv("RUN_V32DUMP") && atol(getenv("RUN_V32DUMP")) == k - 1) { FILE *f = fopen("/tmp/pc_vram.bin", "wb"); fwrite(v->vram, 2, 32768, f); fclose(f); }
+        if (getenv("RUN_V32DUMP") && atol(getenv("RUN_V32DUMP")) == k - 1) { FILE *f = fopen("/tmp/pc_vram.bin", "wb"); fwrite(v->vram, 2, 32768, f); fwrite(v->color, 2, 512, f); fwrite(v->sat, 2, 256, f); fclose(f); }
         printf("\n"); return; }
 #ifdef VLOG
     vlog_sync(); spr_draw_pc_(v); vlog_start(v->vp);

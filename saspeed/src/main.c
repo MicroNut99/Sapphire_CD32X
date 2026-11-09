@@ -592,6 +592,10 @@ static void pace_vbi(void)
     pal_go = -1;
 }
 #endif
+#ifdef BG32
+#include "rt_bg32.h"
+static uint16_t bg32_cram[256]; static uint8_t bg32_own[256]; static int bg32_on;   /* (docs/42) */
+#endif
 static const uint8_t c5[8] = { 0, 4, 9, 13, 18, 22, 27, 31 };   /* (tools/m1b_motion.py c32word: v * 255 / 7, top 5 bits) */
 /* the picture's sprite colours (cram_pend, pal_dirty) and its number in the left border - the master's, or with SEC=2
    the secondary's (the master reads cram_pend and pal_dirty past its cache then: pace_vbi) */
@@ -601,6 +605,10 @@ static void pic_extras(const V32 *v, uint32_t num)
     for (int i = 1; i < 256; i++) if (i & 15) {
         const unsigned c = v->color[256 + i];
         cram_pend[i] = (uint16_t)(c5[c & 7] << 10 | c5[(c >> 6) & 7] << 5 | c5[(c >> 3) & 7]);
+#ifdef BG32
+        if (((volatile uint8_t *)((uintptr_t)bg32_own | 0x20000000))[i])   /* (docs/42: the background's own entries) */
+            cram_pend[i] = ((volatile uint16_t *)((uintptr_t)bg32_cram | 0x20000000))[i];
+#endif
         pd |= cram_pend[i] != cram_shadow[i];
     }
     pal_dirty = pd;
@@ -850,6 +858,25 @@ static void draw_hook(V32 *v)
 #endif
 #endif
     } else pace_last = gTicks;
+#ifdef BG32
+    {   /* (docs/42) a background beyond the Genesis plane's 4 palettes (the title): drawn whole on the 32X layer, behind
+           the sprites, before they are listed - the buffer's sprite boxes forgotten, as the background covers them.
+           Leaving the mode clears the buffer's picture once */
+        static uint8_t had[2];
+        const int tb = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1, want = bg32_wanted(v);
+        if (want || had[tb]) {
+            spr_last_clear(tb);
+            if (want) {
+                bg32_draw(v, (uint8_t *)&MARS_FRAMEBUFFER + 0x200 + 32, 320, bg32_cram, bg32_own);
+                const uint16_t k = (uint16_t)(bg32_black << 8 | bg32_black);   /* (the borders black, over the plane) */
+                for (int y = 0; y < 224; y++) for (int x = 0; x < 16; x++) { FB[0x100 + y * 160 + x] = k; FB[0x100 + y * 160 + 144 + x] = k; }
+            }
+            else { memset(bg32_own, 0, sizeof bg32_own); for (int i = 0; i < 160 * 224; i++) FB[0x100 + i] = 0; }
+            had[tb] = (uint8_t)want;
+        }
+        bg32_on = want;
+    }
+#endif
 #ifndef SEC_BG
     pic_extras(v, pace_n);
 #endif

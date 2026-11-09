@@ -47,6 +47,10 @@ CCFLAGS += -DRT_COMBO
 endif
 # FIFO_LIVE=1 (docs/40, with FIFO=<any file> SPLAY=1): the FIFO a ring at cart 0x200000-0x3EFFFF that the cart's CPU
 # writes as the game runs (ares: ARES_HUCHOST, tools/m3_huchost.sh); the pad to it through registers 0xcd / 0xce
+# BG32=1 (docs/42, with BG=1): a background with more than 4 palettes (the title) drawn on the 32X layer (rt_bg32.c)
+ifeq ($(BG32),1)
+CCFLAGS += -DBG32
+endif
 ifeq ($(FIFO_LIVE),1)
 CCFLAGS += -DFIFO_LIVE
 endif
@@ -143,7 +147,7 @@ CCFLAGS += -DSPR_SPLIT -DSPR_LATE $(if $(SPR_CMDS),-DSPR_CMDS=$(SPR_CMDS))
 endif
 ifeq ($(BG),1)
 CCFLAGS += -DBG2_DRAW
-BG_OBJ = $(BUILD)/rt_bg2.o
+BG_OBJ = $(BUILD)/rt_bg2.o $(if $(filter 1,$(BG32)),$(BUILD)/rt_bg32.o)
 endif
 # SPLAY=1 (docs/36): Sapphire played with pad 1 from the state (LEVEL01) on, no end; the code the state's window
 # did not trace runs interpreted
