@@ -102,6 +102,9 @@ Read `CLAUDE.md` first.
   30. **docs/35, the top line:** BootCamp `vsswap` 5403e34 (ops 2 / 3 wait for the 32X's blank too; ledger 24b, docs
      f81fc3f): VSRAM's top never at line 0 now. ares `ARES_VSRAM_LOG=<frame>` (fpga/ares/0003). Open: the status bar's
      split late ~1 picture in 10 (command 79 masks the H interrupt). HWIN (ledger 31) tried from its text: worse.
+  31. **docs/36, playing it:** `inp/play1.npz` (tools/m0b_play1.py: a 1P run from power-on), window `tr/p1_8600`,
+     `sp/p1_8600.bin` (= `p1`), selections `sel_p1`, `sel_p1_600m`. `SPLAY=1`: pad 1 to the game, endless; ares presses
+     via `PRESS="--press f:BC ..." pic_run.sh`. DIAG areas moved into `diag_area[]` (they were in the master's stack).
 
 ## 2. Where things live
 

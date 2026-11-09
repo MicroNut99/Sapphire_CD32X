@@ -269,6 +269,14 @@ static uint32_t __attribute__((noinline)) wdt_now(void)            /* ticks of 4
         return (c + ((f & 0x80) && w < 128)) << 8 | w;   /* (a wrap whose interrupt is not taken yet) */
     }
 }
+#if defined(PACE_HIST) || defined(BG2_PROF) || defined(SPR_PROF)
+/* DIAG areas (docs/36: they were fixed addresses at 0x0603E800-0x0603EF40, inside the master's stack - a slow picture's
+   ring entry overwrote it and the game crashed): [0-31] BG2_PROF, [32-47] its step 4, [48-55] SPR_PROF, [56-63]
+   PACE_HIST's refreshes a picture, [64-159] its ring of the last 16 slow pictures (6 words each). The scripts find
+   it by its symbol in output.map */
+uint32_t diag_area[160];
+#define DIAGW ((volatile uint32_t *)((uintptr_t)diag_area | 0x20000000))
+#endif
 #ifdef SPR_PROF
 uint32_t (*spr_clk)(void) = wdt_now;                          /* (DIAG, docs/32) */
 #endif
@@ -465,7 +473,7 @@ static int sec_bg_job(const V32 *v, int buf) {
 #endif
     pic_extras(v, SEC_PN);                                    /* (measured: the master's is the longer side) */
 #ifdef BG2_PROF
-    { const uint8_t t1 = sec_clk(); ((volatile uint32_t *)0x2603E800)[31] += (uint8_t)(t1 - t0); }
+    { const uint8_t t1 = sec_clk(); DIAGW[31] += (uint8_t)(t1 - t0); }
 #endif
     const int n = bg2_frame(&bg2, v, buf); return bg2.jn ? n | 0x8000 : n; }
 #endif
@@ -770,6 +778,22 @@ static void vlog_job_wait(void) { while (SEC_DONE != late_job) { } }
 #ifdef PACE_HIST
 uint32_t ph_t0, ph_t7, ph_t3;
 #endif
+#ifdef SAPPHIRE_PLAY
+/* SPLAY=1 (docs/36): the game played with pad 1 from the state on, endlessly. B: II, C: I, A: RUN, X Y Z MODE: SELECT */
+static uint32_t sp_pad_mask(uint16_t p)
+{
+    uint32_t m = 0;
+    if (p & SEGA_CTRL_B) m |= 1u << 0;
+    if (p & SEGA_CTRL_C) m |= 1u << 8;
+    if (p & SEGA_CTRL_A) m |= 1u << 3;
+    if (p & (SEGA_CTRL_X | SEGA_CTRL_Y | SEGA_CTRL_Z | SEGA_CTRL_MODE)) m |= 1u << 2;
+    if (p & SEGA_CTRL_UP) m |= 1u << 4;
+    if (p & SEGA_CTRL_DOWN) m |= 1u << 5;
+    if (p & SEGA_CTRL_LEFT) m |= 1u << 6;
+    if (p & SEGA_CTRL_RIGHT) m |= 1u << 7;
+    return m;
+}
+#endif
 static void draw_hook(V32 *v)
 {
 #ifdef SEC_TIMES
@@ -800,12 +824,15 @@ static void draw_hook(V32 *v)
         const uint32_t now = gTicks, took = now - pace_last; pace_last = now;
         if (took > 1) pace_missed += took - 1;
 #ifdef PACE_HIST
-        ((volatile uint32_t *)0x2603E900)[took < 7 ? took : 7]++;
+        DIAGW[56 + (took < 7 ? took : 7)]++;
 #endif
         if (took > pace_worst) pace_worst = took;
         pace_shown_at = now;
 #ifdef DX_PLAY
         play_pad();
+#endif
+#ifdef SAPPHIRE_PLAY
+        rt_pad_live = (int32_t)sp_pad_mask(cd_pad(0, 0));     /* (docs/36: the pad, at the one moment nothing else is under way) */
 #endif
     } else pace_last = gTicks;
 #ifndef SEC_BG
@@ -902,7 +929,7 @@ static void draw_hook(V32 *v)
             {   /* (docs/28) a ring of 64 pictures: the lines at start / sprites done / list made, the list's words, sent at once */
                 static uint32_t ri, all; extern uint32_t ph_t0, ph_t7, ph_t3; const uint32_t te = wdt_now(); all++;
                 if ((te - ph_t0) * 262 / 94 > 300) {      /* (the slow ones: lines from the start) */
-                    volatile uint32_t *q = (volatile uint32_t *)0x2603E940 + (ri++ & 63) * 6;
+                    volatile uint32_t *q = DIAGW + 64 + (ri++ & 15) * 6;
                     q[0] = (ph_t7 - ph_t0) * 262 / 94; q[1] = (ph_t3 - ph_t0) * 262 / 94; q[2] = (uint32_t)line; q[3] = (uint32_t)n;
                     q[4] = (uint32_t)spr_stat.conv; q[5] = all; }
             }
@@ -1337,7 +1364,7 @@ int main(void)
 #endif
     const uint32_t v0 = gTicks;
     t_last = frt();
-#ifdef DX_PLAY
+#if defined(DX_PLAY) || defined(SAPPHIRE_PLAY)
     frames_to_run = 0x7FFFFFFF;                               /* (the play build: on and on) */
 #else
     frames_to_run = st.nmasks < FRAMES ? st.nmasks : FRAMES;

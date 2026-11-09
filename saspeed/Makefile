@@ -119,6 +119,11 @@ ifeq ($(BG),1)
 CCFLAGS += -DBG2_DRAW
 BG_OBJ = $(BUILD)/rt_bg2.o
 endif
+# SPLAY=1 (docs/36): Sapphire played with pad 1 from the state (LEVEL01) on, no end; the code the state's window
+# did not trace runs interpreted
+ifeq ($(SPLAY),1)
+CCFLAGS += -DRT_PLAY -DSAPPHIRE_PLAY
+endif
 # PLAY=1 DX_STAGE=<n> (with PACE=1 BG=1 SEC=2): the game played with the controller, Start's menu (level select,
 # lives, credits) and the stage switch (docs/70; src/chain.s); the stage's files are game_files.h's S<n>BLK / S<n>STA
 ifeq ($(PLAY),1)

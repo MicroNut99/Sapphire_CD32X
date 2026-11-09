@@ -413,8 +413,10 @@ static void set_dirty(Bg2 *b, int a) { if (!(b->dirty[a >> 3] & B8(a & 7))) { b-
 const uint16_t *bg2_vram;                         /* (docs/18: the VRAM read when v is a copy of the registers only) */
 #ifdef BG2_PROF
 /* DIAG (docs/30): bg2_frame's steps, timed by the caller's clock (an 8-bit count, wrapping: each step < 256 ticks), summed
-   past the cache at 0x2603E800: [0-9] the steps of lists over 1,000 words, [10] their count, [11] journal writes, [12] list words; [16-28] the rest */
+   past the cache in diag_area (main.c, docs/36: no longer a fixed address in the master's stack): [0-9] the steps of lists over 1,000 words, [10] their count, [11] journal writes, [12] list words; [16-28] the rest */
 uint8_t (*bg2_clk)(void);
+extern uint32_t diag_area[];
+#define DIAGW ((volatile uint32_t *)((uintptr_t)diag_area | 0x20000000))
 static int bg2_heavy;   /* (the step timer's class, by the list before: within a picture the list's size isn't known yet) */
 #define BPT(k) (bpt[k] = bg2_clk())
 #else
@@ -540,7 +542,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
         if (b->g[p] < 0 && u) { b->dirty[a >> 3] &= (uint8_t)~B8(a & 7); b->ndirty--; continue; }   /* (a misfit) */
         const unsigned gp = b->g[p] < 0 ? 0 : (unsigned)b->g[p];
 #ifdef BG2_PROF
-        volatile uint32_t *const pq = (volatile uint32_t *)0x2603E880 + (bg2_heavy ? 0 : 8); uint8_t pa = bg2_clk(); pq[7]++;
+        volatile uint32_t *const pq = DIAGW + 32 + (bg2_heavy ? 0 : 8); uint8_t pa = bg2_clk(); pq[7]++;
 #define PQ(i) do { const uint8_t pb = bg2_clk(); pq[i] += (uint8_t)(pb - pa); pa = pb; } while (0)
 #else
 #define PQ(i) ((void)0)
@@ -654,7 +656,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
 #ifdef BG2_PROF
     BPT(10);
     bg2_heavy = b->ln > 1000;
-    {   volatile uint32_t *q = (volatile uint32_t *)0x2603E800 + (b->ln > 1000 ? 0 : 16);
+    {   volatile uint32_t *q = DIAGW + (b->ln > 1000 ? 0 : 16);
         for (int k = 0; k < 10; k++) q[k] += (uint8_t)(bpt[k + 1] - bpt[k]);
         q[11] += (uint32_t)b->jn; q[12] += (uint32_t)b->ln;
         q[10]++; }

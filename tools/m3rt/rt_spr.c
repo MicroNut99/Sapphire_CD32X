@@ -407,7 +407,7 @@ void spr_frame(const V32 *v, int buf)
 #endif
     set_ylim(v);                                   /* (docs/16) */
 #ifdef SPR_PROF
-    extern uint32_t (*spr_clk)(void); const uint32_t pt0 = spr_clk(); const unsigned long pc0 = spr_stat.cells;
+    extern uint32_t (*spr_clk)(void); extern uint32_t diag_area[]; const uint32_t pt0 = spr_clk(); const unsigned long pc0 = spr_stat.cells;
 #endif
     uint16_t dirty[SPR_LINES / 16] = { 0 };
     uint8_t same[64];
@@ -479,7 +479,7 @@ void spr_frame(const V32 *v, int buf)
     {   /* DIAG (docs/32): [0] the tests and clears, [1] the drawing, in watchdog ticks, [2] pictures, [3] cells drawn;
            at SDRAM 0x0603E8C0 for pictures drawing over 40 cells, 0x0603E8D0 the rest */
         const uint32_t pt2 = spr_clk(); const unsigned long nc = spr_stat.cells - pc0;
-        volatile uint32_t *q = (volatile uint32_t *)0x2603E8C0 + (nc > 40 ? 0 : 4);
+        volatile uint32_t *q = (volatile uint32_t *)((uintptr_t)diag_area | 0x20000000) + 48 + (nc > 40 ? 0 : 4);
         q[0] += pt1 - pt0; q[1] += pt2 - pt1; q[2]++; q[3] += (uint32_t)nc; }
 #endif
     spr_stat.frames++;
