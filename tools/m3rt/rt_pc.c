@@ -1219,7 +1219,7 @@ int main(int argc, char **argv)
     {                                                           /* (docs/10: the card's registers at the end) */
 #ifdef RT_AC_FPGA
         extern AcEngine rt_ace; const ArcadeCard *acp = &rt_ace.ac;
-        { extern long rt_ace_pokes; printf("Arcade Card engine (RT_AC_FPGA): %ld reads of a region not here; %ld writes to the cart (pokes), %ld made\n", rt_ace.misses, rt_ace_pokes, rt_ace.pokes); }
+        { extern long rt_ace_pokes; printf("Arcade Card engine (RT_AC_FPGA): %ld reads of a region not here; %ld writes to the cart (pokes), %ld made; %ld card RAM writes made\n", rt_ace.misses, rt_ace_pokes, rt_ace.pokes, rt_ace.ram_writes); }
         { extern FILE *rt_ace_log; if (rt_ace_log) { fclose(rt_ace_log);        /* (and the cart after the pokes) */
             char q[600]; snprintf(q, sizeof q, "%s.cart", getenv("RUN_ACE_LOG")); FILE *g = fopen(q, "wb");
             extern uint8_t *rt_ace_cart; fwrite(rt_ace_cart, 1, (size_t)n, g); fclose(g); } }

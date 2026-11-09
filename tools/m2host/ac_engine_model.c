@@ -13,7 +13,7 @@ void ace_reset(AcEngine *e, uint8_t *cart)
     static const uint32_t zero[19];
     const uint8_t *const none[32] = { 0 };
     ac_start_regions(&e->ac, zero, none);
-    e->cart = cart; e->misses = 0; e->poke_a = 0; e->pokes = 0;
+    e->cart = cart; e->misses = 0; e->poke_a = 0; e->pokes = 0; e->ram_writes = 0;
     for (int k = 0; k < 32; k++) { e->unit[k] = ACE_NONE; ace_region(e, k); }
 }
 
@@ -52,6 +52,16 @@ uint16_t ace_bus_read(AcEngine *e, uint32_t off)
         if (ace_poke_ok(e->poke_a)) { e->cart[e->poke_a] = v; e->pokes++; }
         e->poke_a = (e->poke_a + 1) & 0xFFFFFF;
     }
-    else if (r < 0x80 || r >= 0xE0) ac_write(&e->ac, 0x1A00 | r, v);
+    else if (r < 0x80 || r >= 0xE0) {
+        if (r < 0x80 && (r & 0xF) < 2) {          /* (docs/38) a data port's write: into the cart at the byte's place, as the
+                                                     poke is made (not bank 31, not the engine's window; a region not here:
+                                                     nothing), then the card steps as before */
+            const uint32_t i = ac_index_of(&e->ac.port[(r >> 4) & 3]) & 0x1FFFFF;
+            const uint16_t u = e->unit[i >> 16];
+            if (u != ACE_NONE) { const uint32_t ca = (((uint32_t)u << 8) + (i & 0xFFFF)) & 0xFFFFFF;
+                                 if (ace_poke_ok(ca)) { e->cart[ca] = v; e->ram_writes++; } }
+        }
+        ac_write(&e->ac, 0x1A00 | r, v);
+    }
     return 0xFFFF;
 }

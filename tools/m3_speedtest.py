@@ -76,7 +76,13 @@ def pack(W, d, run, first, frames, out):
         if regs:
             keep = sorted({int(x, 16) for x in regs.split(',')})
             tab = [0xFFFFFFFF] * 32; body = b''
+            # (docs/38) no region in the engine's window (cart 0x1C0000-0x1FFFFF): the state goes in at cart AC_STATE_AT
+            # (0x080000), its regions after the parts before them, so a region that would reach into the window
+            # starts past it (AC_REGION_BASE: their part's place in the file, from a first pass)
+            base = int(os.environ.get('AC_STATE_AT', '0x80000'), 0) + int(os.environ.get('AC_REGION_BASE', '0'), 0)
             for k in keep:
+                a = base + len(body)
+                if a < 0x200000 and a + 0x10000 > 0x1C0000: body += bytes(0x200000 - a)
                 tab[k] = len(body); body += a0[76 + k * 0x10000:76 + (k + 1) * 0x10000]
             parts += [np.frombuffer(a0[:76], dtype='<u4').astype('>u4').tobytes(), struct.pack('>32I', *tab), body]
             ac = 8
@@ -94,6 +100,8 @@ def pack(W, d, run, first, frames, out):
         #   regions 256-byte aligned, as the EverDrive's Arcade Card engine addresses them)
         offs.append(len(head) + len(body)); body += p
     struct.pack_into('>%dI' % len(parts), head, 40, *offs)
+    if ac == 8 and len(offs) > 17 and 'AC_REGION_BASE' not in os.environ:
+        print('  (the regions\' part is at file offset 0x%X: AC_REGION_BASE=0x%X keeps them out of the engine window)' % (offs[17], offs[17]))
     open(out, 'wb').write(bytes(head) + bytes(body))
     print('%s: %s frames %d-%d, %d bytes' % (out, run, first, first + len(masks) - 1, len(head) + len(body)))
 

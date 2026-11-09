@@ -762,6 +762,9 @@ static void ace_load(Rt *r, const RtState *st)       /* the state's card into th
 #endif
         const uint16_t u = st->ac_reg[k] ? (uint16_t)(ca >> 8) : ACE_NONE;
         ace_rd(ACE_WR_OFF(ACE_REG_UNIT + 2 * k, u & 0xFF)); ace_rd(ACE_WR_OFF(ACE_REG_UNIT + 2 * k + 1, u >> 8));
+#ifndef __32X__
+        if (getenv("RUN_ACE_UNITS")) printf("card region %02X: cart %06X%s\n", k, u == ACE_NONE ? 0 : (unsigned)u << 8, u == ACE_NONE ? " (not here)" : "");
+#endif
     }
     (void)r;
 }
@@ -940,7 +943,15 @@ void wr_slow(Cpu *c, uint16_t a, uint8_t v)
     { extern uint32_t *rt_ro_hist; if (rt_ro_hist && r->bank[b]) rt_ro_hist[(uint32_t)b << 13 | (a & 0x1FFF)]++; }   /* (RUN_ROHIST) */
 #endif
 #ifdef RT_AC_FPGA
-    if (r->bank[b]) { ace_poke(r->bank[b] + (a & 0x1FFF), v); return; }   /* (docs/11: the engine writes the cart) */
+    if (r->bank[b]) {                               /* (docs/11: the engine writes the cart) */
+        ace_poke(r->bank[b] + (a & 0x1FFF), v);
+        if (!r->bank_dirty[b]) {                    /* (docs/38: its code may be changing - a stage's overlay loaded - so,
+                                                       as POOL's writes do, no hot block for it until a dispatch matches) */
+            r->bank_dirty[b] = 1; r->bank_hid[b] = 0; rec_set(r, b);
+            for (int i = 0; i < 8; i++) if (c->MPR[i] == b) c->hid[i] = 0;
+        }
+        return;
+    }
 #endif
     if (r->bank[b]) { r->ro_writes++; r->ro_write_bank = b; }   /* a RAM bank kept read-only (in the cart): lost */
 }

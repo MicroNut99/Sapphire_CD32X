@@ -46,6 +46,7 @@ typedef struct {
     uint16_t unit[32];
     uint8_t *cart;                                   /* the cart's bytes, from address 0 (pokes write them) */
     uint32_t poke_a; long pokes;
+    long ram_writes;                                 /* (docs/38) the card's RAM written into the cart by its data ports */
     long misses;
 } AcEngine;
 void ace_reset(AcEngine *e, uint8_t *cart);

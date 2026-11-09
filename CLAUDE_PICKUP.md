@@ -109,6 +109,10 @@ Read `CLAUDE.md` first.
      Windows `tr/ps<k>_600`, `sp/ps<k>.bin` (stages 1-5 at 8150 / 21650 / 37750 / 52450 / 66400). Translation `m3gen3`
      (m2 merged with playL's code, `m2_excluded/F8_85f9b51329` left out), rt_pc `rtobj3`, picture runtime `rtbg3`.
      Selections `sel_ps<k>_600m` (stage 1: `sel_ps1_1500m`). All five play in ares (SPLAY=1).
+  33. **docs/38, a stage change on the PC:** the engine writes the card's RAM (ac_engine_model.c); pack
+     `AC_REGION_BASE=<printed offset>` keeps regions out of 0x1C0000-0x1FFFFF; a poked bank's code marked changed (rt.c).
+     Window `tr/t12`, `sp/t12.bin` (stage 1 -> 2, 1,700 frames): rt_pc `-DRT_AC_FPGA` (/tmp/rtace3) with RUN_RW=0x69,0x85
+     equal to all-writable. Next: ac_engine.sv + ares engine writes, the cart map, CDR=1 with DXTRACK.TRK.
 
 ## 2. Where things live
 
