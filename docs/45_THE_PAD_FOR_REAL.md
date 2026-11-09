@@ -37,6 +37,12 @@ RUN pressed and released every 600 frames until frame 13,400. Then shots (C) wit
 
 `ARES_HUC_LOG` shows the presses reaching the stand-in.
 
+## The player select's borders (fixed)
+
+Leaving the 32X-layer background cleared the buffer's borders to 0. A 0 is transparent, so the Genesis plane and the
+picture counter's column showed at the sides. Now they go back to their opaque 0x10. In `ar_lv29`'s second run the
+player select has black borders.
+
 ## The title's white blocks (open)
 
 With the pad working, the title comes sooner, and white 16 x 16 blocks stay around the ship. In `ar_lv29` they last
