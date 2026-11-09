@@ -36,8 +36,10 @@ int rt_disc_sector(int32_t sector, uint8_t *out)
     return 1;
 }
 
+static uint16_t vsnap[32768];                              /* (DIAG: VRAM at the last picture's display start) */
 static void draw(V32 *v)
 {
+    memcpy(vsnap, v->vram, sizeof vsnap);
     const int n = fifo_synth(&shadow, v, ents + nents, maxents - nents);
     nents += n < maxents - nents ? n : maxents - nents;
 }
@@ -69,9 +71,10 @@ int huchost_init(const char *state, const char *trk)
                             st.io_t0 + (int64_t)(int32_t)(st.scsi_o[34] - st.io_regs[18]), err, sizeof err)) {
             fprintf(stderr, "huchost: the CD drive not modelled: %s\n", err); return 0; }
     }
-    /* (the player starts from the same state's VRAM, colours and sprite table: what changed from there) */
-    memcpy(shadow.vram, rt.vdc.vram, sizeof shadow.vram); memcpy(shadow.color, rt.vdc.color, sizeof shadow.color);
-    memcpy(shadow.sat, rt.vdc.sat, sizeof shadow.sat); shadow.dvssr = 0xFFFF; shadow.cur = 0x10000; shadow.started = 1;
+    /* (docs/46: the first picture sends everything - VRAM, colours, sprite table - as the PC's FIFO file did
+       (rt_pc RUN_FIFO_OUT, fifo_synth's start): a shadow seeded from the state or the runtime left words, then the
+       colours, unsent, and the player and cell store kept their own - the title's white blocks and white text) */
+    memset(&shadow, 0, sizeof shadow);
     rt_draw_hook = draw;
     io_psg_hook = psnd_write;
     return 1;
@@ -111,3 +114,6 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
 
 /* (docs/44) the samples the last frame made: 16-bit mono at 22,044 Hz */
 int huchost_audio(const int16_t **samples) { *samples = snd; return nsnd; }
+
+/* (DIAG, docs/46) the game's VRAM now, 32 K words: what the FIFO's pictures carry */
+const uint16_t *huchost_vram(void) { return vsnap; }

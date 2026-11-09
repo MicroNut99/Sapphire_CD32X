@@ -141,6 +141,9 @@ Read `CLAUDE.md` first.
   40. **docs/45, the pad for real:** docs/40-44's "played" was RUN held (pad never sent; a start-up scan wrote reg
      0xcd; ares `--press` holds until the next). Fixed: fifo_play sends the pad, ares patch 0007 gates it; release
      presses with `--press f:`. Stage 1 played in ares.
+  41. **docs/46, the title clean:** ares patch 0008 (pictures only after the unlock; DIAG `ARES_HUC_VCHECK=1`, the
+     store's VRAM against the stand-in's), huchost's first picture sends everything, saspeed's picture number off in
+     `SPLAY=1` (`PICNUM=1` keeps it). The System Card screen and the intro as the reference in ares.
 
 ## 2. Where things live
 

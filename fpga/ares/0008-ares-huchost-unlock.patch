@@ -1,0 +1,97 @@
+From cb591bc0c59338b99415f175e0ff2f149532243e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 15:10:53 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in - pictures only after
+ the unlock; ARES_HUC_VCHECK (docs/46)
+
+The start-up scan of the register window wrote 0xca 0-255 before the unlock, and the stand-in made
+258 pictures into the FIFO ring then; the disc's loads went over them and the cell store, started at
+the unlock from entry 0, never saw the first picture's VRAM. DIAG ARES_HUC_VCHECK: the store's VRAM
+against the stand-in's at each boundary (the last 64 pictures).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/everdrive-pro.cpp    | 4 ++--
+ ares/md/cartridge/board/sapphire-cells.hpp   | 6 +++++-
+ ares/md/cartridge/board/sapphire-huchost.hpp | 7 ++++++-
+ 3 files changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 4c60dc2..2282afb 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -223,7 +223,7 @@ struct EverDrivePro : Interface {
+         if(off & 0x20000) {
+           u32 v = off >> 9 & 0xff;
+           if(cells.live_ && huc.write(r, v)) return data;   //(the pad only after the unlock: a start-up scan of the window wrote it 0-255)
+-          if(huc.on && (r == 0xca || r == 0xcb)) {   //(the pictures the SH2 will want: written before the store reads them)
++          if(huc.on && cells.live_ && (r == 0xca || r == 0xcb)) {   //(docs/46: only after the unlock - the start-up scan wrote 0xca 0-255, and the pictures it made went into the ring before the disc's loads; the pictures the SH2 will want: written before the store reads them)
+             u32 at = r == 0xca ? cells.sh2At + (u8)(v - cells.sh2At) : 0;
+             huc.produce(at + huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
+             cells.liveTotal = huc.produced;
+@@ -341,7 +341,7 @@ struct EverDrivePro : Interface {
+     ace.reset();
+     huc.power();
+     cells.power();
+-    if(huc.on) cells.liveFifo(huc.produced);
++    if(huc.on) { cells.liveFifo(huc.produced); if(getenv("ARES_HUC_VCHECK")) { cells.checkAt = huc.vramAt; cells.checkPic = huc.vramPic; } }
+     for(u32 n : range(8)) bank[n] = n;
+     mode32x = 0;
+     led = 0;
+diff --git a/ares/md/cartridge/board/sapphire-cells.hpp b/ares/md/cartridge/board/sapphire-cells.hpp
+index 53c15d4..ecb7c44 100644
+--- a/ares/md/cartridge/board/sapphire-cells.hpp
++++ b/ares/md/cartridge/board/sapphire-cells.hpp
+@@ -69,7 +69,11 @@ struct SapphireCells {
+     if(r == 0xca) { frame(v, ram); return true; }
+     return false;
+   }
+-  auto boundary() -> void { boundaries++; if(armed) { armed = false; locked = true; lockedAt = boundaries; memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: locked at %u\n", boundaries); } }
++  const u16 (*checkAt)[0x8000] = nullptr; const u32* checkPic = nullptr;   //(DIAG: ARES_HUC_VCHECK, the stand-in's VRAM by picture)
++  auto boundary() -> void {
++    if(checkAt) { u32 k = boundaries & 63; if(checkPic[k] == boundaries) { u32 bad = 0, first = 0xffff; for(u32 i : range(0x8000)) if(cvram[i] != checkAt[k][i]) { if(!bad) first = i; bad++; }
++      if(bad) { fprintf(stderr, "cells: boundary %u: %u VRAM words apart, first %04x:", boundaries, bad, first); u32 n = 0; for(u32 i : range(0x8000)) if(cvram[i] != checkAt[k][i] && n++ < 6) fprintf(stderr, " %04x=%04x/%04x", i, cvram[i], checkAt[k][i]); fprintf(stderr, "\n"); checkAt = nullptr; } } }
++    boundaries++; if(armed) { armed = false; locked = true; lockedAt = boundaries; memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: locked at %u\n", boundaries); } }
+   auto release() -> void { if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: release (boundaries %u)\n", boundaries); locked = false; armed = true; lockedAt = 0xffff; memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); }
+ 
+   auto power() -> void {
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index 059e699..be1fcda 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -16,10 +16,13 @@ struct SapphireHuc {
+   u16 pad = 0, padLow = 0;
+   int (*frameFn)(u16, const u32**) = nullptr;
+   int (*audioFn)(const s16**) = nullptr;
++  const u16* (*vramFn)() = nullptr;   //(DIAG: ARES_HUC_VCHECK)
++  u16 vramAt[64][0x8000]; u32 vramPic[64];   //(the game's VRAM at the last 64 pictures, by picture)
+   u32 samples = 0;            //(docs/44: PWM samples written to the ring at cart 0x3F0000, 32,768 of them; register 0xcc)
+   static constexpr u32 PwmCycle = 1044;
+ 
+   auto power() -> void {
++    if(getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: power (had %u pictures)\n", pictures);
+     on = false; produced = 0; pictures = 0; pad = 0; samples = 0;
+     auto so = getenv("ARES_HUCHOST"); if(!so) return;
+     void* h = dlopen(so, RTLD_NOW | RTLD_LOCAL);
+@@ -27,6 +30,7 @@ struct SapphireHuc {
+     auto init = (int (*)(const char*, const char*))dlsym(h, "huchost_init");
+     frameFn = (int (*)(u16, const u32**))dlsym(h, "huchost_frame");
+     audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
++    vramFn = (const u16* (*)())dlsym(h, "huchost_vram");
+     if(!init || !frameFn || !init(getenv("ARES_HUC_STATE"), getenv("ARES_HUC_TRACK"))) { fprintf(stderr, "huchost: not started\n"); return; }
+     if(auto e = getenv("ARES_HUC_LEAD")) lead = atoi(e);
+     on = true;
+@@ -49,7 +53,8 @@ struct SapphireHuc {
+         put(l, (u16)((x & 0xff) << 8 | (x >> 8 & 0xff)));          //(little-endian, as the files the PC wrote)
+         put(l + 2, (u16)((x >> 16 & 0xff) << 8 | (x >> 24 & 0xff)));
+         produced++;
+-        if((x >> 28) == 5) { pictures++; if(getenv("ARES_HUC_LOG") && pictures % 300 == 0) fprintf(stderr, "huchost: %u pictures, %llu entries, pad %04x\n", pictures, (unsigned long long)produced, (unsigned)pad); }
++        if(produced % Ring == 0 && getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: ring wrapped at picture %u\n", pictures);
++        if((x >> 28) == 5) { if(vramFn && getenv("ARES_HUC_VCHECK")) { memory::copy(vramAt[pictures & 63], vramFn(), 0x10000); vramPic[pictures & 63] = pictures; } pictures++; if(getenv("ARES_HUC_LOG") && pictures % 300 == 0) fprintf(stderr, "huchost: %u pictures, %llu entries, pad %04x\n", pictures, (unsigned long long)produced, (unsigned)pad); }
+       }
+     }
+   }
+-- 
+2.43.0
+

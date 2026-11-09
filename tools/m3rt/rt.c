@@ -276,6 +276,7 @@ void rt_blocks_changed(Rt *r)                       /* (docs/39) another combina
 
 /* the SH2 hot code's page tables (tools/m3_sh2.py, docs/20): for each slot, its memory less the slot's base (so
    that + the address is the byte), or 0 (the hardware, unmapped; huc_pgw: and banks not written) */
+int32_t rt_io_until;                                 /* (docs/44: master clocks from an I/O write to its frame's end) */
 uint8_t *huc_pg[8], *huc_pgw[8];
 
 void set_mpr(Cpu *c, int i, uint8_t v)
@@ -297,7 +298,6 @@ void set_mpr(Cpu *c, int i, uint8_t v)
 /* ---- the frame's end: the pad's next buttons (Mednafen takes them where line 257 starts, docs/14) ---- */
 static void (*frame_hook)(Rt *r);
 #ifdef RT_PLAY
-int32_t rt_io_until;                                 /* (docs/44: master clocks from an I/O write to its frame's end) */
 volatile int32_t rt_pad_live = -1;                  /* (RT_PLAY: the pad's libretro mask for the frames from here on, or
                                                        -1: the state's recorded masks) */
 #endif

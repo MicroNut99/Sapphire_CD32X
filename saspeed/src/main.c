@@ -628,7 +628,11 @@ static void pic_extras(const V32 *v, uint32_t num)
     const uint32_t chg = (num & 63) < 2 ? 0x1FF : (num ^ shown[buf]) & 0x1FF; shown[buf] = num;
     for (int bit = 0; bit < 9; bit++) {                       /* (the number: blocks at x 4-27, 12 lines each) */
         if (!(chg >> bit & 1)) continue;
+#if defined(SAPPHIRE_PLAY) && !defined(PICNUM)
+        const uint16_t w = 0x1010;                            /* (docs/46: the played game, no number - PICNUM=1 keeps it) */
+#else
         const uint16_t w = (num >> bit) & 1 ? 0x2020 : 0x1010;
+#endif
         for (int y = bit * 16; y < bit * 16 + 12; y++) for (int x = 2; x < 14; x++) FB[0x100 + y * 160 + x] = w;
     }
 }
@@ -886,6 +890,9 @@ static void draw_hook(V32 *v)
             had[tb] = (uint8_t)want;
         }
         bg32_on = want;
+#ifdef BG32_NOSPR
+        if (want) { extern int spr_ylim; spr_ylim = 0; }   /* (DIAG, docs/46: the background alone) */
+#endif
     }
 #endif
 #ifndef SEC_BG
@@ -1042,6 +1049,9 @@ uint32_t bg2_fpga_tile(unsigned t) { return *(volatile uint32_t *)(0x22000000u +
 #endif
 static void cs_purge(void)
 {
+#ifdef CS_PURGE_ALL
+    for (unsigned g = 0; g < 64; g++) cs_dirty[g] = 0xFF;   /* (DIAG, docs/46: every live line purged) */
+#endif
     for (unsigned g = 0; g < 64; g++) if (cs_dirty[g]) {
         for (unsigned c = g * 8; c < g * 8 + 8; c++) if (cs_dirty[g] >> (c & 7) & 1) {
             const uint32_t a0 = (0x02170000u + c * 288u) & ~15u, a1 = 0x02170000u + c * 288u + 288u;

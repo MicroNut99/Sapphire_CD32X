@@ -157,6 +157,10 @@ endif
 # did not trace runs interpreted
 ifeq ($(SPLAY),1)
 CCFLAGS += -DRT_PLAY -DSAPPHIRE_PLAY
+# (docs/46) the picture's number in the left border (white blocks: tools/m3_sprcheck.py's) is off in the played game; PICNUM=1 keeps it
+ifeq ($(PICNUM),1)
+CCFLAGS += -DPICNUM
+endif
 endif
 # PLAY=1 DX_STAGE=<n> (with PACE=1 BG=1 SEC=2): the game played with the controller, Start's menu (level select,
 # lives, credits) and the stage switch (docs/70; src/chain.s); the stage's files are game_files.h's S<n>BLK / S<n>STA
