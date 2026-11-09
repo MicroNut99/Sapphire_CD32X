@@ -47,7 +47,8 @@ def run(W, frames, start, pokes, masks=None):
         else:
             m = int(masks[f])
         for a, v in pk.get(f, []):
-            h.ram()[a] = v
+            if a < 0x2000: h.ram()[a] = v
+            else: h.lib.rampoke(a - 0x2000, v)        # (docs/36: CD RAM from 0x2000, Super RAM from 0x12000)
         h.held = {b for b in range(16) if m >> b & 1}
         h._step(); h.held = set()
         out['masks'].append(m)

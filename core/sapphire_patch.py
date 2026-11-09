@@ -37,6 +37,6 @@ static DECLFW(AC_PhysWrite)
 	if (dx_trace_on) dx_trace_io(15, A, V);
 	return(arcade_card->PhysWrite(A, V));
 }''')
-edit('link.T', 'dumpscsistate;', 'dumpscsistate; actrack_get; acram_copy; acstat_get; acstate_get;')
+edit('link.T', 'dumpscsistate;', 'dumpscsistate; actrack_get; acram_copy; acstat_get; acstate_get; rampoke;')
 edit('Makefile.common', '$(CORE_DIR)/dumpvid.cpp \\', '$(CORE_DIR)/dumpvid.cpp \\\n\t\t$(CORE_DIR)/sapphire.cpp \\')
 print('sapphire_patch: done')

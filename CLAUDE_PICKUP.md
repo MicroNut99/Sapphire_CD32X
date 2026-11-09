@@ -105,6 +105,10 @@ Read `CLAUDE.md` first.
   31. **docs/36, playing it:** `inp/play1.npz` (tools/m0b_play1.py: a 1P run from power-on), window `tr/p1_8600`,
      `sp/p1_8600.bin` (= `p1`), selections `sel_p1`, `sel_p1_600m`. `SPLAY=1`: pad 1 to the game, endless; ares presses
      via `PRESS="--press f:BC ..." pic_run.sh`. DIAG areas moved into `diag_area[]` (they were in the master's stack).
+  32. **docs/37, every stage:** `LIVES=1 tools/m0b_play1.py 75000 playL` (lives CD RAM $A00C held; core `rampoke`).
+     Windows `tr/ps<k>_600`, `sp/ps<k>.bin` (stages 1-5 at 8150 / 21650 / 37750 / 52450 / 66400). Translation `m3gen3`
+     (m2 merged with playL's code, `m2_excluded/F8_85f9b51329` left out), rt_pc `rtobj3`, picture runtime `rtbg3`.
+     Selections `sel_ps<k>_600m` (stage 1: `sel_ps1_1500m`). All five play in ares (SPLAY=1).
 
 ## 2. Where things live
 

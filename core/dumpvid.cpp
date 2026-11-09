@@ -84,6 +84,14 @@ extern "C" __attribute__((visibility("default"))) int ramcopy(uint8 *cd64k, uint
   return 1;
 }
 
+/* docs/36: a byte written into CD RAM (0-65535) or Super RAM (65536-262143), for the play runs' pokes (the lives) */
+extern "C" __attribute__((visibility("default"))) int rampoke(uint32 off, uint8 v)
+{
+  if (!CDRAM || !SysCardRAM) return 0;
+  if (off < 65536) CDRAM[off] = v; else if (off < 262144) SysCardRAM[off - 65536] = v; else return 0;
+  return 1;
+}
+
 /* M0b: the sound log. Entries of 8 words: frame (set by the host, dx_setframe), CPU timestamp in the frame,
  * kind, then by kind:
  *   1 PSG write          a = register 0-9, v = value
