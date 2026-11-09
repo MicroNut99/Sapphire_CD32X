@@ -50,6 +50,10 @@ endif
 ifeq ($(FIFO_LIVE),1)
 CCFLAGS += -DFIFO_LIVE
 endif
+# FIFO_CDDA=1 (docs/41, with FIFO_LIVE=1): the game's CD audio (FIFO type B) by the stack's command 45 - not working yet
+ifeq ($(FIFO_CDDA),1)
+CCFLAGS += -DFIFO_CDDA
+endif
 ifeq ($(CARD),1)
 CCFLAGS += -DCARD_PAGE=6
 endif

@@ -81,7 +81,8 @@ the size never counted as new, and the map width stayed 0:
 
 No stage window starts with `MWR` 0, so none showed it before.
 
-**The fix:** `geom` starts at `0xFFFF`. The title in ares is now black behind the logo, as on the PC Engine.
+**The fix:** `geom` starts at `0xFFFF`. The title in ares is now black behind the logo, as on the PC Engine, but only
+when the disc carries no music tracks (docs/41).
 
 ## Next
 

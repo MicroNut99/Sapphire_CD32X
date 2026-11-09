@@ -70,11 +70,29 @@ int huchost_init(const char *state, const char *trk)
     return 1;
 }
 
+/* (docs/41) the CD audio the game started or stopped, as a FIFO entry of its own: type B, x = 1 to loop, d = the PC
+   Engine track (0: stop). On the real cart the CD unit's commands reach the SH2 by the mailbox; here, from the drive */
+static void cdda_events(void)
+{
+    static int was; static uint32_t at; static int mode;
+    const int playing = rt.hw.cdda_status == 1;
+    if (playing && (!was || rt.hw.read_sec_start != at || rt.hw.play_mode != mode)) {
+        int trk = 0;
+        if (st.disc_tab) for (int t = st.disc_tab[0]; t <= st.disc_tab[1] && t < 101; t++)
+            if ((int32_t)rt.hw.read_sec_start >= st.disc_tab[3 + 6 * t]) trk = t;
+        if (nents < maxents) ents[nents++] = 0xBu << 28 | (uint32_t)(rt.hw.play_mode == 3) << 16 | (uint32_t)trk;
+        at = rt.hw.read_sec_start; mode = rt.hw.play_mode;
+    }
+    else if (!playing && was && nents < maxents) ents[nents++] = 0xBu << 28;
+    was = playing;
+}
+
 int huchost_frame(uint16_t pad, const uint32_t **entries)
 {
     rt_pad_live = pad;
     nents = 0;
     rt_run(&rt, rt.frame + 1, 0);
+    cdda_events();
     *entries = ents;
     return nents;
 }

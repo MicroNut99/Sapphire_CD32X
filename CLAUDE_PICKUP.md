@@ -126,7 +126,10 @@ Read `CLAUDE.md` first.
      `tools/m3_huchost.sh work/m3gen3 work/huchost.so` (blocks' objects in `huchost.so.d`); ares patch
      `fpga/ares/0005-ares-huchost.patch` (`ARES_HUCHOST`, `ARES_HUC_STATE`, `ARES_HUC_TRACK`, `ARES_HUC_LEAD`, `ARES_HUC_LOG`);
      saspeed `FIFO_LIVE=1`; `tools/m3_live_run.sh work/sp/pon.bin work/tr/pon <tag> <frames>` (`PRESS="--press f:A ..."`).
-     From power-on: title, briefing, stages. Open: the title's background, sound, the interpreter != blocks.
+     From power-on: title, briefing, stages. Open: sound, the interpreter != blocks.
+  36. **docs/41, the music:** huchost's CD audio as FIFO type B; `tools/m3_music.py` (`work/music_cd32x.off`); saspeed
+     `FIFO_CDDA=1` (off: no sound in ares yet, and a disc with the 14 music tracks leaves the title's background on the
+     loading screen's tiles - with the stack's test track it is clean). Next: why.
 
 ## 2. Where things live
 

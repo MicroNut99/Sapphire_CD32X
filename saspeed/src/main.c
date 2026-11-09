@@ -1020,6 +1020,23 @@ static int pic_free(void)
 #endif
     return pace_req < 0 || pal_go < 0;
 }
+#if defined(FIFO_LIVE) && defined(FIFO_CDDA)
+/* (docs/41) the CD audio the game asked for (FIFO type B: x = 1 to loop, d = the PC Engine's track, 0 to stop): the
+   stack's command 45 on the CD32X disc, where the PC Engine's audio tracks 3-16 are tracks 2-15 */
+static void fifo_cdda(int loop, unsigned trk)
+{
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+    cdr_busy = 1;                                             /* (pace_vbi sends nothing meanwhile) */
+#endif
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }   /* (a command under way: its end - not bg2_take,
+                                                                 which drops the list in flight: the title kept the
+                                                                 loading screen's tiles, docs/41) */
+    if (trk >= 3) cd_music_play((int)trk - 1, !loop); else cd_music_stop();
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+    cdr_busy = 0;
+#endif
+}
+#endif
 static void fifo_play(V32 *v, long frames)
 {
 #ifdef FIFO_LIVE
@@ -1083,6 +1100,10 @@ static void fifo_play(V32 *v, long frames)
             k++;
             break;
         case 6: v->sp_cur = -1; break;
+#if defined(FIFO_LIVE) && defined(FIFO_CDDA)
+        case 0xB: fifo_cdda((int)(x & 1), d); break;          /* (docs/41: FIFO_CDDA=1 - open: the title's pictures stop
+                                                                 after it, and no sound comes in ares yet) */
+#endif
         case 7: if (v->sp_n < 4) { const int j = v->sp_n++; v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
                                    v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
         case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(v->sat, &v->vram[d], len * 2); } break;
