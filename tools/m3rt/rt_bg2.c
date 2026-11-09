@@ -22,20 +22,37 @@ static int jroom(const Bg2 *b, int n) { return b->jn + n <= BG2_JOURNAL; }
 /* a table write: into this buffer, and as a pair (word index, word) into the journal - kept by the 68000 and written
    into the other buffer at the commit (the listener's 0x4nnn runs, docs/65). The journal waits in SDRAM (docs/30;
    BG2_JRN before) until the picture's list is done, then follows it as one run */
+#ifdef BG2_SDRAM
 static uint16_t bg2_jrn[2 * BG2_JOURNAL];      /* (docs/30: in SDRAM, past the frame buffer's slow reads; copied into the list) */
+#define JRN(b) bg2_jrn
+#else
+#define JRN(b) ((b)->fb[(b)->cur] + (BG2_JRN >> 1))
+#endif
 static inline void tset(Bg2 *b, unsigned off, uint16_t v)
 {
     b->fb[b->cur][off >> 1] = v;
-    uint16_t *const J = bg2_jrn + 2 * b->jn;
+    uint16_t *const J = JRN(b) + 2 * b->jn;
     J[0] = (uint16_t)(off >> 1); J[1] = v; b->jn++;
 }
 #define T_MASK(t) (BG2_T_MASK + 2 * (t))
 #define T_TAG(t) (BG2_T_TAG + 2 * (t))
 /* (docs/33) the tiles' tags and hashes in SDRAM, one copy: read cached, written without the journal (only the SH2
    reads them; the frame buffer's BG2_T_TAG / BG2_T_HASH are left unused) */
+#if defined(FIFO_PLAY) && !defined(BG2_SDRAM)
+#define BG2_SDRAM   /* (the FIFO build has the SDRAM for them; the recompiled game's build does not: its tables stay) */
+#endif
+#ifdef BG2_SDRAM
 uint16_t bg2_ttag[2048], bg2_thash[2048];
 #define TTAG(t) (bg2_ttag[(t) & 2047])
 #define THASH(t) (bg2_thash[(t) & 2047])
+#define TTAG_SET(t, v) (TTAG(t) = (v))
+#define THASH_SET(t, v) (THASH(t) = (v))
+#else
+#define TTAG(t) tget(b, T_TAG(t))
+#define THASH(t) tget(b, T_HASH(t))
+#define TTAG_SET(t, v) tset(b, T_TAG(t), (v))
+#define THASH_SET(t, v) tset(b, T_HASH(t), (v))
+#endif
 #define T_PRIM(t) (BG2_T_PRIM + 2 * (t))
 #define T_GMAP(a) (BG2_T_GMAP + 2 * (a))
 #define S_KEY(s) (BG2_T_SLOT + 8 * (s))
@@ -282,11 +299,17 @@ void bg2_fill(Bg2 *b, int cur)                     /* a buffer's tables, at the 
 {
     uint16_t *f = b->fb[cur];
     for (unsigned o = BG2_T_MASK; o < BG2_T_END; o += 2) f[o >> 1] = 0;
-    for (int t = 0; t < 2048; t++) { TTAG(t) = NONE; f[T_PRIM(t) >> 1] = NONE; }
+    for (int t = 0; t < 2048; t++) { f[T_TAG(t) >> 1] = NONE; f[T_PRIM(t) >> 1] = NONE; }
+#ifdef BG2_SDRAM
+    for (int t = 0; t < 2048; t++) bg2_ttag[t] = NONE;
+#endif
     for (int a = 0; a < 4096; a++) f[T_GMAP(a) >> 1] = NONE;
     for (int s = 0; s < BG2_SLOTS; s++) { f[S_KEY(s) >> 1] = NONE; f[S_REFS(s) >> 1] = 0; }
     for (int h = 0; h < BG2_OVF_N; h++) f[T_OVF(h) >> 1] = NONE;
-    for (int t = 0; t < 2048; t++) THASH(t) = 0;
+    for (int t = 0; t < 2048; t++) f[T_HASH(t) >> 1] = 0;
+#ifdef BG2_SDRAM
+    for (int t = 0; t < 2048; t++) bg2_thash[t] = 0;
+#endif
 }
 static uint16_t tile_hash(const V32 *v, unsigned t)
 {
@@ -450,7 +473,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
 #endif
         if (underway) { whole = 0; ST(b->st.underway_t++); }
         if (h == THASH(t) && TTAG(t) != NONE) {   /* (its words as they were: only the tag noted) */
-            if (TTAG(t) != want) TTAG(t) = want;
+            if (TTAG(t) != want) TTAG_SET(t, want);
             continue;
         }
 #ifdef BG2_FPGA_TILES
@@ -458,7 +481,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
 #else
         tile_mask_set(b, (unsigned)t, tile_mask_of((unsigned)t));
 #endif
-        TTAG(t) = want; THASH(t) = h; ST(b->st.masked++);
+        TTAG_SET(t, want); THASH_SET(t, h); ST(b->st.masked++);
         if (tget(b, T_MASK(t)) & 1) { tchg[t >> 3] |= B8(t & 7); ntchg++; }   /* (a tile no entry names - a
                                                      sprite's cell - changes nothing of the plane) */
         if (t < (b->mn >> 4)) { batchg[t >> 3] |= B8(t & 7); nbat++; }
@@ -619,7 +642,7 @@ int bg2_frame(Bg2 *b, const V32 *v, int cur)
     }
     BPT(8);
     if (b->jn) {                                   /* the journal: one 0x4nnn run (2 words a write) */
-        const uint16_t *J = bg2_jrn;
+        const uint16_t *J = JRN(b);
         list_word(b, (uint16_t)(0x4000 | 2 * b->jn));
         for (int k = 0; k < 2 * b->jn; k++) list_word(b, J[k]);
     }

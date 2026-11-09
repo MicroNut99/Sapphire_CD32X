@@ -18,6 +18,12 @@ moved the two tables that fit now, and capped the playback at 30 pictures a seco
   - The PC's reference for the screenshots is made again: `work/pic_st3_all.bin`. The one before is kept as
     `pic_st3_all.docs32.bin`.
 
+**Only in the FIFO build** (`BG2_SDRAM`, set by `FIFO_PLAY`; rt_pc `-DBG2_SDRAM`). The recompiled game's build has
+no 11 KB of SDRAM to spare: its bss reached the master's stack and the build stopped. That build keeps the tables
+and the journal in the frame buffer, as before, and its pictures stay docs/32's (`work/pic_st3_all.docs32.bin`;
+`pic_check.sh` takes `PICREF=` for it). Checked: rt_pc without the define equals docs/32's 600 pictures byte for
+byte; with it, it equals the new reference.
+
 ## At most one picture every 2 frames (`fifo_play`)
 
 - **Why:** with the lists faster, many pictures came 1 refresh after the one before: 126 of 354.
