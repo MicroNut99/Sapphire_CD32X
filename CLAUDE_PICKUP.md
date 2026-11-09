@@ -99,6 +99,9 @@ Read `CLAUDE.md` first.
   29. **docs/34, cellstore.sv:** the store in RTL on a 16-bit memory port (cells, tiles, count-following cursor, unlock,
      held register writes, the SH2's reads first); `RUN_LAT=<n>` the memory's latency; `fpga/huc/run_eqcells.sh work/fifo_st3.bin work/tr/st3_600/vdc_start.bin 600 2`: equal to cellstore.c
      at every lock (every 1, 2, 3). Next: the PSRAM mapping, the engine window decode, the VDC feeding the cursor.
+  30. **docs/35, the top line:** BootCamp `vsswap` 5403e34 (ops 2 / 3 wait for the 32X's blank too; ledger 24b, docs
+     f81fc3f): VSRAM's top never at line 0 now. ares `ARES_VSRAM_LOG=<frame>` (fpga/ares/0003). Open: the status bar's
+     split late ~1 picture in 10 (command 79 masks the H interrupt). HWIN (ledger 31) tried from its text: worse.
 
 ## 2. Where things live
 
