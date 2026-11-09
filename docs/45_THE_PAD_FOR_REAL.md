@@ -37,7 +37,22 @@ RUN pressed and released every 600 frames until frame 13,400. Then shots (C) wit
 
 `ARES_HUC_LOG` shows the presses reaching the stand-in.
 
+## The title's white blocks (open)
+
+With the pad working, the title comes sooner, and white 16 x 16 blocks stay around the ship. In `ar_lv29` they last
+from frame 4,700 to at least 5,600. In docs/42's run they lasted only the first ~300 frames.
+
+**Ruled out:**
+- **The background's colour map:** it is now kept from picture to picture (`rt_bg32.c`, a colour keeps its entry).
+  The blocks stayed.
+- **The background itself:** in the PC drawing of picture 6,850, the ship is part of it.
+- **Cleared sprite boxes:** none are cleared in this mode (`spr_last_clear`, `same[]` false).
+- **Transparent pixels:** they are not written (the overwrite area).
+
+**What's left:** the blocks have the shape of sprite cells, so the sprites' cell data looks wrong while the title
+starts. A suspect is the FPGA cell store's model (`ARES_CELLS`, docs/29) at a fast change of picture.
+
 ## Next
 
-1. docs/42's colours at the title's first pictures.
+1. The title's white blocks: the cells the sprite layer draws there, against the VRAM.
 2. A recorded game, rather than scripted presses, to compare against the reference.

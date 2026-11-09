@@ -44,11 +44,18 @@ int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t 
     for (int i = 0; i < 64; i++) if (v->sat[i * 4] || v->sat[i * 4 + 1]) spals |= (uint16_t)(1u << (v->sat[i * 4 + 3] & 15));
     uint8_t freei[256]; int nfree = 0;
     for (int p = 0; p < 16; p++) if (!(spals >> p & 1)) for (int j = 1; j < 16; j++) freei[nfree++] = (uint8_t)(p * 16 + j);
-    memset(own, 0, 256);
-    static uint16_t idx_of[512]; static uint16_t used[256]; int nused = 0, ok = 1;   /* (PC Engine colour -> entry) */
-    for (int i = 0; i < 512; i++) idx_of[i] = 0xFFFF;
-    if (nfree) { idx_of[0] = freei[0]; used[nused++] = 0; own[freei[0]] = 1; cram[freei[0]] = 0; bg32_black = freei[0]; }
+    /* (docs/46) the colour -> entry map kept from picture to picture: a colour keeps its entry while the sprites leave
+       its palette free, so a picture drawn with one map is never shown with another's colours (a fade gave new
+       colours every picture, and the entries moved under the frame buffer). Started again when the sprites' palettes
+       change or the entries run out */
+    static uint16_t idx_of[512]; static uint16_t used[256]; static int nused = -1; static uint16_t had_spals;
+    int ok = 1;
+    if (nused < 0 || spals != had_spals || !own[bg32_black]) {   /* (own cleared: the caller left the mode) */
+        for (int i = 0; i < 512; i++) idx_of[i] = 0xFFFF;
+        memset(own, 0, 256); nused = 0; had_spals = spals;
+        if (nfree) { idx_of[0] = freei[0]; used[nused++] = 0; own[freei[0]] = 1; cram[freei[0]] = 0; bg32_black = freei[0]; }
                                                               /* (black first: the borders, as the PC Engine's) */
+    }
     const int mw = map_w(v), mh = map_h(v);
     for (int y = 0; y < 224; y++) {
         const int yy = (v->BYR + y) & (mh * 8 - 1), my = yy >> 3, r = yy & 7;
@@ -79,5 +86,6 @@ int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t 
             }
         }
     }
+    if (!ok) nused = -1;                                      /* (out of entries: a new map at the next picture) */
     return ok;
 }
