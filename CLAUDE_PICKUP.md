@@ -114,6 +114,13 @@ Read `CLAUDE.md` first.
      Window `tr/t12`, `sp/t12.bin` (stage 1 -> 2, 1,700 frames): rt_pc `-DRT_AC_FPGA` (/tmp/rtace3) with RUN_RW=0x69,0x85
      equal to all-writable. ac_engine.sv writes too (tb: 1,586,486 reads, 0 differ); ares fpga/ares/0004. rt_pc's cart:
      state at 0x080000. Next (docs/38 end): card in an unmapped page, stage blocks per page, CDR=1, power-on.
+  34. **docs/39, the whole game in the cart:** the card in page 6 (`CARD=1`, stack `CART=16 M1PAGE=1`; pack
+     `AC_CARD_AT=0xC00000 AC_CARD_N=32 AC_CARD_OUT=`, `PACK_CUE=`; rt_pc `RUN_CARD=`); `saspeed/game_files.h` (102 DXTRACK,
+     103 + IMAGE24 the card, 104+ the combinations); `tools/m3_pagemap.py` (`m3gen3/pagemap_playL.txt`); the blocks in 11
+     combinations (`tools/m3_combo.py`, `COMBO=1`, `saspeed_combo.blk`: `work/comboh`, built and put on one disc by
+     `tools/m3_combo_build.sh`). Split: `COMBO_SPLIT=work:<12 windows> COMBO_OWN=... SPLIT_ASM=1 SPLIT_MIN=7000
+     SPLIT_MIN_FOR="75,76,77:200"` (docs/39 §4). New windows `tr/c00 c02 c04 c06 c08 c10_600`. ares `ar_cbh`: c02 loaded,
+     boss -> briefing. Next: the window's end (c03), power-on, the FPGA build with combinations.
 
 ## 2. Where things live
 

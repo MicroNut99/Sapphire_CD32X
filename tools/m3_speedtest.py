@@ -80,7 +80,17 @@ def pack(W, d, run, first, frames, out):
             # (0x080000), its regions after the parts before them, so a region that would reach into the window
             # starts past it (AC_REGION_BASE: their part's place in the file, from a first pass)
             base = int(os.environ.get('AC_STATE_AT', '0x80000'), 0) + int(os.environ.get('AC_REGION_BASE', '0'), 0)
+            # (docs/39) AC_CARD_AT=<cart address> AC_CARD_N=<n> AC_CARD_OUT=<file>: regions 0..n-1 not in the state but in
+            # their own file, loaded at that physical cart address (a page the SH2 never maps); the table says
+            # 0x80000000 | the address for each of them
+            card_at = int(os.environ.get('AC_CARD_AT', '0'), 0); card_n = int(os.environ.get('AC_CARD_N', '0'), 0)
+            if card_at:
+                cb = b''.join(a0[76 + k * 0x10000:76 + (k + 1) * 0x10000] for k in range(card_n))
+                open(os.environ['AC_CARD_OUT'], 'wb').write(cb)
+                print('  card regions 00-%02X: %s, %d bytes, for cart 0x%X' % (card_n - 1, os.environ['AC_CARD_OUT'], len(cb), card_at))
             for k in keep:
+                if card_at and k < card_n:
+                    tab[k] = 0x80000000 | (card_at + k * 0x10000); continue
                 a = base + len(body)
                 if a < 0x200000 and a + 0x10000 > 0x1C0000: body += bytes(0x200000 - a)
                 tab[k] = len(body); body += a0[76 + k * 0x10000:76 + (k + 1) * 0x10000]
@@ -159,14 +169,26 @@ def select(gen, d, out):
     print('%s: %d blocks (%s)' % (out, len(keys), ' '.join(keys)))
 
 
+_INS = {}
+def ins_pc_bank(d):
+    """(pc, bank) of every instruction of a window's trace, int64 (kept as u16 / u8 between calls: docs/39 splits every
+    combination with the same windows)"""
+    if d not in _INS:
+        a = np.fromfile(os.path.join(d, 'ins.bin'), dtype=INS)
+        pc = a['pc'].astype(np.int64)
+        bank = a['mpr'][np.arange(len(a)), pc >> 13].astype(np.int64)
+        del a
+        _INS[d] = (pc.astype(np.uint16), bank.astype(np.uint8))
+    pc, bank = _INS[d]
+    return pc.astype(np.int64), bank.astype(np.int64)
+
+
 def hot_set(dirs):
     """{(bank, offset)} of every instruction the windows ran (SPLIT_MIN=n: run at least n times in them all)"""
     from collections import Counter
     cnt = Counter()
     for d in dirs:
-        a = np.fromfile(os.path.join(d, 'ins.bin'), dtype=INS)
-        pc = a['pc'].astype(np.int64)
-        bank = a['mpr'][np.arange(len(a)), pc >> 13].astype(np.int64)
+        pc, bank = ins_pc_bank(d)
         u, n = np.unique(bank << 13 | (pc & 0x1FFF), return_counts=True)
         cnt.update(dict(zip(u.tolist(), n.tolist())))
     # SPLIT_BANKS_FROM=<trace dir>:<bank>[,<bank>...]:<least> (hex banks, docs/75): also that trace's instructions in
@@ -175,14 +197,26 @@ def hot_set(dirs):
     bf = os.environ.get('SPLIT_BANKS_FROM'); extra = {}
     if bf:
         d, bl, least = bf.rsplit(':', 2); least = int(least); keep = np.array([int(x, 16) for x in bl.split(',')], dtype=np.int64)
-        a = np.fromfile(os.path.join(d, 'ins.bin'), dtype=INS)
-        pc = a['pc'].astype(np.int64)
-        bank = a['mpr'][np.arange(len(a)), pc >> 13].astype(np.int64)
+        pc, bank = ins_pc_bank(d)
         m = np.isin(bank, keep)
         u, n = np.unique(bank[m] << 13 | (pc[m] & 0x1FFF), return_counts=True)
         extra = {k: v for k, v in zip(u.tolist(), n.tolist()) if v >= least}
     lo = int(os.environ.get('SPLIT_MIN', '1'))
-    hot = {k for k, n in cnt.items() if n >= lo} | set(extra)
+    # SPLIT_MIN_FOR=<bank>[,<bank>...]:<n> (hex banks, docs/39): those banks' own threshold - a combination's overlay
+    # banks run in one window of the many its split counts, the shared ones in all of them
+    lo_of = {}
+    for part in filter(None, os.environ.get('SPLIT_MIN_FOR', '').split(';')):
+        bl, n = part.split(':'); lo_of.update({int(x, 16): int(n) for x in bl.split(',')})
+    own = [d for d in os.environ.get('SPLIT_OWN', '').split(',') if d]   # (docs/39: those banks counted in these windows only)
+    if own and lo_of:
+        co = Counter()
+        for d in own:
+            pc, bank = ins_pc_bank(d)
+            u, n = np.unique(bank << 13 | (pc & 0x1FFF), return_counts=True)
+            co.update(dict(zip(u.tolist(), n.tolist())))
+        for k in list(cnt):
+            if (k >> 13) in lo_of: cnt[k] = co.get(k, 0)
+    hot = {k for k, n in cnt.items() if n >= lo_of.get(k >> 13, lo)} | set(extra)
     for k, v in extra.items(): cnt[k] += v
     hot_set.counts = {(k >> 13, k & 0x1FFF): n for k, n in cnt.items()}   # (tools/m3_sh2.py COUNTS, docs/32)
     return {(k >> 13, k & 0x1FFF) for k in hot}
@@ -309,9 +343,7 @@ def trace_targets(dirs, data_of=None):
         ln = {B: sz[np.asarray(code, dtype=np.int64)[:0x2000]] for B, code in data_of.items()}
     out = set()
     for d in dirs:
-        a = np.fromfile(os.path.join(d, 'ins.bin'), dtype=INS)
-        pc = a['pc'].astype(np.int64)
-        bank = a['mpr'][np.arange(len(a)), pc >> 13].astype(np.int64)
+        pc, bank = ins_pc_bank(d)
         step = np.diff(pc)
         jump = (step <= 0) | (step > 7) | (np.diff(bank) != 0)
         if ln:
@@ -343,9 +375,7 @@ def observed_targets(dirs, data_of):
     from collections import Counter
     out = {}
     for d in dirs:
-        a = np.fromfile(os.path.join(d, 'ins.bin'), dtype=INS)
-        pc = a['pc'].astype(np.int64)
-        bank = a['mpr'][np.arange(len(a)), pc >> 13].astype(np.int64)
+        pc, bank = ins_pc_bank(d)
         for B, code in data_of.items():
             idx = np.nonzero(bank[:-1] == B)[0]
             if not len(idx): continue

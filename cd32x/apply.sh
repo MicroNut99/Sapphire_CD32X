@@ -13,7 +13,8 @@ rm -rf "$W"; mkdir -p "$W"
 python3 "$W/tools/check_boot.py"
 cp -r "$HERE/satest" "$W/satest"
 cp "$BC/hello/splash.png" "$W/satest/" 2>/dev/null || true
-cp -r "$HERE/saspeed" "$W/saspeed"                      # M3's speed test (docs/09): its Makefile reads ../tools/m3rt, m2host
+cp -r "$HERE/saspeed" "$W/saspeed"
+cp "$HERE/saspeed/game_files.h" "$W/stack/subcpu/game_files.h"   # (docs/39: the game's file table, the one Sub-CPU file a game edits)                      # M3's speed test (docs/09): its Makefile reads ../tools/m3rt, m2host
 cp "$BC/hello/splash.png" "$W/saspeed/" 2>/dev/null || true
 mkdir -p "$W/tools/m3rt" "$W/tools/m2host" && cp "$HERE"/tools/m3rt/*.[ch] "$W/tools/m3rt/" && cp "$HERE"/tools/m2host/*.[ch] "$W/tools/m2host/"
 echo "==> $W: GENPLANE=1 VSPLIT=1 GAME=satest DISC_NAME=SATEST bash build.sh"

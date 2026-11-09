@@ -964,8 +964,20 @@ int main(int argc, char **argv)
     if (argc < 2) { fprintf(stderr, "usage: rt_pc <state.bin> [frames]\n"); return 2; }
     FILE *f = fopen(argv[1], "rb"); if (!f) { perror(argv[1]); return 2; }
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-    uint8_t *blob = malloc((size_t)n); if (fread(blob, 1, (size_t)n, f) != (size_t)n) return 2; fclose(f);
+#ifdef RT_AC_FPGA
+    /* (docs/39) the EverDrive's 16 MB as the engine sees it: the state at cart 0x080000, as on the SH2; RUN_CARD=<file>
+       the card's own file at the physical address the state's table gives its first region */
+    uint8_t *cart16 = calloc(16u << 20, 1), *blob = cart16 + 0x80000;
+    if (n > (16 << 20) - 0x80000) return 2;
+#else
+    uint8_t *blob = malloc((size_t)n);
+#endif
+    if (fread(blob, 1, (size_t)n, f) != (size_t)n) return 2; fclose(f);
     static RtState st; if (!rt_state_load(blob, &st, alloc)) { fprintf(stderr, "not a DXS1 state\n"); return 2; }
+#ifdef RT_AC_FPGA
+    if (getenv("RUN_CARD")) { FILE *g = fopen(getenv("RUN_CARD"), "rb"); if (!g || !st.ac_phys[0]) { fprintf(stderr, "RUN_CARD: no file, or the state has no card page\n"); return 2; }
+        size_t m = fread(cart16 + st.ac_phys[0], 1, 32u << 16, g); fclose(g); printf("card file: %zu bytes at cart %06X\n", m, (unsigned)st.ac_phys[0]); }
+#endif
     static uint8_t *banks[256];
 #ifdef RT_WCLASS
     if (!getenv("RUN_WCLASS"))                                  /* (RUN_WCLASS, DIAG docs/71: the RAM banks kept
@@ -997,7 +1009,7 @@ int main(int argc, char **argv)
 #endif
     banks[0xF8] = malloc(8192); banks[0xF7] = malloc(2048);
 #ifdef RT_AC_FPGA
-    { extern uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob - 0x80000;   /* (docs/38: the state at cart 0x080000, as on the SH2 - the engine window's place then right) */
+    { extern uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = cart16;   /* (docs/38, docs/39: the state at cart 0x080000, as on the SH2 - the engine window's place then right) */
       if (getenv("RUN_ACE_LOG")) rt_ace_log = fopen(getenv("RUN_ACE_LOG"), "wb"); }   /* (docs/10: the engine's cart is the state's bytes) */
 #endif
     if (getenv("RUN_ROHIST")) rt_ro_hist = calloc(256 << 13, 4);

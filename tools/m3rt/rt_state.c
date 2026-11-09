@@ -41,7 +41,9 @@ int rt_state_load(const uint8_t *b, RtState *st, void *(*alloc)(unsigned long))
                                                        parts 15-17; a region's offset in part 17, or ~0 = not here) */
         st->ac_regs = words(b + be32(b + 40 + 60), 19, 4, alloc);
         const uint8_t *t = b + be32(b + 40 + 64), *g = b + be32(b + 40 + 68);
-        for (int i = 0; i < 32; i++) { const uint32_t o = be32(t + 4 * i); st->ac_reg[i] = o == 0xFFFFFFFFu ? 0 : g + o; }
+        for (int i = 0; i < 32; i++) { const uint32_t o = be32(t + 4 * i);
+            st->ac_phys[i] = o != 0xFFFFFFFFu && (o & 0x80000000u) ? o & 0xFFFFFFu : 0;   /* (docs/39: in the card's page) */
+            st->ac_reg[i] = o == 0xFFFFFFFFu || st->ac_phys[i] ? 0 : g + o; }
         st->ac_regions = 1;
     }
     return 1;

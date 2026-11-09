@@ -1,0 +1,37 @@
+  /* COMBO=1 (docs/39, tools/m3_combo.py): window 1 in two parts. The combination's file (LEVEL00.BIN -> C<ii>.BIN, file
+     104 + i) at 0x02200000: its header first, its blocks, their table; the shared blocks and their table (IMAGE21.RAW,
+     file 21, cart slot 21) at 0x022A0000, the same in every combination's build */
+  .blkc 0x02200000 :
+  AT ( 0x00200000 )
+  {
+    __blk_start = .;
+    KEEP(*(.combo_head))
+    *blk_*.o(.text .text.* .rodata .rodata.* .data .data.*)
+    *hot.o(.text .text.* .rodata .rodata.* .data .data.*)
+    *hot_*.o(.rodata .rodata.*)                 /* (a C hot half's label table, 32 KB: read in the cart, not copied) */
+    *blocks_cb.o(.text .text.* .rodata .rodata.* .data .data.*)
+    . = ALIGN(16);
+    __blkc_end = .;
+  } > blk
+  /* the combination's hot code (m3_speedtest.py split: hot_stage.s, its tables), in its file after the blocks, run from
+     SDRAM past the bss: the runtime copies it there when it loads the file (src/main.c combo_load) */
+  .hot 0x06026000 :
+  AT ( LOADADDR (.blkc) + SIZEOF (.blkc) )
+  {
+    __chot_start = .;
+    *hot_*.o(.text .text.* .rodata .rodata.* .data .data.*)
+    . = ALIGN(16);
+    __chot_end = .;
+  }
+  __chot_lma = LOADADDR (.hot) + 0x02000000;
+  ASSERT(__bss_end <= 0x06026000, "the bss reaches the combinations' hot code (0x06026000)")
+  ASSERT(LOADADDR (.hot) + SIZEOF (.hot) <= 0x002A0000, "the combination's file reaches the shared part (0x2A0000): COMBO_MAX")
+  ASSERT(__chot_end <= 0x0603E800, "the hot code reaches the master SH2's stack: SPLIT_MIN")
+  .blks 0x022A0000 :
+  AT ( 0x002A0000 )
+  {
+    *bks_*.o(.text .text.* .rodata .rodata.* .data .data.*)
+    *blocks_sh.o(.text .text.* .rodata .rodata.* .data .data.*)
+    . = ALIGN(16);
+    __blk_end = .;
+  } > blk

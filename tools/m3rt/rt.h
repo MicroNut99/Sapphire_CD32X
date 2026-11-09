@@ -15,10 +15,28 @@
 #include "ac_model.h"                                /* Sapphire: the Arcade Card (tools/m2host) */
 
 typedef struct { uint8_t bank; const char *key; void (*fn)(Cpu *); const uint8_t *code; const uint8_t *mask; } BlockDef;
+#ifdef RT_COMBO
+/* COMBO=1 (docs/39): the blocks in two tables - the shared ones (blocks_sh, in the cart page's fixed part, the same in
+   every build) and the current combination's (its file's table, rt_combo_tab, at the page's start, loaded from the CD
+   when the game's overlays change) */
+extern const BlockDef blocks_sh[];
+extern const BlockDef *rt_combo_tab;
+#define FOR_BLOCKS(d) for (int t_ = 0; t_ < 2; t_++) for (const BlockDef *d = t_ ? rt_combo_tab : blocks_sh; d && d->key; d++)
+struct Rt; void rt_blocks_changed(struct Rt *r);   /* (the combination's table changed: every bank matched again) */
+typedef struct { const char *key; void (*fn)(Cpu *); uint8_t id, slot; } HotDef;
+extern const HotDef *rt_hot_tab;                    /* (the combination's hot halves, its file's hot.c; 0: none) */
+void rt_hot_set(struct Rt *r, void *const *subtab, const int16_t *kofftab);   /* (its merged hot code's tables) */
+#define RT_HOTDEF_DONE
+#else
 extern const BlockDef blocks[];                     /* blocks.c (tools/m2_recomp.py) */
+#define FOR_BLOCKS(d) for (const BlockDef *d = blocks; d->key; d++)
+#endif
 /* a block's hot half (tools/m3_speedtest.py split, docs/18): the labels a stage's recordings ran, linked into SDRAM;
    the block's own function is then the cold rest. Entered at an address it has no label for, it says c->miss = 3 */
-typedef struct { const char *key; void (*fn)(Cpu *); uint8_t id, slot; } HotDef;   /* id: in a stage's merged
+#ifndef RT_HOTDEF_DONE
+typedef struct { const char *key; void (*fn)(Cpu *); uint8_t id, slot; } HotDef;
+#endif
+/* id: in a stage's merged
    hot function (docs/19), the block's number there, for the slot it runs in (0: a function of its own) */
 extern const HotDef hot_blocks[] __attribute__((weak));
 void interp_one(Cpu *c);                            /* interp.c */
@@ -37,6 +55,8 @@ typedef struct RtState {
                                                        2 MB; on the SH2 the 2 MB stay in the cart, read only) */
     const uint8_t *ac_reg[32]; int ac_regions;      /* (flag 8, docs/09: instead of the 2 MB, the 64 KB regions a
                                                        stage reads, 0 for the others) */
+    uint32_t ac_phys[32];                           /* (docs/39: a region's physical cart address when it is in the card's
+                                                       own page - only the EverDrive's engine reads it - else 0) */
 } RtState;
 
 /* a bank's memory, writable, merged block and its slot (rt.c rec_set): what TAM's change reads, one cache line (docs/35) */

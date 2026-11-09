@@ -211,10 +211,17 @@ static void rec_set(Rt *r, int b)                   /* bank_rec[b] from the tabl
 }
 static void map_bank(Rt *r, int b, uint8_t *mem, int w) { r->bank[b] = mem; r->writable[b] = (uint8_t)w; rec_set(r, b); }
 
+#ifdef RT_COMBO
+const HotDef *rt_hot_tab;
+#define HOT_TAB rt_hot_tab
+#else
+#define HOT_TAB hot_blocks
+#endif
 static const HotDef *hot_of(const char *key)
 {
-    if (!hot_blocks) return 0;
-    for (int k = 0; hot_blocks[k].key; k++) if (!strcmp(hot_blocks[k].key, key)) return &hot_blocks[k];
+    const HotDef *const t = HOT_TAB;
+    if (!t) return 0;
+    for (int k = 0; t[k].key; k++) if (!strcmp(t[k].key, key)) return &t[k];
     return 0;
 }
 
@@ -232,24 +239,40 @@ static void match_(Rt *r, int b)                    /* the block whose code byte
     for (int i = 0; i < 8; i++) if (r->c.MPR[i] == b) r->c.hid[i] = 0;
     const uint8_t *mem = r->bank[b];
     if (!mem || !r->has_blocks[b]) return;
-    for (int k = 0; blocks[k].key; k++) {
-        if (blocks[k].bank != b) continue;
-        const uint8_t *code = blocks[k].code, *mask = blocks[k].mask;
+    int k = 0;
+    FOR_BLOCKS(d) {
+        k++;
+        if (d->bank != b) continue;
+        const uint8_t *code = d->code, *mask = d->mask;
         int i = 0;
         while (i < 8192 && (!mask[i] || code[i] == mem[i])) i++;
         if (i == 8192) {
 #ifdef RT_MATCH_LOG
             { extern int printf(const char *, ...); static uint8_t seen[1024]; if (k < 8192 && !(seen[k >> 3] & (1 << (k & 7)))) { seen[k >> 3] |= (uint8_t)(1 << (k & 7));
-                printf("matched %s\n", blocks[k].key); } }   /* (DIAG, docs/74: every block a window's run matches) */
+                printf("matched %s\n", d->key); } }   /* (DIAG, docs/74: every block a window's run matches) */
 #endif
-            r->bank_fn[b] = blocks[k].fn; r->bank_block[b] = k;
-            const HotDef *h = hot_of(blocks[k].key);
+            r->bank_fn[b] = d->fn; r->bank_block[b] = k;
+            const HotDef *h = hot_of(d->key);
             if (h) { r->bank_hot[b] = h->fn; r->bank_hid[b] = h->id; r->bank_hslot[b] = h->slot; }
             for (int j = 0; j < 8; j++) if (r->c.MPR[j] == b) slot_hid(r, j);
             return;
         }
     }
 }
+
+#ifdef RT_COMBO
+void rt_hot_set(Rt *r, void *const *subtab, const int16_t *kofftab)   /* (docs/39: a combination's merged hot code) */
+{
+    if (subtab) memcpy(r->c.hsub, subtab, sizeof r->c.hsub);
+    if (kofftab) memcpy(r->koff, kofftab, sizeof r->koff);
+}
+void rt_blocks_changed(Rt *r)                       /* (docs/39) another combination's table: every bank matched again */
+{
+    for (int b = 0; b < 256; b++) r->has_blocks[b] = 0;
+    FOR_BLOCKS(d) r->has_blocks[d->bank] = 1;
+    for (int b = 0; b < 256; b++) if (r->bank[b]) match(r, b);
+}
+#endif
 
 /* the SH2 hot code's page tables (tools/m3_sh2.py, docs/20): for each slot, its memory less the slot's base (so
    that + the address is the byte), or 0 (the hardware, unmapped; huc_pgw: and banks not written) */
@@ -760,7 +783,7 @@ static void ace_load(Rt *r, const RtState *st)       /* the state's card into th
 #else
         const uint32_t ca = (uint32_t)(st->ac_reg[k] - rt_ace_cart);
 #endif
-        const uint16_t u = st->ac_reg[k] ? (uint16_t)(ca >> 8) : ACE_NONE;
+        const uint16_t u = st->ac_phys[k] ? (uint16_t)(st->ac_phys[k] >> 8) : st->ac_reg[k] ? (uint16_t)(ca >> 8) : ACE_NONE;
         ace_rd(ACE_WR_OFF(ACE_REG_UNIT + 2 * k, u & 0xFF)); ace_rd(ACE_WR_OFF(ACE_REG_UNIT + 2 * k + 1, u >> 8));
 #ifndef __32X__
         if (getenv("RUN_ACE_UNITS")) printf("card region %02X: cart %06X%s\n", k, u == ACE_NONE ? 0 : (unsigned)u << 8, u == ACE_NONE ? " (not here)" : "");
@@ -1214,8 +1237,10 @@ void rt_init(Rt *r, const RtState *st, uint8_t *const ram_banks[256])
     memset(r, 0, sizeof *r);
     Cpu *c = &r->c;
     c->user = r;
+#ifndef RT_COMBO
     if (hs_subtab) memcpy(c->hsub, hs_subtab, sizeof c->hsub);
     if (hs_kofftab) memcpy(r->koff, hs_kofftab, sizeof r->koff);
+#endif
     /* the banks: the System Card ROM 00-1F, Super RAM 68-7F, CD RAM 80-87, base RAM F8 (F9-FB its mirrors) */
     for (int b = 0; b < 0x20; b++) map_bank(r, b, (uint8_t *)st->rom + b * 8192, 0);
     for (int b = 0x68; b < 0x80; b++) {
@@ -1232,7 +1257,7 @@ void rt_init(Rt *r, const RtState *st, uint8_t *const ram_banks[256])
     for (int b = 0xF8; b < 0xFC; b++) map_bank(r, b, r->base_ram, 1);
     r->bram = ram_banks[0xF7]; memcpy(r->bram, st->bram, 2048);
     c->ram = r->base_ram;
-    for (int k = 0; blocks[k].key; k++) r->has_blocks[blocks[k].bank] = 1;
+    FOR_BLOCKS(d) r->has_blocks[d->bank] = 1;
     for (int b = 0; b < 256; b++) match(r, b);
     /* the CPU */
     c->A = st->A; c->X = st->X; c->Y = st->Y; c->S = st->S; c->P = st->P & ~TF; c->pc = st->pc; c->speed = st->speed;

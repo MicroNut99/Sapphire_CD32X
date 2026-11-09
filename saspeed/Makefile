@@ -34,6 +34,20 @@ endif
 ifeq ($(ACE),1)
 CCFLAGS += -DRT_AC_FPGA
 endif
+# CARD=1 (docs/39, with ACE=1; the stack with CART=16 M1PAGE=1): the card's 2 MB in cart page 6 (0xC00000), loaded from
+# LEVEL03.BIN + IMAGE24.RAW (m3_speedtest.py pack AC_CARD_AT=0xC00000 AC_CARD_N=32), not in the state
+ifneq ($(FRAMES),)
+CCFLAGS += -DFRAMES=$(FRAMES)
+endif
+# COMBO=1 (docs/39, GEN = a tools/m3_combo.py c<ii> dir): window 1 = the combination's file (cd/LEVEL00.BIN, at 0x200000) +
+# the shared blocks (cd/IMAGE21.RAW, at 0x2A0000: saspeed_combo.blk); the runtime loads the next file when the code changes
+comma := ,
+ifeq ($(COMBO),1)
+CCFLAGS += -DRT_COMBO
+endif
+ifeq ($(CARD),1)
+CCFLAGS += -DCARD_PAGE=6
+endif
 # SDRAM_BANKS=0x72,0x6A: those Super RAM banks in SDRAM (src/main.c, docs/38)
 ifneq ($(SDRAM_BANKS),)
 CCFLAGS += -DSDRAM_BANKS=$(SDRAM_BANKS)
@@ -156,37 +170,43 @@ HUCFLAGS = -D__32X__ -m2 -mb -Os $(HUCOPT) -c -fomit-frame-pointer -std=gnu99 -D
 # CARTCODE="io_model" (docs/71): those objects' code in the cart instead of SDRAM (the room for a RAM bank)
 # SDCODE="rt_spr spr_rows rt_bg2" (docs/67): those objects' code in SDRAM (after the runtime's) instead of the cart,
 # where a stage's SDRAM has the room (the link says if not): build/saspeed.ld is saspeed.ld with them moved
-LDSCRIPT = $(if $(SDCODE)$(CARTCODE),$(BUILD)/saspeed.ld,saspeed.ld)
+LDSCRIPT = $(if $(SDCODE)$(CARTCODE)$(filter 1,$(COMBO)),$(BUILD)/saspeed.ld,saspeed.ld)
 LDFLAGS  = -T $(LDSCRIPT) -Wl,-Map=$(BUILD)/output.map -nostdlib
 ASFLAGS  = --big
 LIBS     = $(LIBPATH) -lc -lgcc -lgcc-Os-4-200 -lnosys
 
-BLK  = $(patsubst $(GEN)/%.c,$(BUILD)/%.o,$(wildcard $(GEN)/blk_*.c))
+BLK  = $(patsubst $(GEN)/%.c,$(BUILD)/%.o,$(wildcard $(GEN)/blk_*.c $(GEN)/bks_*.c))
+BLKTAB = $(if $(filter 1,$(COMBO)),$(BUILD)/blocks_sh.o $(BUILD)/blocks_cb.o $(BUILD)/combo_dir.o,$(BUILD)/blocks.o)
 # split blocks (tools/m3_speedtest.py split, docs/18-19): the hot halves, one function a stage (into SDRAM:
 # saspeed.ld), and their list
 HOT  = $(patsubst $(GEN)/%.c,$(BUILD)/%.o,$(wildcard $(GEN)/hot_*.c $(GEN)/hot.c)) \
        $(patsubst $(GEN)/%.s,$(BUILD)/%.o,$(wildcard $(GEN)/hot_*.s))   # (tools/m3_sh2.py: SH2 assembly, docs/20)
 # crt0.o must be first: it holds the ROM header, the 32X header and the SH2 start-up
 OBJS = $(BUILD)/crt0.o $(BUILD)/main.o $(BUILD)/cdapi.o $(BUILD)/rt.o $(BUILD)/rt_vdc.o $(BUILD)/rt_state.o \
-       $(BUILD)/io_model.o $(BUILD)/scsi_model.o $(BUILD)/ac_model.o $(BUILD)/interp.o $(BUILD)/huc_rt.o $(BUILD)/blocks.o $(LEAVE_OBJ) $(PLAY_OBJ) $(CONV_OBJ) $(MARKS_OBJ) $(SPR_OBJ) $(BG_OBJ) $(BLK) $(HOT)
+       $(BUILD)/io_model.o $(BUILD)/scsi_model.o $(BUILD)/ac_model.o $(BUILD)/interp.o $(BUILD)/huc_rt.o $(BLKTAB) $(LEAVE_OBJ) $(PLAY_OBJ) $(CONV_OBJ) $(MARKS_OBJ) $(SPR_OBJ) $(BG_OBJ) $(BLK) $(HOT)
 
-all: $(TARGET).32x cd/LEVEL00.BIN
+all: $(TARGET).32x cd/LEVEL00.BIN $(if $(filter 1,$(COMBO)),cd/IMAGE21.RAW)
 
 $(TARGET).32x: $(TARGET).elf
-	$(SHOBJC) -O binary -R .blk $< $(BUILD)/temp.bin
+	$(SHOBJC) -O binary -R .blk -R .blkc -R .blks -R .hot $< $(BUILD)/temp.bin
 	dd if=$(BUILD)/temp.bin of=$@ bs=128K conv=sync status=none
 
 cd/LEVEL00.BIN: $(TARGET).elf
 	mkdir -p cd
-	$(if $(FIFO),cp $(FIFO) $@,$(SHOBJC) -O binary -j .blk $< $@)
+	$(if $(FIFO),cp $(FIFO) $@,$(SHOBJC) -O binary $(if $(filter 1,$(COMBO)),-j .blkc -j .hot,-j .blk) $< $@)
 
-$(BUILD)/saspeed.ld: saspeed.ld Makefile
+cd/IMAGE21.RAW: $(TARGET).elf
+	mkdir -p cd
+	$(SHOBJC) -O binary -j .blks $< $@
+
+$(BUILD)/saspeed.ld: saspeed.ld saspeed_combo.blk Makefile
 	@mkdir -p $(BUILD)
 	sed -e '/) \.text/s/\*hot_\*\.o)/*hot_*.o $(foreach o,$(SDCODE),*$(o).o))/' \
 	    -e 's|    /\* SDCODE: .*|    . = ALIGN(16); $(foreach o,$(SDCODE),*$(o).o(.text .text.*))|' \
-	    -e 's|    \*(.gnu.linkonce.t.\*)|&$(foreach o,$(CARTCODE), *$(o).o(.text .text.*))|' saspeed.ld > $@
+	    -e 's|    \*(.gnu.linkonce.t.\*)|&$(foreach o,$(CARTCODE), *$(o).o(.text .text.*))|' \
+	    $(if $(filter 1,$(COMBO)),-e '/BLK begin/r saspeed_combo.blk' -e '/BLK begin/$(comma)/BLK end/d') saspeed.ld > $@
 
-$(TARGET).elf: src-md/m68k.bin $(OBJS) saspeed.ld $(if $(SDCODE)$(CARTCODE),$(BUILD)/saspeed.ld)
+$(TARGET).elf: src-md/m68k.bin $(OBJS) saspeed.ld $(if $(SDCODE)$(CARTCODE)$(filter 1,$(COMBO)),$(BUILD)/saspeed.ld)
 	$(SHCC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
 
 src-md/m68k.bin:

@@ -50,6 +50,7 @@ PAD_RT = 0xE4;                                  /* (docs/37: 0xC4 before; the Rt
 
 SECTIONS
 {
+  /* BLK begin (COMBO=1: the Makefile puts saspeed_combo.blk here instead) */
   /* dxspeed: the translated blocks (blk_*.o, blocks.o: code and tables) live in the cart's level slot, where
      LEVEL00.BIN is loaded (file 100: cart 0x200000); the ROM is the rest (docs/17) */
   .blk 0x02200000 :
@@ -62,6 +63,7 @@ SECTIONS
     . = ALIGN(16);
     __blk_end = .;
   } > blk
+  /* BLK end */
 
   .text 0x02000000 :
   AT ( 0x00000000 )

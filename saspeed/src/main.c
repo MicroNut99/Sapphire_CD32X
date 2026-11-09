@@ -175,7 +175,9 @@ static volatile int cdr_busy_v;                               /* (docs/69: a sec
 #define COMM12_16  (*(volatile uint16_t *)0x2000402C)
 #define FB         ((volatile uint16_t *)&MARS_FRAMEBUFFER)
 #define STATE      ((const uint8_t *)0x02080000)          /* LEVEL01.BIN, cached */
-#define FRAMES     600
+#ifndef FRAMES
+#define FRAMES     600                                        /* (FRAMES=n: the Makefile, docs/39) */
+#endif
 
 /* ---- the screen: 256 colours, text ---- */
 enum { C_BLACK, C_WHITE, C_RED, C_GREEN, C_YELLOW, C_GREY };
@@ -232,6 +234,7 @@ static void line(int y, const char *label, uint32_t v, int hex, uint8_t c)
 /* ---- the timer: FRT at the system clock / 32 (one tick 32 cycles, 91 ms around) ---- */
 #define SDTEXT __attribute__((section(".sdtext")))   /* (in SDRAM with the runtime, dxspeed.ld: run each frame, docs/38) */
 static SDTEXT uint16_t frt(void) { const uint8_t h = SH2_FRT_FRCH; const uint8_t l = SH2_FRT_FRCL; return (uint16_t)(h << 8 | l); }
+uint32_t end_hash[2] __attribute__((used));
 static uint16_t t_last; static uint32_t t_sum, t_max, t_min = 0xFFFFFFFF, nframes, hash, hash_stack;
 static long frames_to_run; static uint32_t frt_check;
 uint32_t fifo_frt_check(void) { return frt_check; } static volatile uint32_t ticks_end;
@@ -307,6 +310,9 @@ static void __attribute__((noinline)) prof_frame(void)
 }
 #endif
 #endif
+#ifdef RT_COMBO
+static void combo_check(Rt *r);
+#endif
 static SDTEXT void on_frame(Rt *r)
 {
 #if defined(RT_DIGEST) && defined(DIGEST_FSTOP)
@@ -335,9 +341,13 @@ static SDTEXT void on_frame(Rt *r)
     prof_frame();
 #endif
     MARS_SYS_COMM4 = (short)nframes;                          /* the progress (ares prints COMM4 each second) */
+#ifdef RT_COMBO
+    combo_check(r);                                           /* (docs/39: the game's code changed to another combination?) */
+#endif
     if (r->frame == frames_to_run - 1) {                      /* the last frame's end: rt_pc prints the same two */
         ticks_end = gTicks;                                   /* (the run's time: the hashes not counted) */
         hash_stack = rt_hash(r, 1); hash = rt_hash(r, 0);
+        end_hash[0] = hash_stack; end_hash[1] = hash;         /* (docs/39: kept for an SDRAM dump - the picture builds show no end screen) */
     }
     t_last = frt();                                           /* (the hash not counted) */
 }
@@ -1167,6 +1177,82 @@ int rt_disc_sector(int32_t sector, uint8_t *out)
 #else
 int rt_disc_sector(int32_t sector, uint8_t *out) { (void)sector; (void)out; return 0; }
 #endif
+#ifdef RT_COMBO
+/* COMBO=1 (docs/39, tools/m3_combo.py): window 1's first 640 KB hold one combination of the game's blocks (a file
+   C<ii>.BIN, 104 + i), the rest the shared ones (IMAGE21.RAW, once). At each frame's end a bank whose code no block of
+   the two tables matches is looked up in the directory (8 sample bytes, then the hash of the code bytes); when another
+   combination has it, its file is loaded - the game itself is loading its overlays then - and every bank matched again */
+typedef struct { uint8_t bank, combo; uint16_t pos[8]; uint8_t val[8]; uint32_t hash; const uint8_t *bits; } ComboDir;
+extern const ComboDir combo_dir[]; extern const int combo_count;
+const BlockDef *rt_combo_tab;
+static int combo_cur = -1;
+uint32_t combo_stat[4] __attribute__((used));                 /* (loads, failed loads, lookups hashed, the current one) */
+static int combo_want(Rt *r)
+{
+    for (const ComboDir *e = combo_dir; e->combo != 0xFF; e++) {
+        if (e->combo == combo_cur) continue;
+        const uint8_t *m = r->bank[e->bank];
+        if (!m || r->bank_fn[e->bank]) continue;
+        int i = 0; while (i < 8 && m[e->pos[i]] == e->val[i]) i++;
+        if (i < 8) continue;
+        combo_stat[2]++;
+        uint32_t f = 2166136261u;
+        for (int j = 0; j < 8192; j++) if (e->bits[j >> 3] >> (j & 7) & 1) { f ^= m[j]; f *= 16777619u; }
+        if (f == e->hash) return e->combo;
+    }
+    return -1;
+}
+static int combo_load(Rt *r, int c)
+{
+#ifdef BG2_DRAW
+    while (pal_go >= 0) { }                                   /* (as pool_wb: the picture asked for shown first) */
+#endif
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+    cdr_busy = 1;                                             /* (pace_vbi sends nothing meanwhile) */
+#endif
+#ifdef BG2_DRAW
+    bg2_take();
+#endif
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+    int ok = cd_load(104 + c);
+    CacheControl(0x11);                                       /* (the cart's lines: purged) */
+#ifdef RT_CD_RING
+    if (!cd_open(102)) ok = 0;                                /* (command 91 reads the open file: the track again) */
+#endif
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+    cdr_busy = 0;
+#endif
+    const struct { uint32_t magic, combo; const BlockDef *tab; const HotDef *hot; const char *hot_lma; char *hot_vma;
+                   const char *hot_end; void *const *subtab; const int16_t *kofftab; } *h = (const void *)0x02200000;
+    if (ok && h->magic == 0x53434232u && h->combo == (uint32_t)c) {
+        rt_combo_tab = h->tab; combo_cur = c; rt_hot_tab = h->hot;
+        if (h->hot) {                                         /* (its hot code into SDRAM, tools/m3_combo.py COMBO_SPLIT) */
+            memcpy(h->hot_vma, h->hot_lma, (size_t)(h->hot_end - h->hot_vma));
+            CacheControl(0x11);
+            rt_hot_set(r, h->subtab, h->kofftab);
+        }
+    }
+    else { rt_combo_tab = 0; rt_hot_tab = 0; combo_cur = -1; combo_stat[1]++; ok = 0; }
+    combo_stat[0]++; combo_stat[3] = (uint32_t)combo_cur;
+    rt_blocks_changed(r);
+    return ok;
+}
+static void combo_check(Rt *r)
+{
+    const int c = combo_want(r);
+    if (c >= 0) combo_load(r, c);
+}
+#endif
+#ifdef CARD_PAGE
+static int cart_page(int p)                                   /* (docs/39) the stack's command 68 (CART=16 M1PAGE=1): window 1 = page p */
+{
+    MARS_SYS_COMM2 = (uint16_t)p; COMM12_16 = 0xFFFF;
+    if (!cd_cmd(68)) return 0;
+    CacheControl(0x11);                                       /* (the cart's lines changed under the cache) */
+    return COMM12_16 == 1;
+}
+#endif
+
 int main(void)
 {
     cd_status(0x4E20);
@@ -1178,13 +1264,28 @@ int main(void)
     }
     if (!cd_load(100 + 4 + 3 * DX_STAGE) || !cd_load(200 + 5 + 3 * DX_STAGE)) { cd_status(0x4EE0); while (1) { } }
 #else
+#ifdef CARD_PAGE
+    /* (docs/39) the Arcade Card's 2 MB in a cart page the SH2 never maps (page 6, cart 0xC00000): window 1 shows it while
+       its two halves load (LEVEL03.BIN, file 103, at window 1's start; IMAGE24.RAW, file 24, at slot 24 = 1 MB on),
+       then window 1 is page 1 again for the blocks. Only the EverDrive's engine reads it, by its physical address */
+    if (!cart_page(CARD_PAGE) || !cd_load(103) || !cd_load(24) || !cart_page(1)) { cd_status(0x4EE6); while (1) { } }
+#endif
+#ifdef RT_COMBO
+    if (!cd_load(21) || !cd_load(201)) { cd_status(0x4EE0); while (1) { } }   /* (docs/39: the shared blocks; the
+                                                                 combination comes at the first frame's end) */
+#else
     if (!cd_load(100) || !cd_load(201)) { cd_status(0x4EE0); while (1) { } }
+#endif
 #endif
     CacheControl(0x11);                                       /* the 68000 wrote the cart: purge (docs/06 rule 10) */
     screen();
     if (!rt_state_load(STATE, &st, 0)) { text(16, 16, "LEVEL01.BIN IS NOT A DXS1 STATE", C_RED); show(); cd_status(0x4EE5); while (1) { } }
 #ifndef FIFO_PLAY
+#ifdef RT_COMBO
+    if (!blocks_sh[0].key) { text(16, 16, "NO BLOCKS IN IMAGE21.RAW", C_RED); show(); cd_status(0x4EE5); while (1) { } }
+#else
     if (!blocks[0].key) { text(16, 16, "NO BLOCKS IN LEVEL00.BIN", C_RED); show(); cd_status(0x4EE5); while (1) { } }
+#endif
 #endif
 #ifndef SPR_PACE
     text(16, 16, "SASPEED: RUNNING", C_WHITE); show();
@@ -1215,6 +1316,9 @@ int main(void)
     }
 #endif
     rt_init(&rt, &st, banks);
+#ifdef RT_COMBO
+    combo_check(&rt);                                         /* (docs/39: the state's combination, before the first frame) */
+#endif
 #ifdef RT_POOL
     { static uint8_t *const sl[1] = { pool_slot[0] }; rt_pool_init(sl, 1); rt_pool_wb = pool_wb; }
 #ifdef RT_POOL_LOG
