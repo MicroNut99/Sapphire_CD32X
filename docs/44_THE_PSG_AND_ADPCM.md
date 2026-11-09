@@ -61,8 +61,13 @@ bursts:
 - at t = 27 s, the boot;
 - through stage 1, t = 335-442 s, up to 0.063: the shots and explosions.
 
+## 4. All of it together (`BG32=1 PWM_SOUND=1 FIFO_CDDA=1`, ares `ar_lv23`)
+
+From power-on, played into stage 1:
+- **The pictures:** the title, the player select and stage 1 (shots, power-ups, an explosion), as without the sound.
+- **The sound:** 0.040-0.059 RMS from t = 75 s on, with silences where the game stops its track for loads. The
+  music and the effects can't be told apart in that one figure.
+
 ## Next
 
-1. The ADPCM against the reference over a stretch with voices (the briefings).
-2. The music and these together (`FIFO_CDDA=1 PWM_SOUND=1`), their levels.
-3. On the console, the FPGA makes these samples. Its PSG and ADPCM in RTL come with the CPU's hardware page.
+1. On the console, the FPGA makes these samples. Its PSG and ADPCM in RTL come with the CPU's hardware page.
