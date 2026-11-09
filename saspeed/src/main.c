@@ -843,6 +843,11 @@ static void draw_hook(V32 *v)
 #endif
 #ifdef SAPPHIRE_PLAY
         rt_pad_live = (int32_t)sp_pad_mask(cd_pad(0, 0));     /* (docs/36: the pad, at the one moment nothing else is under way) */
+#ifdef FIFO_LIVE
+        { const uint32_t m = (uint32_t)rt_pad_live;            /* (docs/40: to the cart's CPU - the FPGA's pad register, 0xcd/0xce) */
+          (void)*(volatile uint16_t *)(0x22000000u + 0x1C0000u + (0x20000u | (m & 0xFF) << 9 | 0xcdu << 1));
+          (void)*(volatile uint16_t *)(0x22000000u + 0x1C0000u + (0x20000u | (m >> 8 & 0xFF) << 9 | 0xceu << 1)); }
+#endif
 #endif
     } else pace_last = gTicks;
 #ifndef SEC_BG
@@ -1017,13 +1022,22 @@ static int pic_free(void)
 }
 static void fifo_play(V32 *v, long frames)
 {
+#ifdef FIFO_LIVE
+    /* (docs/40) the FIFO a ring the cart's CPU writes as the game runs (ares: ARES_HUCHOST): read past the cache - a
+       line from the lap before must not answer - and back to its start at 0x3F0000 */
+    const uint32_t *f = (const uint32_t *)0x22200000;
+#else
     const uint32_t *f = (const uint32_t *)0x02200000;
+#endif
     const uint32_t t0 = gTicks; long k = 0; unsigned addr = 0;
 #ifdef SPR_FPGA_CELLS
     CS_WR(0xcb, 0xa5); CS_WR(0xcb, 0x5a);                     /* (docs/29: the store's start - its registers answer from here) */
 #endif
     while (k < frames) {
         const uint32_t e = __builtin_bswap32(*f++);           /* (the FIFO file is little-endian, as the PC wrote it) */
+#ifdef FIFO_LIVE
+        if (f == (const uint32_t *)0x223F0000) f = (const uint32_t *)0x22200000;
+#endif
         const unsigned t = e >> 28, x = (e >> 16) & 0xFFF, d = e & 0xFFFF;
         switch (t) {
         case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag;

@@ -7,6 +7,11 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**Latest (9 Nov 2026, [docs/40](docs/40_THE_GAME_LIVE_IN_ARES.md)):** the game plays live in ares from power-on, with
+the pad: the title, the briefings and the stages, through the fast build's FIFO player, with the cart CPU's stand-in
+running the game. [docs/39](docs/39_THE_WHOLE_GAME_IN_THE_CART.md): the whole game's code fits the cart (the card in
+page 6, the blocks in combinations loaded from the CD).
+
 Status: **M0 (the reference and the measurements) done 7 Nov 2026** ([docs/02](docs/02_M0_MEASURED.md)). Mednafen runs
 the game headless with the Arcade Card's reads and writes tracked. The boot fills the Arcade Card's 2 MB from
 LBA 7220. With no input, the attract demo plays stages 1-4 whole. RAM `$0E15` is the stage index, and writing

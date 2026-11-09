@@ -122,6 +122,11 @@ Read `CLAUDE.md` first.
      SPLIT_MIN_FOR="75,76,77:200"` (docs/39 §4). New windows `tr/c00 c02 c04 c06 c08 c10_600`. ares `ar_cbh`: c02 then c03
      loaded, boss -> briefing -> stage 2, hash b2fc64ab = rt_pc's (with the stack page: differs). Power-on state
      `sp/pon.bin` (CARD=2, CD ring at 0x160000 in COMBO builds). Next: ares's PCE CPU as the FPGA's stand-in (speed).
+  35. **docs/40, the game live in ares:** `tools/m3rt/fifo_synth.c` (rt_pc `RUN_FIFO_OUT=`), `tools/m3rt/huchost.c` built by
+     `tools/m3_huchost.sh work/m3gen3 work/huchost.so` (blocks' objects in `huchost.so.d`); ares patch
+     `fpga/ares/0005-ares-huchost.patch` (`ARES_HUCHOST`, `ARES_HUC_STATE`, `ARES_HUC_TRACK`, `ARES_HUC_LEAD`, `ARES_HUC_LOG`);
+     saspeed `FIFO_LIVE=1`; `tools/m3_live_run.sh work/sp/pon.bin work/tr/pon <tag> <frames>` (`PRESS="--press f:A ..."`).
+     From power-on: title, briefing, stages. Open: the title's background, sound, the interpreter != blocks.
 
 ## 2. Where things live
 

@@ -681,8 +681,15 @@ static uint32_t v32_hash(const V32 *v)
 #undef HW
     return h;
 }
+#include "fifo_synth.h"
 static void spr_draw_pc(V32 *v)                    /* (docs/18 VLOG: the log applied, the drawing, the log on again) */
 {
+    if (getenv("RUN_FIFO_OUT") && !getenv("RUN_FIFO")) {     /* (docs/40: the FIFO from the runtime's picture state) */
+        static FifoShadow sh; static FILE *fo; static uint32_t buf[1 << 17];
+        if (!fo) fo = fopen(getenv("RUN_FIFO_OUT"), "wb");
+        const int n = fifo_synth(&sh, v, buf, 1 << 17);
+        if (fo) { fwrite(buf, 4, (size_t)(n < (1 << 17) ? n : (1 << 17)), fo); fflush(fo); }
+    }
     if (getenv("RUN_V32HASH")) { static long k; printf("pic %ld v32 %08x", k++, v32_hash(v));
         if (getenv("RUN_V32PARTS")) printf(" | BXR %03X BYR %03X CR %04X MWR %04X splits %d L%d %03X %03X %04X", v->BXR, v->BYR, v->t.CR, v->MWR, v->spl_n, v->spl_n ? v->spl[0].line : 0, v->spl_n ? v->spl[0].bxr : 0, v->spl_n ? v->spl[0].byr : 0, v->spl_n ? v->spl[0].cr : 0);
         if (getenv("RUN_V32PARTS")) { uint32_t a = 0, b = 0, c = 0; for (int i = 0; i < 32768; i++) a = a * 31 + v->vram[i]; for (int i = 0; i < 256; i++) b = b * 31 + v->sat[i]; for (int i = 0; i < 512; i++) c = c * 31 + v->color[i]; printf(" vram %08x sat %08x col %08x", a, b, c); }

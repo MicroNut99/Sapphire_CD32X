@@ -45,6 +45,11 @@ comma := ,
 ifeq ($(COMBO),1)
 CCFLAGS += -DRT_COMBO
 endif
+# FIFO_LIVE=1 (docs/40, with FIFO=<any file> SPLAY=1): the FIFO a ring at cart 0x200000-0x3EFFFF that the cart's CPU
+# writes as the game runs (ares: ARES_HUCHOST, tools/m3_huchost.sh); the pad to it through registers 0xcd / 0xce
+ifeq ($(FIFO_LIVE),1)
+CCFLAGS += -DFIFO_LIVE
+endif
 ifeq ($(CARD),1)
 CCFLAGS += -DCARD_PAGE=6
 endif

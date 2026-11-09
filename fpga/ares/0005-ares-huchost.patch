@@ -1,0 +1,164 @@
+From 73d91df6c2d6de7541e18c879fcf99f79dd10b62 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 08:46:33 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's cart CPU stand-in
+ (ARES_HUCHOST): the game run in C, the FIFO written live into a ring
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/board.cpp            |  1 +
+ ares/md/cartridge/board/everdrive-pro.cpp    | 14 +++++-
+ ares/md/cartridge/board/sapphire-cells.hpp   |  6 ++-
+ ares/md/cartridge/board/sapphire-huchost.hpp | 50 ++++++++++++++++++++
+ 4 files changed, 68 insertions(+), 3 deletions(-)
+ create mode 100644 ares/md/cartridge/board/sapphire-huchost.hpp
+
+diff --git a/ares/md/cartridge/board/board.cpp b/ares/md/cartridge/board/board.cpp
+index 3b8c76f..642bb58 100644
+--- a/ares/md/cartridge/board/board.cpp
++++ b/ares/md/cartridge/board/board.cpp
+@@ -15,6 +15,7 @@ static urrfx::Engine* urrFx = nullptr;
+ #include "ram-cart.cpp"
+ #include "arcade-card-engine.hpp"
+ #include "sapphire-cells.hpp"
++#include "sapphire-huchost.hpp"
+ #include "everdrive-pro.cpp"
+ #include "mega-32x.cpp"
+ #include "debugger.cpp"
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index ee36884..7c2e743 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -91,6 +91,7 @@ struct EverDrivePro : Interface {
+   ArcadeCardEngine ace;
+   boolean aceOn;
+   SapphireCells cells;   //(Sapphire docs/29: ARES_CELLS, a test model of the FPGA's cell store)
++  SapphireHuc huc;       //(Sapphire docs/40: ARES_HUCHOST, the cart CPU's stand-in writing the FIFO live)
+ 
+   static constexpr u32 SaveBank = 31;
+ 
+@@ -219,7 +220,16 @@ struct EverDrivePro : Interface {
+       if(local >= SapphireCells::LiveAt && local < SapphireCells::End) return cells.readStore(local);
+       if(local >= 0x1c0000 && local < 0x200000) {
+         u32 off = local - 0x1c0000, r = off >> 1 & 0xff;
+-        if(off & 0x20000) cells.write(r, off >> 9 & 0xff, [&](u32 l) -> u16 { return ram[offset(l) >> 1]; });
++        if(off & 0x20000) {
++          u32 v = off >> 9 & 0xff;
++          if(huc.write(r, v)) return data;
++          if(huc.on && (r == 0xca || r == 0xcb)) {   //(the pictures the SH2 will want: written before the store reads them)
++            u32 at = r == 0xca ? cells.sh2At + (u8)(v - cells.sh2At) : 0;
++            huc.produce(at + huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
++            cells.liveTotal = huc.produced;
++          }
++          cells.write(r, v, [&](u32 l) -> u16 { return ram[offset(l) >> 1]; });
++        }
+         else if(!cells.live_) {}
+         else if(r == 0xc7) return cells.bits();
+         else if(r == 0xc9) return (n16)cells.lockedAt;
+@@ -328,7 +338,9 @@ struct EverDrivePro : Interface {
+   auto power(bool reset) -> void override {
+     if(auto e = getenv("ARES_ACE")) aceOn = e[0] == '1';
+     ace.reset();
++    huc.power();
+     cells.power();
++    if(huc.on) cells.liveFifo(huc.produced);
+     for(u32 n : range(8)) bank[n] = n;
+     mode32x = 0;
+     led = 0;
+diff --git a/ares/md/cartridge/board/sapphire-cells.hpp b/ares/md/cartridge/board/sapphire-cells.hpp
+index 9aaa297..53c15d4 100644
+--- a/ares/md/cartridge/board/sapphire-cells.hpp
++++ b/ares/md/cartridge/board/sapphire-cells.hpp
+@@ -17,6 +17,7 @@ struct SapphireCells {
+   bool locked = false, armed = false, on = false;
+   u32 fifoBytes = 0, cursor = 0, lead = 1, group = 0;
+   u32 fifoAddr = 0;          //the model's VRAM address (FIFO type 2)
++  u64 liveTotal = 0; bool liveRing = false;   //(docs/40: the FIFO a ring the stand-in CPU writes - its entries so far)
+   u64 freezes = 0;
+ 
+   auto row(u32 c, u32 y) -> void {
+@@ -90,7 +91,7 @@ struct SapphireCells {
+   template<typename Ram> auto frame(u32 k8, Ram ram) -> void {
+     sh2At += (u8)(k8 - sh2At);
+     if(getenv("ARES_CELLS_LOG") && getenv("ARES_CELLS_LOG")[0] == '2') fprintf(stderr, "cells: sh2 at %u\n", sh2At);
+-    u32 total = fifoBytes / 4;
++    u64 total = liveRing ? liveTotal : fifoBytes / 4;
+     while(cursor < total && boundaries < sh2At + lead) {
+       u32 e = entry(cursor++, ram); u32 t = e >> 28, d = e & 0xffff;
+       if(t == 2) fifoAddr = d;
+@@ -99,7 +100,7 @@ struct SapphireCells {
+     }
+   }
+   template<typename Ram> auto entry(u32 i, const Ram& ram) -> u32 {   //(the file is little-endian, as the PC wrote it)
+-    u32 l = 0x200000 + i * 4;         //(ram: a functor from the cart's local address to its word, through the banks)
++    u32 l = 0x200000 + (liveRing ? i % (0x1f0000 / 4) : i) * 4;   //(ram: a functor from the cart's local address to its word, through the banks)
+     u16 a = ram(l), b = ram(l + 2);   //big-endian words of the file's bytes
+     u32 bytes = (u32)a << 16 | b;     //bytes 0..3 of the entry
+     return (bytes >> 24 & 0xff) | (bytes >> 8 & 0xff00) | (bytes << 8 & 0xff0000) | (bytes << 24);
+@@ -111,5 +112,6 @@ struct SapphireCells {
+     if(off + 1 >= 512 * Cell) return 0;
+     return s[off] << 8 | s[off + 1];
+   }
++  auto liveFifo(u64 total) -> void { liveRing = true; liveTotal = total; }
+   auto bits() -> n16 { n16 v = 0; for(u32 i : range(16)) if(isFrozen[(group * 16 + i) & 511]) v.bit(i) = 1; return v; }
+ };
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+new file mode 100644
+index 0000000..12c36b1
+--- /dev/null
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -0,0 +1,50 @@
++//Sapphire CD32X's CPU in the cart, a stand-in (github.com/MicroNut99/Sapphire_CD32X docs/40). The real cart runs the
++//game on its FPGA's HuC6280 and writes the FIFO of the video chips' writes (docs/20-24); ares has no model of that
++//FPGA, so with ARES_HUCHOST=<huchost.so> (tools/m3_huchost.sh: the 32X runtime's own C as a library) the board runs
++//the game itself from ARES_HUC_STATE=<DXS1 state>, its data track's sectors from ARES_HUC_TRACK=<image>, and writes
++//the FIFO into a ring at cart 0x200000-0x3EFFFF (window 1, page 1), a picture at a time, up to ARES_HUC_LEAD (4)
++//pictures past the count the SH2 writes to register 0xca. The cell store model (sapphire-cells.hpp) reads the same
++//ring. The pad: the SH2 writes registers 0xcd (low byte) and 0xce (high byte) of the libretro mask, as it would the
++//FPGA's pad register. Not the hardware: the FPGA is checked in its own simulations (fpga/huc).
++#include <dlfcn.h>
++struct SapphireHuc {
++  static constexpr u32 Ring = 0x1f0000 / 4;   //(entries)
++  bool on = false;
++  u64 produced = 0;            //entries written
++  u32 pictures = 0;            //pictures written
++  u32 lead = 4;
++  u16 pad = 0, padLow = 0;
++  int (*frameFn)(u16, const u32**) = nullptr;
++
++  auto power() -> void {
++    on = false; produced = 0; pictures = 0; pad = 0;
++    auto so = getenv("ARES_HUCHOST"); if(!so) return;
++    void* h = dlopen(so, RTLD_NOW | RTLD_LOCAL);
++    if(!h) { fprintf(stderr, "huchost: %s\n", dlerror()); return; }
++    auto init = (int (*)(const char*, const char*))dlsym(h, "huchost_init");
++    frameFn = (int (*)(u16, const u32**))dlsym(h, "huchost_frame");
++    if(!init || !frameFn || !init(getenv("ARES_HUC_STATE"), getenv("ARES_HUC_TRACK"))) { fprintf(stderr, "huchost: not started\n"); return; }
++    if(auto e = getenv("ARES_HUC_LEAD")) lead = atoi(e);
++    on = true;
++    fprintf(stderr, "huchost: on\n");
++  }
++  //pictures up to `want`: the game run a frame at a time, its entries into the ring (put(local, word))
++  template<typename Put> auto produce(u32 want, Put put) -> void {
++    while(on && pictures < want) {
++      const u32* e = nullptr; int n = frameFn(pad, &e);
++      for(int i = 0; i < n; i++) {
++        u32 l = 0x200000 + (u32)(produced % Ring) * 4, x = e[i];
++        put(l, (u16)((x & 0xff) << 8 | (x >> 8 & 0xff)));          //(little-endian, as the files the PC wrote)
++        put(l + 2, (u16)((x >> 16 & 0xff) << 8 | (x >> 24 & 0xff)));
++        produced++;
++        if((x >> 28) == 5) { pictures++; if(getenv("ARES_HUC_LOG") && pictures % 300 == 0) fprintf(stderr, "huchost: %u pictures, %llu entries, pad %04x\n", pictures, (unsigned long long)produced, (unsigned)pad); }
++      }
++    }
++  }
++  auto write(u32 r, u32 v) -> bool {
++    if(!on) return false;
++    if(r == 0xcd) { padLow = v; return true; }
++    if(r == 0xce) { pad = (u16)(v << 8 | padLow); return true; }
++    return false;
++  }
++};
+-- 
+2.43.0
+
