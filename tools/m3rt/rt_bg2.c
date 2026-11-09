@@ -294,6 +294,8 @@ void bg2_init(Bg2 *b, uint16_t *fb0, uint16_t *fb1)
     for (int g = 0; g < 4; g++) for (int j = 0; j < 16; j++) { b->gcol[g][j] = NONE; b->cram[g][j] = NONE; }
     for (int p = 0; p < 16; p++) b->g[p] = -1;
     b->hs = b->vs = 0xFFFF;
+    b->geom = 0xFFFF;                               /* (docs/41: no size yet - a first MWR of 0 (32 x 32, power-on)
+                                                       must set it too: it left mw 0, a division by 0) */
 }
 void bg2_fill(Bg2 *b, int cur)                     /* a buffer's tables, at the start (both buffers) */
 {

@@ -69,12 +69,22 @@ Presses of RUN (A), then shots (B, C) and moves:
 It all comes at the game's own rate: the SH2 player paces the PC Engine's frames by its clock.
 
 **Seen:**
-- The title's background is a brown tile pattern where the PC Engine shows black.
+- The title's background came out as a brown tile pattern where the PC Engine shows black. **Fixed (§5).**
 - The 2P score shows that a RUN press joined the second player.
+
+## 5. Fixed: the title's background (`tools/m3rt/rt_bg2.c`)
+
+**The cause:** `bg2_init` left the map size (`geom`) at 0. Power-on's first pictures have `MWR` 0 (a 32 x 32 map), so
+the size never counted as new, and the map width stayed 0:
+- `rt_pc`'s picture build stopped with a division by zero (`RUN_BG2` from `sp/pon.bin`);
+- the SH2 divided by 0 without a word, and drew the brown pattern.
+
+No stage window starts with `MWR` 0, so none showed it before.
+
+**The fix:** `geom` starts at `0xFFFF`. The title in ares is now black behind the logo, as on the PC Engine.
 
 ## Next
 
-1. The title's background against the PC's pictures.
-2. Sound: the FIFO's PSG entries (type A), ADPCM and CD audio.
-3. The interpreter's difference from the blocks.
-4. The real FPGA: the CPU's memory and hardware page in RTL (docs/20 §3), and Quartus.
+1. Sound: the FIFO's PSG entries (type A), ADPCM and CD audio.
+2. The interpreter's difference from the blocks.
+3. The real FPGA: the CPU's memory and hardware page in RTL (docs/20 §3), and Quartus.
