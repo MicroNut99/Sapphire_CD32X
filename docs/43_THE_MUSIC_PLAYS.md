@@ -1,5 +1,7 @@
 # 43 - The music plays (9 Nov 2026)
 
+**Correction (docs/45):** "stage 1 played" below was the game with RUN held, not the pad. The music is as stated.
+
 docs/41 found that the music commands worked but the work folder's audio tracks were silent placeholders. The owner
 supplied the disc's audio (`Session 1/Track 01.wav`, `Track 03-16.wav`: 44.1 kHz, 16-bit stereo).
 

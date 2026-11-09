@@ -1,0 +1,44 @@
+From 1831b85d42794b1857d4a791ba1535e3175f5a03 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 13:31:44 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in - the pad register only
+ after the unlock; pad change log (docs/45)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/everdrive-pro.cpp    | 2 +-
+ ares/md/cartridge/board/sapphire-huchost.hpp | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 3959b88..4c60dc2 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -222,7 +222,7 @@ struct EverDrivePro : Interface {
+         u32 off = local - 0x1c0000, r = off >> 1 & 0xff;
+         if(off & 0x20000) {
+           u32 v = off >> 9 & 0xff;
+-          if(huc.write(r, v)) return data;
++          if(cells.live_ && huc.write(r, v)) return data;   //(the pad only after the unlock: a start-up scan of the window wrote it 0-255)
+           if(huc.on && (r == 0xca || r == 0xcb)) {   //(the pictures the SH2 will want: written before the store reads them)
+             u32 at = r == 0xca ? cells.sh2At + (u8)(v - cells.sh2At) : 0;
+             huc.produce(at + huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index 952cfa0..059e699 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -55,8 +55,8 @@ struct SapphireHuc {
+   }
+   auto write(u32 r, u32 v) -> bool {
+     if(!on) return false;
+-    if(r == 0xcd) { padLow = v; return true; }
+-    if(r == 0xce) { pad = (u16)(v << 8 | padLow); return true; }
++    if(r == 0xcd) { padLow = v; if(getenv("ARES_HUC_LOG2")) fprintf(stderr, "huchost: w cd %02x\n", v); return true; }
++    if(r == 0xce) { u16 p = (u16)(v << 8 | padLow); if(p != pad && getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: pad %04x at picture %u\n", p, pictures); pad = p; return true; }
+     return false;
+   }
+ };
+-- 
+2.43.0
+

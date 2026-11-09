@@ -138,6 +138,9 @@ Read `CLAUDE.md` first.
   39. **docs/44, PSG and ADPCM:** `tools/m3rt/pce_sound.c` (in huchost.so; `io_psg_hook`, `rt_io_until`), ares patch
      `fpga/ares/0006` (ring at cart 0x3F0000, reg 0xcc), saspeed `PWM_SOUND=1` (crt0.s `sec_pwm_irq`). Effects heard in
      ares in stage 1; ADPCM at 0.87 against the reference; all together (`BG32=1 PWM_SOUND=1 FIFO_CDDA=1`) plays.
+  40. **docs/45, the pad for real:** docs/40-44's "played" was RUN held (pad never sent; a start-up scan wrote reg
+     0xcd; ares `--press` holds until the next). Fixed: fifo_play sends the pad, ares patch 0007 gates it; release
+     presses with `--press f:`. Stage 1 played in ares.
 
 ## 2. Where things live
 

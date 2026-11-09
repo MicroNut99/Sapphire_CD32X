@@ -859,12 +859,10 @@ static void draw_hook(V32 *v)
         play_pad();
 #endif
 #ifdef SAPPHIRE_PLAY
+#ifndef FIFO_LIVE
         rt_pad_live = (int32_t)sp_pad_mask(cd_pad(0, 0));     /* (docs/36: the pad, at the one moment nothing else is under way) */
-#ifdef FIFO_LIVE
-        { const uint32_t m = (uint32_t)rt_pad_live;            /* (docs/40: to the cart's CPU - the FPGA's pad register, 0xcd/0xce) */
-          (void)*(volatile uint16_t *)(0x22000000u + 0x1C0000u + (0x20000u | (m & 0xFF) << 9 | 0xcdu << 1));
-          (void)*(volatile uint16_t *)(0x22000000u + 0x1C0000u + (0x20000u | (m >> 8 & 0xFF) << 9 | 0xceu << 1)); }
 #endif
+
 #endif
     } else pace_last = gTicks;
 #ifdef BG32
@@ -880,7 +878,11 @@ static void draw_hook(V32 *v)
                 const uint16_t k = (uint16_t)(bg32_black << 8 | bg32_black);   /* (the borders black, over the plane) */
                 for (int y = 0; y < 224; y++) for (int x = 0; x < 16; x++) { FB[0x100 + y * 160 + x] = k; FB[0x100 + y * 160 + 144 + x] = k; }
             }
-            else { memset(bg32_own, 0, sizeof bg32_own); for (int i = 0; i < 160 * 224; i++) FB[0x100 + i] = 0; }
+            else {                                            /* (the buffer as at the start: the picture clear, the borders
+                                                                 the opaque 0x10 they always have - docs/45) */
+                memset(bg32_own, 0, sizeof bg32_own);
+                for (int y = 0; y < 224; y++) for (int k = 0; k < 160; k++) FB[0x100 + y * 160 + k] = (k < 16 || k >= 144) ? 0x1010 : 0;
+            }
             had[tb] = (uint8_t)want;
         }
         bg32_on = want;
@@ -1118,6 +1120,21 @@ static void fifo_play(V32 *v, long frames)
         }
         case 4: v->color[x & 0x1FF] = (uint16_t)d; break;
         case 5:
+#if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY)
+            {   /* (docs/45) the pad to the cart's CPU at each picture (its pad register, 0xcd / 0xce), command 48 sent with
+                   nothing else under way. It was in draw_hook, where the FIFO build never came: the game had no pad */
+                static uint32_t last = 0xFFFFFFFFu;
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+                cdr_busy = 1;
+#endif
+                for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+                const uint32_t m = sp_pad_mask(cd_pad(0, 0));
+#if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
+                cdr_busy = 0;
+#endif
+                if (m != last) { CS_WR(0xcd, m & 0xFF); CS_WR(0xce, (m >> 8) & 0xFF); last = m; }
+            }
+#endif
 #if defined(FIFO_LIVE) && defined(PWM_SOUND)
             if (!pwm_on) {                                    /* (docs/44: the sound on once the ring holds 3,000 samples,
                                                                  played 2,200 behind what was written) */

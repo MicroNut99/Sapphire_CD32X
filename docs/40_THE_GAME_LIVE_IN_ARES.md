@@ -1,5 +1,8 @@
 # 40 - The game live in ares: the cart CPU's stand-in (9 Nov 2026)
 
+**Correction (docs/45):** the pad did not reach the game in these runs. RUN was held from start-up, and the game went
+through its own screens. docs/45 has the fix and a real run with the pad.
+
 Until now, the fast build (the HuC6280 in the cart's FPGA, docs/20-35) could only be shown in ares by playing back a
 FIFO recorded on the PC. That was one window, with no pad. This round gives ares a stand-in for the FPGA's CPU. The
 game runs live from power-on, with the pad, through the SH2's own FIFO player.
