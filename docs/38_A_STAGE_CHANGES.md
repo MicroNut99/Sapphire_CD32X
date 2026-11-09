@@ -34,13 +34,22 @@ cart's PSRAM, and the engine read it only.
 
 `AcEngine.ram_writes` counts these writes, and rt_pc prints the count.
 
-**Not yet changed:** the RTL (`fpga/ac_engine.sv`) and ares's engine (`fpga/ares/0001`).
+**The RTL** (`fpga/ac_engine.sv`): a data port's write drives the PSRAM's write enable for the byte at its place,
+during the CPU's read, as the poke does. The same guards apply: the region here, not bank 31, not the window.
+- `fpga/sim/tb_ac_engine.sv` now holds 4 MB, with the state at cart `0x080000` (`log2txt.py`).
+- It was run on rt_pc's 1,586,486 engine reads of the stage change below (1,155,072 card writes, 203,615 pokes):
+  **0 differ.**
+
+**ares** (`fpga/ares/0004-ares-ace-ram-writes.patch`, branch `sapphire-ac-engine`): the engine writes the card's
+RAM the same way.
 
 ## 3. The regions out of the engine's window (`tools/m3_speedtest.py pack`)
 
 - **The problem:** with all 32 regions packed (2 MB), regions 12-15 fell in cart `0x1C0000-0x1FFFFF`, the engine's
   window. Those 262,144 writes were refused. On the cart, those reads would hit the engine's registers.
 - **The fix:** `AC_REGION_BASE` = the regions' part's place in the state file (a pack without it prints that place).
+  rt_pc's cart now has the state at `0x080000`, as the SH2's does: it was at 0, so the window checks fell in the
+  wrong place.
   A region that would reach into the window then starts at `0x200000`. `AC_STATE_AT` is the state's cart address,
   `0x080000` by default.
 
@@ -71,9 +80,22 @@ The two are equal at all 760 waits.
 (1,398 against 1,399) around the load's CD timing. So a window with a load is checked between our two runtimes, not
 against Mednafen, until the drive's timing over a long load is looked into.
 
-## Next: the stage change on the 32X
+## Next: the whole game on the 32X (docs/03's 14 MB layout, now with the card written)
 
-1. The engine's RAM writes in `ac_engine.sv` and in ares's engine patch.
-2. The cart's map with the whole card. The state with all 32 regions is 3 MB from `0x080000`, which overlaps the
-   CDR ring (`0x140000`) and `KEEP`'s cells (`0x170000`).
-3. `CDR=1`, the stack with `CDRING=1`, and the PC Engine's data track on the disc as `DXTRACK.TRK`.
+The SH2 sees 4 MB, and it is full:
+
+| Cart | What |
+|---|---|
+| `0x000000` | `GAME.32X` |
+| `0x080000` | the state (1.26 MB with a stage's regions) |
+| `0x200000` | the translated blocks, 1.6 MB for one stage's selection, up to `0x3F0000` |
+
+One build for the whole game can't hold every stage's code and the 2 MB card in that space. The plan:
+1. **The card's 2 MB in a page the SH2 never maps** (for example page 6, cart `0xC00000`). Only the engine reads
+   and writes it, by its physical address. The state's regions are loaded there once, and each stage's load writes
+   it through the game's own code.
+2. **Each stage's blocks in its own page of window 1** (pages 1-5), with the shared blocks in page 0. When the
+   game's banks change to another stage's code, the runtime switches the page (command 68).
+3. **`CDR=1`:** the stack with `CDRING=1`, and the PC Engine's data track on the disc as `DXTRACK.TRK`. The CDR
+   ring moves out of the state's way.
+4. **Then the title and power-on:** the System Card's boot from the disc, as recorded in `playL`.

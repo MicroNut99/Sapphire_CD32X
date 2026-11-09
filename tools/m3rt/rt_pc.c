@@ -997,7 +997,7 @@ int main(int argc, char **argv)
 #endif
     banks[0xF8] = malloc(8192); banks[0xF7] = malloc(2048);
 #ifdef RT_AC_FPGA
-    { extern uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob;
+    { extern uint8_t *rt_ace_cart; extern FILE *rt_ace_log; rt_ace_cart = blob - 0x80000;   /* (docs/38: the state at cart 0x080000, as on the SH2 - the engine window's place then right) */
       if (getenv("RUN_ACE_LOG")) rt_ace_log = fopen(getenv("RUN_ACE_LOG"), "wb"); }   /* (docs/10: the engine's cart is the state's bytes) */
 #endif
     if (getenv("RUN_ROHIST")) rt_ro_hist = calloc(256 << 13, 4);

@@ -57,8 +57,11 @@ module ac_engine(
     wire        poke_ok = poke_a[23:19] != 5'd31 && poke_a[23:18] != 6'b000111;   // (not bank 31, not this window)
     assign mem_addr  = poke ? poke_a : ca;
     assign mem_oe    = sel && dport && hit;
-    assign mem_we_hi = poke && poke_ok && !poke_a[0];
-    assign mem_we_lo = poke && poke_ok &&  poke_a[0];
+    // (docs/38) a data port's write: the byte into the cart at its place, during the CPU's read (a stage's load)
+    wire        wport   = sel && wr_op && r < 8'h80 && r[3:1] == 3'd0;
+    wire        wport_ok = hit && ca[23:18] != 6'b000111;                    // (not this window)
+    assign mem_we_hi = (poke && poke_ok && !poke_a[0]) || (wport && wport_ok && !ca[0]);
+    assign mem_we_lo = (poke && poke_ok &&  poke_a[0]) || (wport && wport_ok &&  ca[0]);
     assign mem_di    = {v, v};
     wire  [7:0] mem_byte = ca[0] ? mem_do[7:0] : mem_do[15:8];
 

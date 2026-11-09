@@ -8,7 +8,7 @@ b = open(log, 'rb').read()
 recs = [struct.unpack_from('<IH', b, i) for i in range(0, len(b) - 5, 6)][:n]
 with open(out + '/log.txt', 'w') as f:
     for o, w in recs: f.write('%05x %04x\n' % (o, w))
-s = open(state, 'rb').read()
+s = bytes(0x80000) + open(state, 'rb').read()   # (docs/38: the state at cart 0x080000, as rt_pc and the SH2 have it)
 s += b'\0' * (len(s) & 1)
 with open(out + '/mem.hex', 'w') as f:
     for i in range(0, len(s), 2): f.write('%04x\n' % (s[i] << 8 | s[i + 1]))

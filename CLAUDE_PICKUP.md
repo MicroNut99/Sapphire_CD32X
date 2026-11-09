@@ -112,7 +112,8 @@ Read `CLAUDE.md` first.
   33. **docs/38, a stage change on the PC:** the engine writes the card's RAM (ac_engine_model.c); pack
      `AC_REGION_BASE=<printed offset>` keeps regions out of 0x1C0000-0x1FFFFF; a poked bank's code marked changed (rt.c).
      Window `tr/t12`, `sp/t12.bin` (stage 1 -> 2, 1,700 frames): rt_pc `-DRT_AC_FPGA` (/tmp/rtace3) with RUN_RW=0x69,0x85
-     equal to all-writable. Next: ac_engine.sv + ares engine writes, the cart map, CDR=1 with DXTRACK.TRK.
+     equal to all-writable. ac_engine.sv writes too (tb: 1,586,486 reads, 0 differ); ares fpga/ares/0004. rt_pc's cart:
+     state at 0x080000. Next (docs/38 end): card in an unmapped page, stage blocks per page, CDR=1, power-on.
 
 ## 2. Where things live
 

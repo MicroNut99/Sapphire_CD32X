@@ -1,0 +1,39 @@
+From 457becb8ba27da8a168871c5b0a2b58721b60c00 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 20:49:22 -0800
+Subject: [PATCH] Arcade Card engine: data port writes made into the cart
+ (Sapphire docs/38)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/arcade-card-engine.hpp | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/ares/md/cartridge/board/arcade-card-engine.hpp b/ares/md/cartridge/board/arcade-card-engine.hpp
+index 0ddd30e..57245d6 100644
+--- a/ares/md/cartridge/board/arcade-card-engine.hpp
++++ b/ares/md/cartridge/board/arcade-card-engine.hpp
+@@ -86,7 +86,18 @@ struct ArcadeCardEngine {
+     if(r < 0x80) {
+       auto& p = port[r >> 4 & 3];
+       switch(r & 15) {
+-      case 0x0: case 0x1: step(p); break;  //the card's RAM is read only here
++      case 0x0: case 0x1: {  //(Sapphire docs/38) the card's RAM written into the cart at the byte's place: a stage's load
++        u32 i = index(p);
++        if(unit[i >> 16] != 0xffff) {
++          u32 a = (((u32)unit[i >> 16] << 8) + (i & 0xffff)) & 0xffffff;
++          if(a < 0xf80000 && (a < 0x1c0000 || a >= 0x200000)) {
++            u32 w = (a >> 1) & (words - 1);
++            if(a & 1) ram[w].byte(0) = v; else ram[w].byte(1) = v;
++            poked = a;
++          }
++        }
++        step(p); break;
++      }
+       case 0x2: p.base.byte(0) = v; break;
+       case 0x3: p.base.byte(1) = v; break;
+       case 0x4: p.base.byte(2) = v; break;
+-- 
+2.43.0
+
