@@ -56,12 +56,15 @@ ship. Ours shows black or broken tiles there. The PC's own picture build shows t
 So:
 - **The title is not ares or the music.** "Brown pattern" or "black" only depends on which pictures get drawn.
 - **docs/40 §5's division by zero** was a real fix, but not this.
+- **Measured** (`rt_pc RUN_V32DUMP`, picture 6,850, `MWR` 0, a 32 x 32 map): the visible 32 x 30 entries use 679
+  different tiles and all 16 palettes, which is 256 colours. The Genesis plane has 4 palettes of 16. No tile
+  conversion can fit that.
 - **The background art fails:** the title's background is a whole-screen picture, and `rt_bg2`'s Genesis plane (its
   tiles and 4 palettes of 16 colours) does not show it. The stages' and briefings' backgrounds come out right.
 
 ## Next
 
-1. The title's background picture (§4): how many tiles and colours it takes, and whether such screens should be drawn
-   on the 32X's layer.
+1. Screens like the title (more than 4 background palettes): the background drawn on the 32X's 256-colour layer
+   behind the sprites, and the Genesis plane blanked, chosen picture by picture.
 2. Command 45 from the FIFO, and the sound in ares.
 3. ADPCM and PSG.
