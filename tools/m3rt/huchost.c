@@ -53,6 +53,9 @@ int huchost_init(const char *state, const char *trk)
     if (n > (16 << 20) - 0x80000 || fread(blob, 1, (size_t)n, f) != (size_t)n) { fclose(f); return 0; }
     fclose(f);
     if (!rt_state_load(blob, &st, alloc)) return 0;
+    if (getenv("HUC_CARD") && st.ac_phys[0]) {               /* (a state whose card is in its own file, docs/39) */
+        FILE *g = fopen(getenv("HUC_CARD"), "rb"); if (!g) return 0;
+        if (fread(cart16 + st.ac_phys[0], 1, 32u << 16, g) == 0) { fclose(g); return 0; } fclose(g); }
     static uint8_t *banks[256];
     for (int b = 0x68; b < 0x88; b++) banks[b] = malloc(8192);   /* (every RAM bank writable: the FPGA's PSRAM) */
     banks[0xF8] = malloc(8192); banks[0xF7] = malloc(2048);

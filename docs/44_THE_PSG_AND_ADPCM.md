@@ -24,6 +24,13 @@ the frame's samples.
 - the loudness envelope correlates at 0.43. The runs drift apart: the stand-in has no lives held, the recording does;
 - the PSG's gain is set to the reference's level (0.12).
 
+**Second check, the stage 1 -> 2 window** (`sp/t12k.bin`, the stand-in with `HUC_CARD=` for the card's file; the
+reference's audio over the same 1,699 frames):
+- the loudness envelope correlates at **0.85**;
+- from frame 1,400 on (stage 2's start), both run at about 3,000 RMS: 2,768 / 3,401, 3,099 / 3,282;
+- the stand-in is silent for the first 600 frames, where the reference plays the boss's effects. The state carries no
+  PSG registers, so the stand-in's channels start empty. From power-on this does not happen.
+
 **The ADPCM is barely heard in that stretch:** the game plays three samples in it. Checking it is still to come.
 
 ## 2. Into the cart (`fpga/ares/0006-ares-huchost-sound.patch`)
