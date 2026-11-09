@@ -96,8 +96,8 @@ Read `CLAUDE.md` first.
      frame. 292 pictures, 282 at 2 refreshes (10 slow: the stage's first pictures, one boss). PC reference remade
      (`work/pic_st3_all.bin`; old `.docs32.bin`, `work/rtbg.docs32`). Open: line 0's V scroll late in 3 of 21
      screenshots (the commit vs the raster).
-  29. **docs/34, cellstore.sv:** the store in RTL (cells, tiles, count-following cursor, unlock, held register writes,
-     read port); `fpga/huc/run_eqcells.sh work/fifo_st3.bin work/tr/st3_600/vdc_start.bin 600 2`: equal to cellstore.c
+  29. **docs/34, cellstore.sv:** the store in RTL on a 16-bit memory port (cells, tiles, count-following cursor, unlock,
+     held register writes, the SH2's reads first); `RUN_LAT=<n>` the memory's latency; `fpga/huc/run_eqcells.sh work/fifo_st3.bin work/tr/st3_600/vdc_start.bin 600 2`: equal to cellstore.c
      at every lock (every 1, 2, 3). Next: the PSRAM mapping, the engine window decode, the VDC feeding the cursor.
 
 ## 2. Where things live
