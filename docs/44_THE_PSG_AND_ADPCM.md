@@ -31,7 +31,14 @@ reference's audio over the same 1,699 frames):
 - the stand-in is silent for the first 600 frames, where the reference plays the boss's effects. The state carries no
   PSG registers, so the stand-in's channels start empty. From power-on this does not happen.
 
-**The ADPCM is barely heard in that stretch:** the game plays three samples in it. Checking it is still to come.
+**The ADPCM, fixed:**
+- The drive model's read address moves in jumps: it runs lazily to its next event. Taking "the nibbles passed in the
+  frame" gave 72 frames with all of a voice packed into each.
+- Now a play runs from the address it started at (`hw.addr`), at its own rate (32,087.5 / (16 - freq) nibbles a
+  second), for its length as it started (`hw.length`), while the model says it plays.
+- **Stage 1's start, frames 8,400-9,400**, where the voices are: the loudness envelope correlates at **0.87**. The
+  levels side by side: 1,710 / 2,154, 3,529 / 2,430, 2,854 / 3,103, 95 / 82, 2,227 / 2,464, 0 / 0.
+- Over frames 8,001-12,000 the level is 0.060 RMS against the reference's 0.079.
 
 ## 2. Into the cart (`fpga/ares/0006-ares-huchost-sound.patch`)
 

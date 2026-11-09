@@ -101,8 +101,10 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
     const unsigned a0 = rt.hw.read_addr; const int n0 = rt.hw.nibble, p0 = rt.hw.playing;
     rt_run(&rt, rt.frame + 1, 0);
     cdda_events();
+    static unsigned ad_len; if (!p0 && rt.hw.playing) ad_len = rt.hw.length;   /* (the play's length as it started) */
     /* (docs/44) the frame's sound: the PSG as written, the ADPCM the playback passed over */
-    nsnd = psnd_frame(rt.hw.ram, a0, n0, rt.hw.read_addr, rt.hw.nibble, p0 || rt.hw.playing, snd, SND_RATE, 59.8261);
+    nsnd = psnd_frame(rt.hw.ram, rt.hw.addr, ad_len, rt.hw.freq, p0 || rt.hw.playing, snd, SND_RATE, 59.8261);
+    (void)a0; (void)n0;
     *entries = ents;
     return nents;
 }

@@ -46,6 +46,7 @@ static const int step_tab[49] = { 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45
 static const int adj[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
 static int ad_sig, ad_step;
 static int16_t ad_buf[8192];
+long psnd_nibbles;                                      /* (DIAG: ADPCM nibbles played so far) */
 
 static int adpcm_nib(unsigned n)
 {
@@ -59,22 +60,25 @@ static int adpcm_nib(unsigned n)
     return ad_sig;
 }
 
-int psnd_frame(const uint8_t *adram, unsigned a0, int n0, unsigned a1, int n1, int playing, int16_t *out, int rate, double fps)
+int psnd_frame(const uint8_t *adram, unsigned start, unsigned length, unsigned freq, int playing, int16_t *out, int rate, double fps)
 {
     static double acc; acc += rate / fps; const int ns = (int)acc; acc -= ns;
-    /* the ADPCM nibbles this frame: from (a0, nibble n0) to (a1, n1), 4 = the high one done */
+    /* the ADPCM (docs/44): from the address the play started at, at its own rate (32,087.5 / (16 - freq) nibbles a
+       second), while the drive model says it plays - the model's own read address moves in jumps */
+    static int ad_on; static uint32_t ad_pos, ad_left; static double ad_acc;
     int na = 0;
     if (adram && playing) {
-        unsigned a = a0; int hi = n0 ? 1 : 0;
-        for (int k = 0; k < 4096; k++) {
-            if ((a & 0xFFFF) == (a1 & 0xFFFF) && hi == (n1 ? 1 : 0)) break;
-            const uint8_t b = adram[a & 0xFFFF];
-            ad_buf[na++] = (int16_t)adpcm_nib(hi ? b & 15 : b >> 4);
-            if (hi) a++;
-            hi ^= 1;
+        if (!ad_on) { ad_on = 1; ad_pos = (start & 0xFFFF) * 2; ad_left = (length ? length : 0x10000) * 2u; ad_sig = 0; ad_step = 0; ad_acc = 0; }
+        ad_acc += 32087.5 / (16 - (freq & 15)) / fps; int k = (int)ad_acc; ad_acc -= k;
+        if (k > 4096) k = 4096;
+        if ((uint32_t)k > ad_left) k = (int)ad_left;          /* (the play's length: its end, whatever the model says) */
+        ad_left -= (uint32_t)k;
+        for (; na < k; na++) {
+            const uint8_t b = adram[(ad_pos >> 1) & 0xFFFF];
+            ad_buf[na] = (int16_t)adpcm_nib((ad_pos & 1) ? b & 15 : b >> 4); ad_pos++; psnd_nibbles++;
         }
     }
-    else { ad_sig = ad_sig * 7 / 8; }
+    else { ad_on = 0; ad_sig = ad_sig * 7 / 8; }
     const double mv_l = att(((15 - (mainvol >> 4)) * 3)), mv_r = att(((15 - (mainvol & 15)) * 3));
     int e = 0; const double flen = 21477272.0 / fps;
     for (int i = 0; i < ns; i++) {
