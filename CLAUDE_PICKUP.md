@@ -132,6 +132,9 @@ Read `CLAUDE.md` first.
      loading screen's tiles - with the stack's test track it is clean). Next: why.
   37. **docs/42, the title:** `tools/m3rt/rt_bg32.c`, saspeed `BG32=1` (in EXTRA for `m3_live_run.sh`): a background with
      more than 4 palettes drawn on the 32X layer in the sprite palettes' free entries. The title as the reference's.
+  38. **docs/43, the music:** the owner's `Session 1/Track NN.wav` (uploads), linked as `work/music_cd32x/TrackNN.wav`
+     (n - 1) and in `work/bc3/saspeed/music`; `EXTRA="BG32=1 FIFO_CDDA=1"`: the music in ares through the title and
+     stage 1. Title presses: hold RUN ~30 frames. Next: ADPCM, PSG.
 
 ## 2. Where things live
 
