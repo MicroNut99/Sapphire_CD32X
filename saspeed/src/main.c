@@ -1088,8 +1088,14 @@ static uint8_t base_ram[8192] __attribute__((aligned(16), section(".bss.place_ra
    sectors come 16 at a time (32 KB, a chunk of the track) through the stack's command 91 (CDRING, ledger 29) into a
    ring of CDR_N chunks in the cart, read back past the cache. The disc's file: DXTRACK.TRK, file 102 (game_files.h) */
 #ifdef RT_CD_RING
+#ifdef RT_COMBO
+#define CDR_N 12
+#define CDR_CART 0x160000u                                    /* (docs/39: cart 0x160000-0x1BFFFF - a power-on state, with the
+                                                                 whole game's pad masks, runs to 0x150000) */
+#else
 #define CDR_N 16
 #define CDR_CART 0x140000u                                    /* (cart 0x140000-0x1BFFFF: past LEVEL01's resident slot) */
+#endif
 static uint16_t cdr_tag[CDR_N]; static uint32_t cdr_misses, cdr_fail;
 #endif
 #ifdef RT_POOL                                                 /* (Sapphire docs/09: with or without CDR=1) */
@@ -1268,7 +1274,9 @@ int main(void)
     /* (docs/39) the Arcade Card's 2 MB in a cart page the SH2 never maps (page 6, cart 0xC00000): window 1 shows it while
        its two halves load (LEVEL03.BIN, file 103, at window 1's start; IMAGE24.RAW, file 24, at slot 24 = 1 MB on),
        then window 1 is page 1 again for the blocks. Only the EverDrive's engine reads it, by its physical address */
+#ifndef CARD_NOLOAD
     if (!cart_page(CARD_PAGE) || !cd_load(103) || !cd_load(24) || !cart_page(1)) { cd_status(0x4EE6); while (1) { } }
+#endif                                                        /* (CARD=2: from power-on - the game fills the card itself) */
 #endif
 #ifdef RT_COMBO
     if (!cd_load(21) || !cd_load(201)) { cd_status(0x4EE0); while (1) { } }   /* (docs/39: the shared blocks; the

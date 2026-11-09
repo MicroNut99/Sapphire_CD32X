@@ -4,7 +4,7 @@
 CR=$1; S=$2; K=$3; T=$4; shift 4; W=/home/claude/work; B=$W/bc3/saspeed
 R0=/home/claude/sapphire_cd32x; cp $R0/saspeed/src/* $B/src/; cp $R0/saspeed/Makefile $R0/saspeed/saspeed.ld $R0/saspeed/saspeed_combo.blk $B/; cp $R0/tools/m3rt/* $W/bc3/tools/m3rt/; cp $R0/tools/m2host/*.[ch] $W/bc3/tools/m2host/
 cp $R0/saspeed/game_files.h $W/bc3/stack/subcpu/game_files.h
-ENVS="ACE=1 CARD=$([ "$K" = - ] && echo 0 || echo 1) CDR=1 CDRING=1 COMBO=1 CART=16 M1PAGE=1 EDCD=1 M1WORDS=1 SDRAM_BANKS=${BANKS:-0x69,0x85} MARKS=1 KEYS=$W/rip/none.keys SEED=$W/rip/none.seed SPR=1 CELLS=$W/rip/none.cells MARKSIN=$W/rip/code.marks PACE=1 BG=1 GENPLANE=1 VSPLIT=1 FBVDP=1 $EXTRA"
+ENVS="ACE=1 CARD=$([ "$K" = - ] && echo 2 || echo 1) CDR=1 CDRING=1 COMBO=1 CART=16 M1PAGE=1 EDCD=1 M1WORDS=1 SDRAM_BANKS=${BANKS:-0x69,0x85} MARKS=1 KEYS=$W/rip/none.keys SEED=$W/rip/none.seed SPR=1 CELLS=$W/rip/none.cells MARKSIN=$W/rip/code.marks PACE=1 BG=1 GENPLANE=1 VSPLIT=1 FBVDP=1 $EXTRA"
 ST=$W/combo_files; rm -rf $ST; mkdir -p $ST
 make -C $B clean > /dev/null 2>&1
 for c in $CR/c*; do i=${c##*/c}; rm -f $B/build/blocks_cb.o $B/build/blk_*.o $B/build/hot*.o $B/saspeed.elf

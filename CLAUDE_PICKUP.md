@@ -119,8 +119,9 @@ Read `CLAUDE.md` first.
      103 + IMAGE24 the card, 104+ the combinations); `tools/m3_pagemap.py` (`m3gen3/pagemap_playL.txt`); the blocks in 11
      combinations (`tools/m3_combo.py`, `COMBO=1`, `saspeed_combo.blk`: `work/comboh`, built and put on one disc by
      `tools/m3_combo_build.sh`). Split: `COMBO_SPLIT=work:<12 windows> COMBO_OWN=... SPLIT_ASM=1 SPLIT_MIN=7000
-     SPLIT_MIN_FOR="75,76,77:200"` (docs/39 §4). New windows `tr/c00 c02 c04 c06 c08 c10_600`. ares `ar_cbh`: c02 loaded,
-     boss -> briefing. Next: the window's end (c03), power-on, the FPGA build with combinations.
+     SPLIT_MIN_FOR="75,76,77:200"` (docs/39 §4). New windows `tr/c00 c02 c04 c06 c08 c10_600`. ares `ar_cbh`: c02 then c03
+     loaded, boss -> briefing -> stage 2, hash b2fc64ab = rt_pc's (with the stack page: differs). Power-on state
+     `sp/pon.bin` (CARD=2, CD ring at 0x160000 in COMBO builds). Next: ares's PCE CPU as the FPGA's stand-in (speed).
 
 ## 2. Where things live
 

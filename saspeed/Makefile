@@ -48,6 +48,9 @@ endif
 ifeq ($(CARD),1)
 CCFLAGS += -DCARD_PAGE=6
 endif
+ifeq ($(CARD),2)
+CCFLAGS += -DCARD_PAGE=6 -DCARD_NOLOAD                    # (from power-on: the card's page, nothing loaded into it)
+endif
 # SDRAM_BANKS=0x72,0x6A: those Super RAM banks in SDRAM (src/main.c, docs/38)
 ifneq ($(SDRAM_BANKS),)
 CCFLAGS += -DSDRAM_BANKS=$(SDRAM_BANKS)

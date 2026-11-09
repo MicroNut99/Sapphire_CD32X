@@ -106,17 +106,43 @@ distinct sets over the game. Dropping the subsets and merging neighbours that fi
 - Its hot code (`hot_stage.s`, 66-88 KB) is in the combination's file. `combo_load` copies it to SDRAM `0x06026000`
   (past the bss) and gives the runtime its tables (`rt_hot_tab`, `rt_hot_set`).
 
-## 5. In ares: stage 1's boss into the briefing
+## 5. In ares: stage 1's boss into stage 2
 
-The window `t12k` (14 MB + core, `CARD=1 CDR=1 COMBO=1`):
-- The first frame's end loaded `c02`, the boss's combination (`combo_stat`: 1 load, 0 failed).
-- The boss, the stage clear and the briefing's screens came out as on the PC.
-- Through the briefing the game runs at about one frame a second: the SH2-alone build's speed. The FPGA build is what
-  plays at speed.
+**The window:** `t12k`, 1,700 frames, on the 14 MB cart with the core (`CARD=1 CDR=1 COMBO=1`), with each
+combination's hot code (`ar_cbh`).
+
+**What happened:**
+- The first frame's end loaded `c02`, the boss's combination.
+- Stage 2's load brought in `c03`. `combo_stat` reads 2 loads, 0 failed, current 3.
+- The boss, the stage clear, the briefing, the launch and stage 2 all came out.
+
+**Against the PC:** at frame 1,699 the hash without the stack page is `b2fc64ab`, as `rt_pc`'s. The hash with it
+differs (`89804e55` against `06a1de71`). That is the class of docs/36-37's interrupt-saved bytes, not yet looked into.
+
+**The launch screen between them is broken:** a band at the top, stripes below. That is a picture to check against
+the PC's, like stage 1's warp bands.
+
+**The speed** is the SH2-alone build's: about 3 frames a second on the boss, 1 through the briefing. The FPGA build is
+what plays at speed.
+
+## 6. From power-on (`sp/pon.bin`)
+
+**The window:** `tr/pon` is `playL` from frame 1. It is packed with all 74,999 of the recording's pad masks and an
+empty card. The card is all zeros at frame 1, and the game fills it itself from LBA 7,220.
+
+**On the PC** (`rt_pc`, `RUN_DISC`, 9,000 frames): the System Card boots the disc, the title runs, and stage 1's
+overlays load. Of the blocks it matches, 75_2, 76_2 and 77_0 are `c01`'s.
+
+**On the SH2:**
+- `CARD=2` uses page 6 for the card and loads nothing into it.
+- With the masks, the state reaches cart `0x149600`. So in `COMBO=1` builds the CD ring moves to `0x160000` (12
+  chunks), still below the engine's window.
 
 ## Next
 
-1. The window to its end, in ares: the load of `c03` at stage 2's start, and the hash against the PC's.
-2. Power-on: the state replaced by the System Card's boot from the disc. The card is then filled by the game itself
-   (LBA 7,220), so no card file is needed.
-3. The combinations' files with the FPGA build (FIFO) instead of the SH2 runtime.
+1. The launch screen's picture and the stack page's hash, against the PC.
+2. Power-on in ares (`m3_combo_build.sh comboh sp/pon.bin - ...`). At the SH2-alone build's speed, reaching stage 1
+   takes about an hour of ares time.
+3. The speed that makes it playable is the HuC6280 in the cart's FPGA (docs/20-25). In ares that needs ares's own
+   PCE CPU on the EverDrive board as the FPGA's stand-in, running the game live and writing the FIFO the SH2 plays.
+   The combinations stay the SH2-alone path's: the plain 4 MB EverDrive, and checking.
