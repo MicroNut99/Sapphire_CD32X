@@ -65,7 +65,18 @@ the store takes about 100,000 cycles a frame: 2 ms at 50 MHz, against the frame'
 
 ## Not done yet
 
-- **The PSRAM:** the port on krikzz's `MemBus` for `rom1`, and the arbiter with the console's own reads of that chip
-  (docs/20's rom1 arbiter). The console's read cycle can't wait, so the store must be cut off within it.
+- **The PSRAM and its arbiter.** krikzz's `mem_ctrl` (`lib_base/var.sv`) drives each PSRAM chip
+  combinationally from the console's bus, and his DMA takes the chip over by `dma_req`. There is no arbiter: the
+  memory is asynchronous (`ce = oe | we`), and its timing comes from whoever drives it.
+  - The store would live in `rom1` (8-16 MB). The console reads that chip too: pages 4-6 are stages 3-5, in
+    window 1, and the Arcade Card's regions for those stages are read through the engine.
+  - **So the store's accesses must fit between the console's.** A store access is about 4 clocks at 50 MHz
+    (70 ns PSRAM). A console access starting during one has to wait for it to end: a sync of about 60 ns, the rest
+    of the store's access, then the PSRAM's 70 ns.
+  - That adds up to about 210 ns on a path that is combinational today. Whether the SH2's cart read (9 clocks of
+    23 MHz, about 390 ns) still gets its word in time is docs/10's to-do 2: measured on the console, not in ares.
+  - A store write must never be cut short: the address would change under WE.
+  - The same arbiter is needed for the HuC6280 core's reads (docs/20) and the engine. One design should serve all
+    of them, measured on the console first.
 - **The engine window's decode:** the register writes come from reads at `0x1C0000 + 0x20000 + v << 9 + r << 1`
   (docs/10). Then the HuC6280 core's VDC feeds the cursor, in place of the recorded FIFO.
