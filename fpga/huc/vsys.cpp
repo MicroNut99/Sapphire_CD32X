@@ -10,6 +10,14 @@
 #include "VHUC6280_CPU.h"
 #include "Vvdc_timing.h"
 #include "Vvdc_timing___024root.h"
+#ifdef HWRTL
+#include "Vhuc_sys.h"
+#include "Vhuc_sys___024root.h"
+#include "Vadpcm.h"
+#include "Vadpcm___024root.h"
+#include <mednafen/mednafen.h>
+#include <mednafen/sound/okiadpcm.h>
+#endif
 extern "C" {
 #include "vdc_model.h"
 int tb_init(int); int tb_rd(int); int tb_wr(int, int);
@@ -59,6 +67,59 @@ static long st_reads, st_bad, ws_waits, ws_steps;
 #ifdef SYSRUN
 extern "C" int sys_irq1(void) { return v->irq; }
 #endif
+#ifdef HWRTL
+// (docs/47) huc_sys.sv: an access is one clock - its byte and decode before the edge, its effects at it
+static Vhuc_sys *hs;
+#define HS(x) (hs->rootp->huc_sys__DOT__##x)
+extern "C" void sys_hr_start(void);
+extern "C" int hr_access(int wr, unsigned pa, unsigned d, int blk, unsigned buttons, int multitap, int irq2, unsigned *out, unsigned *ma, unsigned *col) {
+    hs->acc = 1; hs->wr = wr; hs->pa = pa; hs->din = d & 0xFF; hs->blk = blk; hs->buttons = buttons & 0xFF; hs->multitap = multitap;
+    hs->irq1_line = v->irq; hs->irq2_line = irq2; hs->clk = 0; hs->eval();
+    *out = hs->dout; *ma = hs->mem_addr; *col = (unsigned)hs->col_ix << 16 | hs->col_v;
+    const int f = hs->int_rd | hs->mem_sel << 1 | hs->mem_ro << 2 | hs->vdc_sel << 3 | hs->cd_sel << 4 | hs->ac_sel << 5 | hs->col_we << 6;
+    hs->clk = 1; hs->eval(); hs->acc = 0; hs->clk = 0; hs->eval();
+    if (getenv("HR_DBG") && (pa & 0x1FFF) >= 0x400 && (pa & 0x1FFF) < 0x800) { static int k; if (k++ < 12) fprintf(stderr, "hr: %c %06X %02X f %x ct %03X c1 %03X\n", wr ? 'w' : 'r', pa, d, f, (unsigned)HS(ctaddress), (unsigned)HS(color)[1]); }
+    return f;
+}
+extern "C" void hr_init(unsigned io_bus, unsigned irq_mask, int sel, int clr, unsigned read_index, unsigned ctaddress, unsigned vce_cr, const uint16_t *color) {
+    hs->acc = 0; hs->clk = 0; hs->eval();   // (the first eval settles the model: the state after it)
+    HS(io_bus) = io_bus; HS(irq_mask) = irq_mask & 7; HS(sel) = sel; HS(clr) = clr; HS(read_index) = read_index & 0xFF;
+    HS(ctaddress) = ctaddress & 0x1FF; (void)vce_cr;   /* (vce_cr: vdc_timing.sv's, from the same writes) */ for (int i = 0; i < 512; i++) HS(color)[i] = color[i] & 0x1FF;
+    HS(t_on) = 0; HS(t_pend) = 0; hs->eval();
+}
+extern "C" int hr_mask(void) { return HS(irq_mask); }
+// (docs/47) adpcm.sv beside io_model.c's ADPCM: stepped to the CPU's time at each CD-unit access, its decoder against
+// Mednafen's own (okiadpcm.h's MSM5205 decoder, fed the nibbles the RTL decoded)
+static Vadpcm *ad; static int64_t ad_t; static OKIADPCM_Decoder<OKIADPCM_MSM5205> oki; static const uint8_t *ad_ram;
+long ad_steps, ad_decoded, ad_dbad;
+#define AD(x) (ad->rootp->adpcm__DOT__##x)
+extern "C" void hr_ad_init(const uint8_t *ram, int64_t acc, int64_t bigdiv, unsigned addr, unsigned ra, unsigned len, unsigned cmd, unsigned freq,
+                           int playing, int half, int end, int nibble, int64_t t) {
+    ad = new Vadpcm; ad_ram = ram; ad->clk = 0; ad->tick = 0; ad->we = 0; ad->wr_done = 0; ad->rd_done = 0; ad->eval();
+    ad->bigdivacc = (uint64_t)acc; AD(bigdiv) = (uint64_t)bigdiv & 0xFFFFFFFFFFFFull; AD(addr) = addr; AD(read_addr) = ra; AD(length) = len;
+    AD(last_cmd) = cmd; AD(freq) = freq; AD(playing) = playing; AD(half) = half; AD(endr) = end; AD(nibble) = nibble != 0;
+    AD(cur) = 0x800; AD(ssi) = 0; ad->eval(); ad_t = t;
+}
+static void ad_clock() {
+    ad->ram_d = ad_ram ? ad_ram[ad->ram_a] : 0; ad->clk = 1; ad->eval(); ad->clk = 0; ad->eval();
+    ad->tick = 0; ad->we = 0; ad->wr_done = 0; ad->rd_done = 0;
+    if (ad->dec_reset) { oki.SetSample(0x800); oki.SetSSI(0); }
+    if (ad->decoded) { ad_decoded++; const unsigned s = oki.Decode(ad->nib); if ((s != AD(cur) || oki.GetSSI() != AD(ssi)) && ad_dbad++ < 8)
+        fprintf(stderr, "adpcm: decoder Mednafen %03X/%d, RTL %03X/%d\n", s, oki.GetSSI(), (unsigned)AD(cur), (unsigned)AD(ssi)); }
+}
+extern "C" void hr_ad_step(int64_t now, int wr_done_n, int rd_done) {
+    if (rd_done) { ad->rd_done = 1; ad_clock(); }
+    while (wr_done_n-- > 0) { ad->wr_done = 1; ad_clock(); }
+    while (ad_t < now) { const int64_t k = now - ad_t < 600 ? now - ad_t : 600; ad->tick = 1; ad->n = (unsigned)k; ad_clock(); ad_t += k; ad_steps++; }
+}
+extern "C" void hr_ad_write(unsigned a, unsigned v) { ad->we = 1; ad->a = a & 0xF; ad->v = v & 0xFF; ad_clock(); }
+extern "C" void hr_ad_get(int64_t *bigdiv, unsigned *st) {
+    *bigdiv = ((int64_t)(AD(bigdiv) << 16)) >> 16;
+    st[0] = AD(addr); st[1] = AD(read_addr); st[2] = AD(length); st[3] = AD(last_cmd); st[4] = AD(freq);
+    st[5] = AD(playing); st[6] = AD(half); st[7] = AD(endr); st[8] = AD(nibble) ? 4 : 0;
+}
+extern "C" void hr_colors(uint16_t *c) { for (int i = 0; i < 512; i++) c[i] = HS(color)[i]; }
+#endif
 int main() {
     const char *d = getenv("TB_DIR");
     tb_init(0);
@@ -80,6 +141,9 @@ int main() {
     sys_vdc_start(&cm);
 #endif
     v = new Vvdc_timing; rtl_from_c(cm); v->ce = 1; v->clk = 0; v->eval();
+#ifdef HWRTL
+    hs = new Vhuc_sys; sys_hr_start();
+#endif
     VHUC6280_CPU *c = new VHUC6280_CPU;
     int ce = 0, rdy = 1, cnt = 0, sel_old = 0, di = 0xEA, irq = 0, par = -1; long cyc6 = 0;
     int64_t stall_end = -1; int32_t ws_counter = 0; int last_sl = R(scanline_r);

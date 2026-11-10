@@ -24,7 +24,13 @@
 typedef struct { uint16_t pc; uint8_t a, x, y, s, p, irq; uint8_t mpr[8]; uint32_t ts; uint8_t speed, pad[3]; } Ins;
 #pragma pack(pop)
 
-static uint8_t base_[8192], cdram[65536], sup[196608], bram[2048], rom[262144];
+/* (docs/47) one flat memory, huc_sys.sv's layout: with HWRTL the RTL's addresses index it, the arrays are its parts */
+static uint8_t mem[1 << 20];
+#define rom   (mem)
+#define sup   (mem + 0x40000)
+#define cdram (mem + 0x70000)
+#define base_ (mem + 0x80000)
+#define bram  (mem + 0x82000)
 static const char *dir; static Ins *ins;
 static ArcadeCard ac; static uint8_t *acram; static Hw hw; static Vdc vv;   /* (vv: the colours, VRAM, the sprite table) */
 static uint16_t *inp; static long ninp, frame, frames_max;
@@ -88,6 +94,72 @@ static uint8_t *ram_at(uint32_t pa, int *w)
     return 0;
 }
 
+#ifdef HWRTL
+/* (docs/47) huc_sys.sv (vsys.cpp's Verilated copy): the decode, memory addresses, the VCE, the pad, the interrupt
+   controller and the bus. io_model.c runs beside it for the CD unit, and its answers for the pad, the interrupt
+   controller and the PSG's bus are compared with the RTL's (hr_bad) */
+int hr_access(int wr, unsigned pa, unsigned d, int blk, unsigned buttons, int multitap, int irq2, unsigned *out, unsigned *ma, unsigned *col);
+void hr_init(unsigned io_bus, unsigned irq_mask, int sel, int clr, unsigned read_index, unsigned ctaddress, unsigned vce_cr, const uint16_t *color);
+int hr_mask(void); void hr_colors(uint16_t *c);
+long hr_reads, hr_bad, hr_mem; int sys_irq_mask(void);
+static int irq2_line(void) { return (hw.port[2] & hw.port[3] & 0x7C) != 0; }
+void hr_ad_init(const uint8_t *ram, int64_t acc, int64_t bigdiv, unsigned addr, unsigned ra, unsigned len, unsigned cmd, unsigned freq, int playing, int half, int end, int nibble, int64_t t);
+void hr_ad_step(int64_t now, int wr_done_n, int rd_done); void hr_ad_write(unsigned a, unsigned v); void hr_ad_get(int64_t *bigdiv, unsigned *st);
+static uint16_t ad_wa; static int32_t ad_rp; long ad_cmp, ad_bad;
+static void ad_sync(const char *where)                     /* (adpcm.sv to io_model.c's time, then the two compared) */
+{
+    hr_ad_step(hw.now, (uint16_t)(hw.write_addr - ad_wa), ad_rp > 0 && hw.read_pending <= 0); ad_wa = hw.write_addr; ad_rp = hw.read_pending;
+    int64_t bd; unsigned st[9]; hr_ad_get(&bd, st); ad_cmp++;
+    const unsigned c[9] = { hw.addr, hw.read_addr, hw.length, hw.last_cmd, hw.freq, (unsigned)hw.playing, (unsigned)hw.half, (unsigned)hw.end, (unsigned)hw.nibble };
+    int ok = bd == hw.bigdiv; for (int i = 0; i < 9; i++) ok &= st[i] == c[i];
+    if (!ok && ad_bad++ < 8) fprintf(stderr, "adpcm (%s, frame %ld): RTL addr %04X rd %04X len %04X cmd %02X f %u play %u half %u end %u nib %u div %lld | C %04X %04X %04X %02X %u %u %u %u %u %lld\n",
+        where, frame, st[0], st[1], st[2], st[3], st[4], st[5], st[6], st[7], st[8], (long long)bd, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], (long long)hw.bigdiv);
+}
+void sys_hr_start(void) {
+    hr_ad_init(hw.ram, hw.bigdivacc, hw.bigdiv, hw.addr, hw.read_addr, hw.length, hw.last_cmd, hw.freq, hw.playing, hw.half, hw.end, hw.nibble, hw.now); ad_wa = hw.write_addr; ad_rp = hw.read_pending; if (getenv("HR_DBG")) fprintf(stderr, "hr: start colour 1 %03X, 0x171 %03X\n", vv.color[1], vv.color[0x171]); hr_init(hw.io_bus, hw.irq_mask, hw.sel, hw.clr, (unsigned)hw.read_index, vv.ctaddress, vv.vce_cr, vv.color); }
+static uint8_t c_read(unsigned pa);
+static void c_write(unsigned pa, uint8_t v);
+int tb_rd(int pa)
+{
+    const unsigned o = (unsigned)pa & 0x1FFF;
+    if (stub_on) return c_read((unsigned)pa);
+    io_run(&hw, sys_now);
+    unsigned d, ma, col;
+    const int f = hr_access(0, (unsigned)pa, 0, cur_blk, hw.buttons, hw.multitap, irq2_line(), &d, &ma, &col);
+    if (f & 2) { hr_mem++; return mem[ma]; }
+    if (f & 1) {
+        if (!(o >= 0x400 && o < 0x800) && (o & 0x1C00) != 0x0C00) {      /* (the C model's answer beside it: not the VCE's, the timer's) */
+            const uint8_t m = c_read((unsigned)pa); hr_reads++;
+            if (m != (uint8_t)d && hr_bad++ < 8) fprintf(stderr, "hwrtl: read %04X: RTL %02X, C %02X, frame %ld\n", o, d, m, frame);
+        }
+        return (int)d;
+    }
+    if (f & 0x10) { ad_sync("read"); const uint8_t m = c_read((unsigned)pa); ad_rp = hw.read_pending; return m; }     /* (the CD unit: C, adpcm.sv beside it) */
+    if (f & 0x20) return c_read((unsigned)pa);                           /* (the card: C) */
+    return 0xFF;
+}
+int tb_wr(int pa, int v)
+{
+    const unsigned o = (unsigned)pa & 0x1FFF;
+    if (stub_on) { c_write((unsigned)pa, (uint8_t)v); return 0; }
+    io_run(&hw, sys_now);
+    unsigned d, ma, col;
+    const int f = hr_access(1, (unsigned)pa, (unsigned)v, cur_blk, hw.buttons, hw.multitap, irq2_line(), &d, &ma, &col);
+    if (f & 2) { if (!(f & 4)) mem[ma] = (uint8_t)v; hr_mem++; return 0; }
+    if (f & 0x40) sys_fifo(4, col >> 16, col & 0x1FF);                  /* (a colour, from the RTL) */
+    if (o >= 0x400 && o < 0x800) return 0;                               /* (the VCE: the RTL's alone) */
+    if (f & 0x10) {                                                      /* (the CD unit: C; its ADPCM registers also adpcm.sv's) */
+        ad_sync("write"); c_write((unsigned)pa, (uint8_t)v);
+        const unsigned r = o & 0xF; if (r == 8 || r == 9 || r == 0xD || r == 0xE) hr_ad_write(r, (unsigned)v);
+        ad_wa = hw.write_addr; ad_rp = hw.read_pending; ad_sync("after");
+        return 0;
+    }
+    if (f & (1 | 0x20)) c_write((unsigned)pa, (uint8_t)v);              /* (the C model beside it; the card) */
+    return 0;
+}
+#define tb_rd c_read_
+#define tb_wr c_write_
+#endif
 /* the hardware page, but the VDC (vsys.cpp's): VCE, PSG, timer, pad, interrupt controller, CD unit, the card */
 int tb_rd(int pa)
 {
@@ -129,6 +201,11 @@ int tb_wr(int pa, int v)
             return 0;
         }
         if (o >= 0x800 && o < 0xC00) sys_fifo(0xA, o & 0xF, (uint8_t)v);         /* (the PSG's, for the sound) */
+        if (o >= 0x800 && o < 0xC00 && getenv("TB_PSGLOG")) {                 /* (docs/47: psg.sv's check, eq_psg.cpp) */
+            static FILE *pl; if (!pl) pl = fopen(getenv("TB_PSGLOG"), "wb");
+            const uint32_t ts = (uint32_t)(sys_now / 3); const uint8_t rv[2] = { (uint8_t)(o & 0xF), (uint8_t)v };
+            fwrite(&ts, 4, 1, pl); fwrite(rv, 1, 2, pl); fflush(pl);
+        }
         if ((o & 0x1E00) == 0x1A00) { ac_write(&ac, o, (uint8_t)v); return 0; }
         io_run(&hw, sys_now);
         if (!io_write(&hw, o, (uint8_t)v)) fprintf(stderr, "sys: a write of %04X = %02X the models don't cover (%s), frame %ld\n", o, v, hw.why ? hw.why : "-", frame);
@@ -139,6 +216,12 @@ int tb_wr(int pa, int v)
     if (p && w) *p = (uint8_t)v;
     return 0;
 }
+#ifdef HWRTL
+#undef tb_rd
+#undef tb_wr
+static uint8_t c_read(unsigned pa) { return (uint8_t)c_read_((int)pa); }
+static void c_write(unsigned pa, uint8_t v) { c_write_((int)pa, v); }
+#endif
 
 static void frame_end_now(void); static int frame_due;
 /* an instruction's start: the block moves' flag for io_read; the interrupt lines (IRQ2: io_model's; IRQ1: vsys's) */
@@ -155,9 +238,13 @@ int tb_ins(int pc, int a, int x, int y, int s, int p, int m0, int m1, int m2, in
     const uint8_t o = op ? *op : 0;
     cur_blk = o == 0x73 || o == 0xC3 || o == 0xD3 || o == 0xE3 || o == 0xF3;
     io_run(&hw, sys_now);
-    return (hw.irq_mask & 1) && io_irq2_at(&hw, sys_now) ? 1 : 0;
+    return (sys_irq_mask() & 1) && io_irq2_at(&hw, sys_now) ? 1 : 0;
 }
+#ifdef HWRTL
+int sys_irq_mask(void) { return hr_mask(); }
+#else
 int sys_irq_mask(void) { return hw.irq_mask; }
+#endif
 
 void sys_vram(unsigned a, unsigned w) { if (a < 0x8000) vv.vram[a] = (uint16_t)w; if (getenv("TB_SATLOG") && frame < 2 && a >= 0x7F00 && a < 0x7F04) fprintf(stderr, "  t %lld frame %ld VRAM %04X = %04X\n", (long long)sys_now, frame, a, w); }
 void sys_sat_copy(unsigned dvssr)
@@ -193,6 +280,10 @@ int sys_frame_end(void) { frame_due = 1; return 0; }
 static void frame_end_now(void)
 {
     unsigned char md[16]; unsigned len;
+#ifdef HWRTL
+    io_run(&hw, sys_now); ad_sync("frame");
+    hr_colors(vv.color);                                     /* (the colours are the RTL's) */
+#endif
     EVP_MD_CTX *xx = EVP_MD_CTX_new(); EVP_DigestInit_ex(xx, EVP_md5(), 0);
     EVP_DigestUpdate(xx, base_, 8192); EVP_DigestUpdate(xx, cdram, 65536); EVP_DigestUpdate(xx, sup, 196608); EVP_DigestUpdate(xx, acram, 0x200000);
     EVP_DigestUpdate(xx, vv.vram, sizeof vv.vram); EVP_DigestUpdate(xx, vv.sat, sizeof vv.sat); EVP_DigestUpdate(xx, vv.color, sizeof vv.color);
@@ -212,6 +303,13 @@ static void frame_end_now(void)
     const uint32_t *ae = load("ac_end.bin", &n); if (ae) bad |= cmp("card RAM", acram, ae + 19, 0x200000);
     const uint16_t *ve = load("vdc_end.bin", &n);
     if (ve) { bad |= cmp("VRAM", vv.vram, ve, 65536 * 2); bad |= cmp("sprite table", vv.sat, ve + 65536, 512); bad |= cmp("colours", vv.color, ve + 65536 + 256, 1024); }
+#ifdef HWRTL
+    printf("  hwrtl: %ld memory accesses through huc_sys.sv; %ld hardware-page reads against io_model.c, %ld differ\n", hr_mem, hr_reads, hr_bad);
+    { extern long ad_steps, ad_decoded, ad_dbad;
+      printf("  adpcm.sv: %ld comparisons with io_model.c, %ld differ; %ld nibbles decoded against Mednafen's decoder, %ld differ\n", ad_cmp, ad_bad, ad_decoded, ad_dbad);
+      bad |= ad_bad != 0 || ad_dbad != 0; }
+    bad |= hr_bad != 0;
+#endif
     if (fifo_f) { fclose(fifo_f); printf("  FIFO: %ld entries, %.0f a frame\n", fifo_n, fifo_n / (double)frame); }
     exit(bad ? 1 : 0);
 }

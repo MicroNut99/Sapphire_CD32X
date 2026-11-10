@@ -144,6 +144,10 @@ Read `CLAUDE.md` first.
   41. **docs/46, the title clean:** ares patch 0008 (pictures only after the unlock; DIAG `ARES_HUC_VCHECK=1`, the
      store's VRAM against the stand-in's), huchost's first picture sends everything, saspeed's picture number off in
      `SPLAY=1` (`PICNUM=1` keeps it). The System Card screen and the intro as the reference in ares.
+  42. **docs/47, the hardware page in RTL:** `fpga/huc/huc_sys.sv` (memory decode, VCE, pad, IRQ controller, bus,
+     timer), `psg.sv`, `adpcm.sv`. `HWRTL=1 fpga/huc/run_vsys.sh work/tr/st5_600 600` (stages 1/3/5 as docs/23, 0
+     reads differ, ADPCM 0 differ, decoder vs Mednafen's 0); `fpga/huc/run_eqpsg.sh <log>` (vrtl `TB_PSGLOG=`, or
+     `tools/m3_psgsyn.py`) vs Mednafen's PCE_PSG: 0. Next: the CD unit, the ares board on the RTL, Quartus.
 
 ## 2. Where things live
 
