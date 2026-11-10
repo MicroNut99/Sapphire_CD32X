@@ -148,6 +148,10 @@ Read `CLAUDE.md` first.
      timer), `psg.sv`, `adpcm.sv`. `HWRTL=1 fpga/huc/run_vsys.sh work/tr/st5_600 600` (stages 1/3/5 as docs/23, 0
      reads differ, ADPCM 0 differ, decoder vs Mednafen's 0); `fpga/huc/run_eqpsg.sh <log>` (vrtl `TB_PSGLOG=`, or
      `tools/m3_psgsyn.py`) vs Mednafen's PCE_PSG: 0. Next: the CD unit, the ares board on the RTL, Quartus.
+  43. **docs/48 (under way), a whole stage against the reference:** `tools/m3_stageref.py` (reference pictures and
+     sound from `playL`), huchost `HUC_MASKS`/`HUC_POKES` (the recording in ares), ares 0009 `ARES_HUC_WAV`,
+     `tools/m3_stagecmp.py`. Found: the live build shows ~20-29 pictures a second (game slowed). Paused with
+     `work/ar_s1L` (40,000 frames) and `work/stage1fx` not yet compared.
 
 ## 2. Where things live
 

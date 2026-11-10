@@ -1,0 +1,30 @@
+From a7d01d8c54a10c1bd81ecc469d9a5504dd4713f0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 16:33:34 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in - DIAG ARES_HUC_WAV,
+ its sound in the game's time (docs/48)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/sapphire-huchost.hpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index be1fcda..d44be4a 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -42,6 +42,10 @@ struct SapphireHuc {
+       const u32* e = nullptr; int n = frameFn(pad, &e);
+       if(audioFn) {   //(docs/44) the frame's sound as the PWM's pulse widths, 1..cycle-1 about the middle
+         const s16* a = nullptr; int na = audioFn(&a);
++        if(auto w = getenv("ARES_HUC_WAV")) {   //DIAG (docs/48): the stand-in's sound in the game's time - raw s16, 22,044 Hz, and its count a frame (<w>.n, u16)
++          static FILE *f, *fn; if(!f) { f = fopen(w, "wb"); string nn = {w, ".n"}; fn = fopen(nn, "wb"); }
++          if(f) { fwrite(a, 2, na, f); u16 k = na; fwrite(&k, 2, 1, fn); }
++        }
+         for(int i = 0; i < na; i++) {
+           s32 w = PwmCycle / 2 + (s32)a[i] * (s32)(PwmCycle / 2 - 2) / 32768;
+           put(0x3f0000 + (samples & 0x7fff) * 2, (u16)w);
+-- 
+2.43.0
+

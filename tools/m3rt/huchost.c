@@ -25,7 +25,13 @@ const BlockDef blocks[] = { { 0, NULL, NULL, NULL, NULL } };   /* (no translated
                                                                    equal to the blocks from power-on: docs/40) */
 #endif
 
-static Rt rt; static RtState st; static uint8_t *cart16; static FILE *track;
+static Rt rt; static RtState st;
+/* (docs/48) a recorded game: HUC_MASKS=<u16 a frame, from the state's frame> instead of the board's pad, and
+   HUC_POKES=<u32 frame, u32 address, u32 value> the recording's RAM writes, each before its frame (tools/m0_replay.py:
+   below 0x2000 base RAM, from 0x2000 CD RAM) */
+static uint8_t **huc_banks; static uint16_t *rec_masks; static long rec_n, rec_k; static uint32_t (*rec_pokes)[3]; static long rec_np;
+static void *slurp(const char *p, long *n) { FILE *f = fopen(p, "rb"); if (!f) return 0; fseek(f, 0, SEEK_END); *n = ftell(f);
+    fseek(f, 0, SEEK_SET); void *m = malloc(*n ? *n : 1); if (fread(m, 1, *n, f) != (size_t)*n) { fclose(f); return 0; } fclose(f); return m; } static uint8_t *cart16; static FILE *track;
 static int16_t snd[2048]; static int nsnd;
 #define SND_RATE 22044                                      /* (the 32X's PWM: 23.01 MHz / 1,044) */
 static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 << 18;
@@ -58,7 +64,7 @@ int huchost_init(const char *state, const char *trk)
     if (getenv("HUC_CARD") && st.ac_phys[0]) {               /* (a state whose card is in its own file, docs/39) */
         FILE *g = fopen(getenv("HUC_CARD"), "rb"); if (!g) return 0;
         if (fread(cart16 + st.ac_phys[0], 1, 32u << 16, g) == 0) { fclose(g); return 0; } fclose(g); }
-    static uint8_t *banks[256];
+    static uint8_t *banks_[256]; uint8_t **banks = banks_; huc_banks = banks_;
     for (int b = 0x68; b < 0x88; b++) banks[b] = malloc(8192);   /* (every RAM bank writable: the FPGA's PSRAM) */
     banks[0xF8] = malloc(8192); banks[0xF7] = malloc(2048);
     extern uint8_t *rt_ace_cart; rt_ace_cart = cart16;
@@ -75,6 +81,9 @@ int huchost_init(const char *state, const char *trk)
        (rt_pc RUN_FIFO_OUT, fifo_synth's start): a shadow seeded from the state or the runtime left words, then the
        colours, unsent, and the player and cell store kept their own - the title's white blocks and white text) */
     memset(&shadow, 0, sizeof shadow);
+    if (getenv("HUC_MASKS")) { long n; rec_masks = slurp(getenv("HUC_MASKS"), &n); rec_n = n / 2; }
+    if (getenv("HUC_POKES")) { long n; rec_pokes = slurp(getenv("HUC_POKES"), &n); rec_np = n / 12; }
+    if (rec_masks) fprintf(stderr, "huchost: the recording's pad (%ld frames), %ld pokes\n", rec_n, rec_np);
     rt_draw_hook = draw;
     io_psg_hook = psnd_write;
     return 1;
@@ -99,6 +108,15 @@ static void cdda_events(void)
 
 int huchost_frame(uint16_t pad, const uint32_t **entries)
 {
+    if (rec_masks) {                                          /* (docs/48: the recording, not the board's pad) */
+        pad = rec_k < rec_n ? rec_masks[rec_k] : 0;
+        for (long i = 0; i < rec_np; i++) if (rec_pokes[i][0] == (uint32_t)rec_k) {
+            const uint32_t a = rec_pokes[i][1];
+            if (a < 0x2000) huc_banks[0xF8][a] = (uint8_t)rec_pokes[i][2];
+            else if (a - 0x2000 < 0x10000) huc_banks[0x80 + ((a - 0x2000) >> 13)][(a - 0x2000) & 0x1FFF] = (uint8_t)rec_pokes[i][2];
+        }
+        rec_k++;
+    }
     rt_pad_live = pad;
     nents = 0;
     const unsigned a0 = rt.hw.read_addr; const int n0 = rt.hw.nibble, p0 = rt.hw.playing;
