@@ -95,6 +95,7 @@ static volatile uint32_t sec_vs_, sec_vsdone_;
 static void vsplit_send(void);
 static Bg2 bg2;
 static volatile uint32_t wdt_vbl; static uint32_t lists_now;
+uint32_t bg32_direct;                                         /* (DIAG: pictures swapped by the SH2 itself, docs/58) */
 static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
 #define vs_job SH(vs_job_v)
 #define lst_ready SH(lst_ready_v)
@@ -644,6 +645,9 @@ static void pace_vbi(void)
 static uint16_t bg32_cram[256]; static uint8_t bg32_own[256]; static int bg32_on;   /* (docs/42) */
 int bg32_cols;                                                /* (docs/58: the last counted window's colours) */
 uint32_t bg2_fpga_tile(unsigned t);
+#if defined(BG32) && defined(BG2_FPGA_TILES)
+static uint16_t bg32_fpga_key(unsigned t) { return (uint16_t)(bg2_fpga_tile(t) >> 16); }
+#endif
 #if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
 static int opt_exact;                                         /* (docs/58: the menu's EXACT COLOURS, below) */
 #endif
@@ -868,6 +872,30 @@ static uint32_t sp_pad_mask(uint16_t p)
     return m;
 }
 #endif
+#if defined(BG32) && defined(BG2_DRAW) && !defined(BG32_ALWAYS) && defined(BG2_FPGA_TILES)
+/* (docs/58) Can the window's palettes go into the plane's 4 palettes of 15 colours, a PC Engine palette's colours
+   together? used: the indices each palette shows; id: each colour's number (1 up, 60 at most). Greedy - the biggest
+   first, into the palette where it adds fewest. On the PC (work/packfit.py, stage 1's first 3,100 frames: 28 of 78
+   pictures can pack at all) it agreed with a full search on every picture */
+static int popc32(uint32_t x) { x = x - ((x >> 1) & 0x55555555u); x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u); x = (x + (x >> 4)) & 0x0F0F0F0Fu; x += x >> 8; return (int)((x + (x >> 16)) & 0x3F); }
+static int pack_fits(const V32 *v, const uint16_t used[16], const uint8_t id[512])
+{
+    uint32_t m[16][2]; int n[16], ord[16], np = 0;
+    for (int p = 0; p < 16; p++) {
+        m[p][0] = m[p][1] = 0; if (!(used[p] & 0xFFFE)) continue;
+        for (int i = 1; i < 16; i++) if (used[p] >> i & 1) { const unsigned k = id[v->color[p * 16 + i] & 0x1FF] - 1u; m[p][k >> 5 & 1] |= 1u << (k & 31); }
+        n[p] = popc32(m[p][0]) + popc32(m[p][1]);
+        int at = np++; while (at > 0 && n[ord[at - 1]] < n[p]) { ord[at] = ord[at - 1]; at--; } ord[at] = p;
+    }
+    uint32_t b[4][2] = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }; int bc[4] = { 0, 0, 0, 0 };
+    for (int o = 0; o < np; o++) { const int p = ord[o]; int best = -1, bn = 99, bt = 0;
+        for (int q = 0; q < 4; q++) { const int tot = popc32(b[q][0] | m[p][0]) + popc32(b[q][1] | m[p][1]);
+            if (tot <= 15 && tot - bc[q] < bn) { bn = tot - bc[q]; best = q; bt = tot; } }
+        if (best < 0) return 0;
+        b[best][0] |= m[p][0]; b[best][1] |= m[p][1]; bc[best] = bt; }
+    return 1;
+}
+#endif
 static void draw_hook(V32 *v)
 {
 #ifdef SEC_TIMES
@@ -931,7 +959,7 @@ static void draw_hook(V32 *v)
            intro's 71: always the 32X layer, as before, whatever the pack said of the picture before. The count: the
            window's tiles' colour masks, which the FPGA keeps (docs/31), a long a tile. (The secondary SH2's crash at the
            title with this rule was rt_bg2.c's colours(): 64-entry arrays overrun in a fade - mended there) */
-        static int fit_n; static uint16_t bg32_used[16];
+        static int fit_n; static uint16_t bg32_used[16]; int fits = 0;
         if (bg2.col_ok && !bg2.late) { if (fit_n < 4) fit_n++; } else if (!bg2.col_ok) fit_n = 0;   /* (docs/58: and the plane whole) */
         int want = bg32_wanted(v);
         if (want) {
@@ -944,7 +972,8 @@ static void draw_hook(V32 *v)
                 used[e >> 12] |= (uint16_t)bg2_fpga_tile(e & 0x7FF);
             }
             for (int p_ = 0; p_ < 16; p_++) for (int i = 1; i < 16; i++) if (used[p_] >> i & 1) {
-                const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) { seen[c] = 1; cols++; } }
+                const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) seen[c] = (uint8_t)++cols; }   /* (its number, for pack_fits) */
+            fits = cols <= 60 && pack_fits(v, used, seen);
 #else
             const int cols = 61;                              /* (no tile masks to count with: docs/42's rule) */
             (void)mw; (void)mh;
@@ -953,11 +982,22 @@ static void draw_hook(V32 *v)
             want = cols > 60 || ((fit_n < 4) && BG32_EXACT);
         }
 #ifdef BG32_SEC
-        /* (docs/58) Under the 32X layer, while the plane's pack fails, the plane's list is made only every 8th picture -
-           to ask the pack again. It took the secondary 34 ms a picture at stage 1's start (the pack tried anew, the tiles
-           converted again), for a plane nobody sees. Once it fits, every picture again, and the plane is shown when it
-           has fitted 4 times and is whole */
-        { static unsigned probe; SEC_NOBG = (want && !bg2.col_ok && (++probe & 7) != 0); }
+        /* (docs/58) Under the 32X layer the plane's list is made only when its colours can pack (pack_fits: the count
+           above, a millisecond): made every picture while the pack fails it took the secondary 34 ms a picture at stage
+           1's start - the pack tried anew, the tiles converted again - for a plane nobody sees; asked for every 8th
+           picture instead, that picture took four refreshes. When they can pack: every picture, and the plane is
+           shown when it has fitted 4 times and is whole. (Should rt_bg2's own pack fail 8 times where pack_fits said
+           yes: no list for 64 pictures) */
+#ifdef BG32_FORCE                                             /* (DIAG, RTX=-DBG32_FORCE: every picture's background on the 32X
+                                                                 layer and no list - the layer's speed alone, also from a
+                                                                 SAPM_SKIP start, whose colours pack) */
+        want = 1; SEC_NOBG = 1; (void)fits;
+#else
+        {   static int vain, off, ran;
+            if (off) off--;
+            if (ran && fits && !bg2.col_ok) { if (++vain > 8) { off = 64; vain = 0; } } else if (ran) vain = 0;
+            ran = !(want && !(fits && !off)); SEC_NOBG = !ran; }
+#endif
 #endif
         const int tb = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1;
 #else
@@ -972,6 +1012,9 @@ static void draw_hook(V32 *v)
                 const uint16_t *const um = bg32_used;         /* (the window's indices, a palette: counted above) */
 #else
                 uint16_t um[16]; bg32_masks(v, um);
+#endif
+#ifdef BG2_FPGA_TILES
+                bg32_tile_key = bg32_fpga_key;                /* (a tile's words' hash: the FPGA's, as bg2_frame's) */
 #endif
                 bg32_prep(v, bg32_cram, bg32_own, um);
 #if defined(BG32_SEC) && defined(SPR_SEC)
@@ -1064,6 +1107,19 @@ static void draw_hook(V32 *v)
         { extern uint32_t ph_t3; ph_t3 = wdt_now(); }
 #endif
         bg2_sent++; bg2_words += (uint32_t)n;
+#if defined(BG32_SEC) && defined(VS_SEC)
+        /* (docs/58) No list and the plane hidden under the 32X layer: the swap is the SH2's own, at the next blank.
+           Through the 68000 (an empty list, command 79) the picture came on a refresh later as often as not. Asked in
+           the display, so the blank's interrupt finds the buffer swapped and writes the colours (pace_vbi) */
+        if (n == 0 && SEC_NOBG && !bg2_pairs) {
+            vs_job = job;
+            bg2_take();
+            while (MARS_VDP_FBCTL & MARS_VDP_VBLK) { }
+            pace_req = cur ^ 1; pal_go = cur ^ 1; MARS_VDP_FBCTL = (uint16_t)(cur ^ 1); bg32_direct++;
+            SET_COMM6((short)pace_missed);
+            return;
+        }
+#endif
 #ifdef VS_SEC
         /* (docs/19: the list sent by pace_vbi at the next blank's start, so the 68000 runs it while no raster split is
            due - level 4 is masked while it runs - and command 78 the secondary's, after it) */
@@ -1291,7 +1347,7 @@ static void opt_menu(void)
                 if (val) { o_text(208, y, "<", O_DIM); o_text(224, y, val, c); o_text(256, y, ">", O_DIM); }
             }
             if (row == R_STAGE) o_mid(180, "A/START: A NEW GAME FROM THIS STAGE", O_DIM);
-            if (row == R_EXACT) o_mid(180, opt_exact ? "EVERY COLOUR RIGHT, SLOWER PLACES" : "NEVER SLOW, NEAREST COLOURS", O_DIM);
+            if (row == R_EXACT) o_mid(180, opt_exact ? "EVERY COLOUR RIGHT" : "THE PLANE ALONE: SOME COLOURS MISSING", O_DIM);
             o_mid(196, "UP/DOWN PICK  LEFT/RIGHT CHANGE", O_DIM); o_mid(206, "A/START: DO IT   B: BACK", O_DIM);
         } else {
             for (int i = 0; cred[i]; i++) o_mid(28 + 13 * i, cred[i], O_TXT);

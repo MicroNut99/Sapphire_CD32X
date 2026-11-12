@@ -8,4 +8,5 @@ int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t 
 void bg32_masks(const V32 *v, uint16_t used[16]);       /* (docs/58: bg32_draw in its parts, for two SH2s) */
 int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t used[16]);
 void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1);
+extern uint16_t (*bg32_tile_key)(unsigned tile);        /* (a tile's words' hash from elsewhere - the cart's FPGA; 0: made from VRAM) */
 extern int bg32_black;                                  /* (the entry bg32_draw gave black) */

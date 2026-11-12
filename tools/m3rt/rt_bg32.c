@@ -51,6 +51,21 @@ int bg32_wanted(const V32 *v)
 static uint32_t sp_tab[256];
 static uint8_t lut[16][16];                              /* (a palette's index -> the 32X entry; 0: the backdrop's) */
 static uint16_t lut2[16][256];                           /* (two pixels: the byte's nibbles -> two entries) */
+/* (docs/58) A tile's 64 pixels as they go into the frame buffer, kept: 16 longs for a (tile, palette), valid while the
+   tile's words and the palette's entries stay as they were - most of a picture's tiles were on the picture before.
+   A hit is two loads a row where the conversion is ~80 instructions (the SH2 has no barrel shifter: every byte picked
+   out of the row's nibbles is shifts by 8 and 16). Two tables, one for each SH2's half (bg32_rows' y0): neither
+   reads what the other writes. The tile's key: a hash of its 16 words - the cart's FPGA keeps one a tile (main.c sets
+   bg32_tile_key), else made here */
+uint16_t (*bg32_tile_key)(unsigned tile);
+typedef struct { uint16_t tile, key, ver, band; uint8_t pal, ok; uint32_t px[16]; } TileC;
+#define TC_N 256
+static TileC tcache[2][TC_N];
+static uint16_t tc_band[2];                               /* (the band being drawn: a slot it uses is not given away - the
+                                                             band holds the pointers until its lines are out) */
+static uint32_t tc_over[2][33][16]; static int tc_nover[2];   /* (... the tile that wanted the slot is made here, for the band) */
+static uint16_t lver[16];                                 /* (a palette's entries changed: its tiles' pixels too) */
+static uint32_t zrow[16];                                 /* (a tile past VRAM's: the backdrop's entry, 64 times) */
 static void sp_make(void)
 {
     if (sp_tab[1]) return;
@@ -81,47 +96,58 @@ int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t
        transparent) */
     uint16_t spals = 0;
     for (int i = 0; i < 64; i++) if (v->sat[i * 4] || v->sat[i * 4 + 1]) spals |= (uint16_t)(1u << (v->sat[i * 4 + 3] & 15));
-    uint8_t freei[256]; int nfree = 0;
-    for (int p = 0; p < 16; p++) if (!(spals >> p & 1)) for (int j = 1; j < 16; j++) freei[nfree++] = (uint8_t)(p * 16 + j);
     /* (docs/46) the colour -> entry map kept from picture to picture: a colour keeps its entry while the sprites leave
        its palette free, so a picture drawn with one map is never shown with another's colours (a fade gave new
-       colours every picture, and the entries moved under the frame buffer). Started again when the sprites' palettes
-       change or the entries run out */
-    static uint16_t idx_of[512]; static uint16_t used[256]; static int nused = -1; static uint16_t had_spals;
+       colours every picture, and the entries moved under the frame buffer). (docs/58) When the sprites take a
+       palette, only the colours that had its entries move: before, the whole map started again, every palette's
+       table changed with it and every kept tile (tile_px) was made again - in play the sprites' palettes change every
+       few pictures. Started again when the entries run out, or the caller left the mode (own cleared) */
+    static uint16_t idx_of[512]; static uint16_t owner[256]; static int started; static uint16_t had_spals; static unsigned scan = 1;
     int ok = 1;
-    if (nused < 0 || spals != had_spals || !own[bg32_black]) {   /* (own cleared: the caller left the mode) */
+    if (!started || !own[bg32_black]) {
         for (int i = 0; i < 512; i++) idx_of[i] = 0xFFFF;
-        memset(own, 0, 256); nused = 0; had_spals = spals;
-        if (nfree) { idx_of[0] = freei[0]; used[nused++] = 0; own[freei[0]] = 1; cram[freei[0]] = 0; bg32_black = freei[0]; }
-                                                              /* (black first: the borders, as the PC Engine's) */
+        memset(owner, 0, sizeof owner); memset(own, 0, 256); started = 1;
+    } else if (spals != had_spals) {
+        for (int e = 1; e < 256; e++) if (owner[e] && (spals >> (e >> 4) & 1)) { idx_of[owner[e] - 1] = 0xFFFF; owner[e] = 0; own[e] = 0; }
     }
+    had_spals = spals;
+#define ENTRY_FOR(col, ix) do { \
+        ix = idx_of[col]; \
+        if (ix == 0xFFFF) { \
+            for (int n_ = 0; n_ < 256; n_++, scan = (scan + 1) & 255) \
+                if ((scan & 15) && !(spals >> (scan >> 4) & 1) && !owner[scan]) { ix = (uint16_t)scan; break; } \
+            if (ix != 0xFFFF) { owner[ix] = (uint16_t)((col) + 1); own[ix] = 1; cram[ix] = c32(col); } \
+            else {                                            /* (out of entries: the nearest of those taken) */ \
+                ok = 0; int best_ = 1 << 30; \
+                for (int e_ = 1; e_ < 256; e_++) if (owner[e_]) { const unsigned u_ = owner[e_] - 1u; \
+                    const int dr = (int)((col) & 7) - (int)(u_ & 7), dg = (int)((col) >> 6) - (int)(u_ >> 6), db = (int)(((col) >> 3) & 7) - (int)((u_ >> 3) & 7); \
+                    const int d_ = dr * dr + dg * dg + db * db; \
+                    if (d_ < best_) { best_ = d_; ix = (uint16_t)e_; } } \
+                if (ix == 0xFFFF) ix = 1; \
+            } \
+            idx_of[col] = ix; \
+        } } while (0)
+    { uint16_t bk; ENTRY_FOR(0u, bk); bg32_black = bk; }      /* (black always: the caller's sign that the map is alive) */
     for (int p = -1; p < 16; p++) {                           /* (-1: the backdrop, the colour of every index 0) */
         if (p >= 0 && !(used_idx[p] & 0xFFFE)) continue;
         for (int c = p < 0 ? 0 : 1; c < (p < 0 ? 1 : 16); c++) {
             if (p >= 0 && !(used_idx[p] >> c & 1)) { lut[p][c] = lut[0][0]; continue; }
             const unsigned col = v->color[p < 0 ? 0 : p * 16 + c] & 0x1FF;
-            uint16_t ix = idx_of[col];
-            if (ix == 0xFFFF) {
-                if (nused < nfree) { ix = freei[nused]; used[nused++] = (uint16_t)col; own[ix] = 1; cram[ix] = c32(col); }
-                else {                                        /* (out of entries: the nearest of those taken) */
-                    ok = 0; int best = 1 << 30;
-                    for (int i = 0; i < nused; i++) {
-                        const int dr = (int)(col & 7) - (int)(used[i] & 7), dg = (int)(col >> 6) - (int)(used[i] >> 6), db = (int)((col >> 3) & 7) - (int)((used[i] >> 3) & 7);
-                        const int d = dr * dr + dg * dg + db * db;
-                        if (d < best) { best = d; ix = freei[i]; }
-                    }
-                    if (ix == 0xFFFF) ix = 1;
-                }
-                idx_of[col] = ix;
-            }
+            uint16_t ix; ENTRY_FOR(col, ix);
             if (p < 0) { for (int q = 0; q < 16; q++) lut[q][0] = (uint8_t)ix; } else lut[p][c] = (uint8_t)ix;
         }
         if (p >= 0) { const uint8_t *l = lut[p]; uint16_t *t = lut2[p];
+            int same = 1; for (int c = 0; c < 16; c++) if (t[c] != (uint16_t)(l[0] << 8 | l[c])) { same = 0; break; }
+            if (same && t[0x10] == (uint16_t)(l[1] << 8 | l[0])) continue;   /* (the table as it was: its tiles' pixels stand) */
+            lver[p]++;
             for (int n = 0; n < 256; n++) t[n] = (uint16_t)(l[n >> 4] << 8 | l[n & 15]); }
     }
     {   const uint8_t z = lut[0][0];                           /* (a tile past VRAM's tiles, a palette no tile uses: the backdrop) */
-        for (int p = 0; p < 16; p++) if (!(used_idx[p] & 0xFFFE)) { uint16_t *t = lut2[p]; for (int n = 0; n < 256; n++) t[n] = (uint16_t)(z << 8 | z); } }
-    if (!ok) nused = -1;                                      /* (out of entries: a new map at the next picture) */
+        for (int p = 0; p < 16; p++) if (!(used_idx[p] & 0xFFFE)) { uint16_t *t = lut2[p];
+            if (t[0] == (uint16_t)(z << 8 | z) && t[0x12] == t[0] && t[0xFF] == t[0]) continue;
+            lver[p]++; for (int n = 0; n < 256; n++) t[n] = (uint16_t)(z << 8 | z); } }
+    { const uint32_t z = lut[0][0] * 0x01010101u; if (zrow[0] != z) for (int i = 0; i < 16; i++) zrow[i] = z; }
+    if (!ok) started = 0;                                     /* (out of entries: a new map at the next picture) */
     return ok;
 }
 
@@ -130,35 +156,80 @@ int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t
 #else
 #define PUT32(d, x) do { uint8_t *b_ = (uint8_t *)(d); const uint32_t x_ = (x); b_[0] = (uint8_t)(x_ >> 24); b_[1] = (uint8_t)(x_ >> 16); b_[2] = (uint8_t)(x_ >> 8); b_[3] = (uint8_t)x_; } while (0)
 #endif
+static uint16_t key_of(const V32 *v, unsigned tile)
+{
+    if (bg32_tile_key) return bg32_tile_key(tile);
+    const uint16_t *w = v->vram + tile * 16; uint32_t h = 2166136261u;
+    for (int i = 0; i < 16; i++) h = (h ^ w[i]) * 16777619u;
+    return (uint16_t)(h ^ h >> 16);
+}
+static const uint32_t *tile_px(const V32 *v, int h, unsigned tile, unsigned pal)
+{
+    TileC *c = &tcache[h][(tile ^ pal << 5) & (TC_N - 1)]; const uint16_t key = key_of(v, tile), bd = tc_band[h];
+    if (c->ok && c->tile == tile && c->pal == pal && c->key == key && c->ver == lver[pal]) { if (c->band != bd) c->band = bd; return c->px; }
+    const int held = c->ok && c->band == bd;                  /* (another tile of this band has the slot) */
+    uint32_t *const px = held ? tc_over[h][tc_nover[h]++] : c->px, *o = px;
+    const uint16_t *tp = v->vram + tile * 16, *t2 = lut2[pal];
+    for (int r = 0; r < 8; r++) { const uint32_t w = ROW_NIB(tp[r], tp[r + 8]);
+        *o++ = (uint32_t)t2[w >> 24] << 16 | t2[(w >> 16) & 0xFF]; *o++ = (uint32_t)t2[(w >> 8) & 0xFF] << 16 | t2[w & 0xFF]; }
+    if (!held) { c->tile = (uint16_t)tile; c->pal = (uint8_t)pal; c->key = key; c->ver = lver[pal]; c->band = bd; c->ok = 1; }
+    return px;
+}
+/* A band of tile rows: the scanlines y..y+nr-1 are rows r0..r0+nr-1 of the map row at bat. First the 33 tiles' kept
+   pixels (tile_px: their pointers, once a band), then scanline by scanline a loop of two loads and two frame buffer
+   longs a tile, everything else in registers. (docs/58, in the order found in ares: a pixel at a time 0.45 s a picture;
+   a row at a time through the tables, line by line, 2 x 28 ms - the 4 KB cache did not keep 66 tiles' lines beside
+   the tables; tile by tile with the rows' pointers and carries in arrays 2 x 20 ms - 77,000 words a picture written
+   to SDRAM, the SH2's cache writes through, and both SH2s on the one bus; this.) A scanline's stream of longs L0 L1 ...
+   (tile k: L2k, L2k+1) goes out from pixel o = BXR & 7: long j = L[m0 + j] with sh = 0, else L[m0 + j] << sh |
+   L[m0 + j + 1] >> (32 - sh), m0 = o >> 2, sh = 8 (o & 3) - sh a constant in each copy of this (the SH2 shifts by a
+   variable only through a library call). The first and the last tile give the longs that exist */
+static inline __attribute__((always_inline)) void band(const V32 *v, uint8_t *fb, int pitch, int y, int r0, int nr,
+                                                       const uint16_t *bat, int mx, int mw, const unsigned sh, const int m0, const int tc)
+{
+    const uint32_t *pp[33];
+    tc_band[tc]++; tc_nover[tc] = 0;
+    for (int k = 0; k < 33; k++, mx = (mx + 1) & (mw - 1)) {
+        const uint16_t e = bat[mx]; const unsigned tile = e & 0xFFF;
+        pp[k] = tile < 0x800 ? tile_px(v, tc, tile, e >> 12) : zrow;
+    }
+    for (int i = 0; i < nr; i++) {
+        const int off = 2 * (r0 + i); uint32_t *d = (uint32_t *)(void *)(fb + (y + i) * pitch);
+        const uint32_t *const *q = pp; const uint32_t *px = *q++ + off;
+        if (sh == 0) {
+            if (m0 == 0) { PUT32(d, px[0]); d++; }
+            PUT32(d, px[1]); d++;
+            for (int k = 1; k < 32; k++) { px = *q++ + off; PUT32(d, px[0]); PUT32(d + 1, px[1]); d += 2; }
+            if (m0 == 1) { px = *q + off; PUT32(d, px[0]); }
+        } else {
+            uint32_t hi = px[0], prev = px[1];
+            if (m0 == 0) { PUT32(d, hi << sh | prev >> (32 - sh)); d++; }
+            for (int k = 1; k < 32; k++) { px = *q++ + off; hi = px[0]; const uint32_t lo = px[1];
+                PUT32(d, prev << sh | hi >> (32 - sh)); PUT32(d + 1, hi << sh | lo >> (32 - sh)); d += 2; prev = lo; }
+            px = *q + off; hi = px[0];
+            PUT32(d, prev << sh | hi >> (32 - sh));
+            if (m0 == 1) { PUT32(d + 1, hi << sh | px[1] >> (32 - sh)); }
+        }
+    }
+}
 #ifdef __sh__
 __attribute__((optimize("O2")))                          /* (the build is -Os: this loop is the picture's time) */
 #endif
 void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
 {
     const int mw = map_w(v), mh = map_h(v);
-    const unsigned o = v->BXR & 7; const int m0 = (int)(o >> 2);
-    const int mx0 = (v->BXR >> 3) & (mw - 1);
-    for (int y = y0; y < y1; y++) {
-        const int yy = (v->BYR + y) & (mh * 8 - 1), r = yy & 7;
+    const unsigned o = v->BXR & 7; const int m0 = (int)(o >> 2), mx0 = (v->BXR >> 3) & (mw - 1);
+    const int tc = y0 != 0;                                   /* (the upper part's table, the lower part's) */
+    for (int y = y0; y < y1; ) {
+        const int yy = (v->BYR + y) & (mh * 8 - 1), r0 = yy & 7, nr = 8 - r0 < y1 - y ? 8 - r0 : y1 - y;
         const uint16_t *bat = v->vram + (yy >> 3) * mw;
-        uint32_t S[66]; uint32_t *q = S;                      /* (the line's 33 tiles' rows: 264 pixels as longs) */
-        for (int k = 0, mx = mx0; k < 33; k++, mx = (mx + 1) & (mw - 1)) {
-            const uint16_t e = bat[mx]; const unsigned tile = e & 0xFFF; const uint16_t *t2 = lut2[e >> 12];
-            if (tile < 0x800) {
-                const uint16_t a = v->vram[tile * 16 + r], b = v->vram[tile * 16 + 8 + r];
-                const uint32_t w = ROW_NIB(a, b);
-                *q++ = (uint32_t)t2[w >> 24] << 16 | t2[(w >> 16) & 0xFF];
-                *q++ = (uint32_t)t2[(w >> 8) & 0xFF] << 16 | t2[w & 0xFF];
-            } else { const uint32_t z = (uint32_t)t2[0] << 16 | t2[0]; *q++ = z; *q++ = z; }
+        switch (o & 3) {
+        case 0: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 0, m0, tc); break;
+        case 1: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 8, m0, tc); break;
+        case 2: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 16, m0, tc); break;
+        default: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 24, m0, tc); break;
         }
-        uint32_t *d = (uint32_t *)(void *)(fb + y * pitch); const uint32_t *s_ = S + m0;
-        switch (o & 3) {                                      /* (each shift a constant: the SH2 shifts by a variable only
-                                                                 through a library call - two a long, the first version) */
-        case 0: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j]); break;
-        case 1: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j] << 8 | s_[j + 1] >> 24); break;
-        case 2: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j] << 16 | s_[j + 1] >> 16); break;
-        default: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j] << 24 | s_[j + 1] >> 8); break;
-        }
+        y += nr;
     }
 }
 
