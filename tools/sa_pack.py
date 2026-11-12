@@ -86,7 +86,7 @@ assert dir_end <= 0x7F000, 'the directory reaches the bank end'
 regions = [(0xFF, dir_end, 0x7FFF0), (0xFF, st_end, 0x1C0000), (1, sh_end - P, 0x3EF000 - P),
            (2, 0x080000, P), (3, 0, P), (4, 0, P), (5, 0, P)]   # (not page 0: command 68 takes pages 1-7 only)
 if live:   # (docs/53: page 1 is the FIFO's and the sound's ring, page 5 is kept for the FPGA CPU's own memory, page 6 the card)
-    regions = [(0xFF, dir_end, 0x7FFF0), (0xFF, st_end, 0x1C0000), (2, 0x080000, P), (3, 0, P), (4, 0, P)]
+    regions = [(0xFF, dir_end, 0x7F000), (0xFF, st_end, 0x1C0000), (2, 0x080000, P), (3, 0, P), (4, 0, P)]   # (docs/54: 0x07F000-0x07FFEF is the PSG's write ring)
 ri = 0; pos = regions[0][1]
 def phys(pg, off):
     if pg == 0xFF: return W0 * B + off if off < B else off

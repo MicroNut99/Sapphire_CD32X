@@ -176,6 +176,12 @@ Read `CLAUDE.md` first.
      **The machine with no translated code:** `tools/m2_machine.py <gen> <m2mach> <sapm_pc>`; `work/sapm_pc sys/syscard3.pce -
      disc/sap_tab.bin inp/playL_masks.u16 [frames]` with `RUN_POKES=work/pokes_playL.u32` prints each frame's md5
      (`inp/playL_hashes.txt`): 74,656 of 75,000 equal. Gate-of-Thunder_CD32X and DraculaX_32X are the examples to follow.
+  49. **docs/54, THE SOUND EFFECTS (the owner's #1):** the PSG on the Sega CD's PCM chip. `tools/tower/` (PC: `tower_render
+     <psg log> <frames> <out> [updates]`, `tower_cmp.py`); the BootCamp's `TPSG=1` command 103 (branch `tpsg` at
+     `/home/claude/cd32x-bootcamp`, ledger §36 on docs branch `tpsg-36`: the owner's to merge). Run: `TPSG_BC=/home/claude/cd32x-bootcamp
+     EXTRA="BG32=1 PWM_SOUND=1 TPSG=1" PSND_ONLY=adpcm ARES_HUC_PSGRING=1 ARES_PCM_RAW=<file> WAV=<file> tools/m3_live_pack.sh
+     /abs/sp/pon.bin /abs/tr/pon <tag> <frames>` with `HUC_MASKS` / `HUC_POKES`. Next: the ADPCM's nibbles the same way; the
+     0.68 in ares; `sapm` in ares (docs/53) so the game's time is its own.
 
 ## 2. Where things live
 

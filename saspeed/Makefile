@@ -157,6 +157,10 @@ endif
 # did not trace runs interpreted
 # SAPK=1 (docs/52; with COMBO=1 CDR=1 and the stack's PACKED=1 EDCD_PACKED=1 EDCD_W0=8 FBCART=1): the data track and the
 # combinations from the packed launcher's pack (tools/sa_pack.py), the CD for its music only
+# TPSG=1 (docs/54, with FIFO_LIVE=1 and the stack built TPSG=1): the PSG's sound by the Sega CD's PCM chip (command 103)
+ifeq ($(TPSG),1)
+CCFLAGS += -DTPSG
+endif
 ifeq ($(SAPK),1)
 CCFLAGS += -DSAPK
 endif

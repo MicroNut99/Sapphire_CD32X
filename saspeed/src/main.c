@@ -1149,6 +1149,19 @@ static void fifo_play(V32 *v, long frames)
                 if (m != last) { CS_WR(0xcd, m & 0xFF); CS_WR(0xce, (m >> 8) & 0xFF); last = m; }
             }
 #endif
+#if defined(FIFO_LIVE) && defined(TPSG)
+            {   /* (docs/54) the PSG on the Sega CD's PCM chip: the stack's command 103 (TPSG), once - the Sub-CPU then
+                   reads the cart core's PSG write ring (cart 0x07F000: the 68000's 0x8FF000) by itself, every pass */
+                static int tp_sent;
+                if (!tp_sent) {
+                    tp_sent = 1;
+                    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+                    MARS_SYS_COMM2 = 1; COMM8_32 = 0x008FF000u; COMM12_16 = 0;
+                    MARS_SYS_COMM0 = 103;
+                    for (int n = 0; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { }
+                }
+            }
+#endif
 #if defined(FIFO_LIVE) && defined(PWM_SOUND)
             if (!pwm_on) {                                    /* (docs/44: the sound on once the ring holds 3,000 samples,
                                                                  played 2,200 behind what was written) */

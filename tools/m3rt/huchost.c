@@ -37,6 +37,9 @@ static int16_t snd[2048]; static int nsnd;
 static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 << 18;
 
 int scsi_pak_sector(int32_t sector, uint8_t *out);
+static uint16_t psgw[8192]; static int npsg;
+void psnd_write(unsigned r, uint8_t v);
+static void psg_tap(unsigned r, uint8_t v) { if (npsg < 8192) psgw[npsg++] = (uint16_t)((r & 15) << 8 | v); psnd_write(r, v); }
 #include "sapk.h"
 static Sapk sapk; static int sapk_on;                          /* (docs/53: HUC_SAPK=<the packed .32X>, the cart's own pack) */
 uint32_t huchost_pack_reads(void) { return sapk.reads; } uint32_t huchost_pack_bad(void) { return sapk.bad; }
@@ -98,7 +101,7 @@ int huchost_init(const char *state, const char *trk)
     if (rec_masks) fprintf(stderr, "huchost: the recording's pad (%ld frames), %ld pokes\n", rec_n, rec_np);
     if (!getenv("PSND_OLDADPCM")) io_adpcm_hook = psnd_nibble;   /* (docs/50: the ADPCM as the playback decodes it) */
     rt_draw_hook = draw;
-    io_psg_hook = psnd_write;
+    io_psg_hook = psg_tap;                                     /* (docs/54: + the write log for the cart's ring) */
     return 1;
 }
 
@@ -148,6 +151,9 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
 
 /* (docs/44) the samples the last frame made: 16-bit mono at 22,044 Hz */
 int huchost_audio(const int16_t **samples) { *samples = snd; return nsnd; }
+/* docs/54: the PSG register writes since the last call, each register << 8 | value, in order: what the cart's core
+   logs into its ring for the Sega CD's PCM chip (the stack's TPSG, command 103) */
+int huchost_psg(const uint16_t **w) { *w = psgw; const int n = npsg; npsg = 0; return n; }
 
 /* (DIAG, docs/46) the game's VRAM now, 32 K words: what the FIFO's pictures carry */
 const uint16_t *huchost_vram(void) { return vsnap; }

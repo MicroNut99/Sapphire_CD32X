@@ -1,0 +1,118 @@
+From 6d07d6b7c2cf0db7890c55b1e8e8fbb9a2018a2d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 00:46:42 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in writes the PSG's
+ register writes into a ring in the cart (ARES_HUC_PSGRING, docs/54); DIAG
+ ARES_PCM_RAW - the PCM chip alone
+
+The ring the BootCamp's TPSG (command 103) reads through the 68000: cart 0x07F000 = 0x5450, + 2 the count, from + 0x100
+1,024 words (register << 8 | value). ARES_PCM_RAW=<file>: mcd/pcm's output, raw s16 mono at 32,552 Hz, and <file>.at,
+the capture's sample count at each game frame the stand-in made.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/everdrive-pro.cpp    | 12 ++++++++++--
+ ares/md/cartridge/board/sapphire-huchost.hpp | 15 +++++++++++++++
+ ares/md/mcd/pcm.cpp                          |  4 ++++
+ 3 files changed, 29 insertions(+), 2 deletions(-)
+
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 66166f7..e60a158 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -223,12 +223,20 @@ struct EverDrivePro : Interface {
+         if(off & 0x20000) {
+           u32 v = off >> 9 & 0xff;
+           if(cells.live_ && huc.write(r, v)) return data;   //(the pad only after the unlock: a start-up scan of the window wrote it 0-255)
+-          if(huc.on && cells.live_ && (r == 0xca || r == 0xcb)) {   //(docs/46: only after the unlock - the start-up scan wrote 0xca 0-255, and the pictures it made went into the ring before the disc's loads; the pictures the SH2 will want: written before the store reads them)
+-            u32 at = r == 0xca ? cells.sh2At + (u8)(v - cells.sh2At) : 0;
++          if(huc.on && cells.live_ && r == 0xca) {   //(docs/46: only after the unlock - the start-up scan wrote 0xca 0-255, and the pictures it made went into the ring before the disc's loads; the pictures the SH2 will want: written before the store reads them)
++            u32 at = cells.sh2At + (u8)(v - cells.sh2At);
+             huc.produce(at + huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
+             cells.liveTotal = huc.produced;
+           }
++          const bool wasLive = cells.live_;
+           cells.write(r, v, [&](u32 l) -> u16 { return ram[offset(l) >> 1]; });
++          //(Sapphire docs/53: the unlock itself starts the CPU - its first pictures are in the ring before the SH2 reads it.
++          //Until now they came only with the first 0xca, which the SH2 sent after a picture's end found in the ring's old
++          //contents - the EverDrive menu's wipe pattern has some; a packed launcher's 0xFF fill has none: a black screen)
++          if(huc.on && cells.live_ && !wasLive) {
++            huc.produce(huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
++            cells.liveTotal = huc.produced;
++          }
+         }
+         else if(huc.on && r == 0xcc) return (n16)huc.samples;   //(docs/44: the PWM samples written so far)
+         else if(!cells.live_) {}
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index d44be4a..2dfdf42 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -7,6 +7,7 @@
+ //ring. The pad: the SH2 writes registers 0xcd (low byte) and 0xce (high byte) of the libretro mask, as it would the
+ //FPGA's pad register. Not the hardware: the FPGA is checked in its own simulations (fpga/huc).
+ #include <dlfcn.h>
++extern "C" { extern u64 aresPcmRawSamples; }   //DIAG (docs/54: mcd/pcm.cpp)
+ struct SapphireHuc {
+   static constexpr u32 Ring = 0x1f0000 / 4;   //(entries)
+   bool on = false;
+@@ -16,6 +17,8 @@ struct SapphireHuc {
+   u16 pad = 0, padLow = 0;
+   int (*frameFn)(u16, const u32**) = nullptr;
+   int (*audioFn)(const s16**) = nullptr;
++  int (*psgFn)(const u16**) = nullptr;   //(docs/54: the frame's PSG register writes)
++  u32 psgCount = 0;
+   const u16* (*vramFn)() = nullptr;   //(DIAG: ARES_HUC_VCHECK)
+   u16 vramAt[64][0x8000]; u32 vramPic[64];   //(the game's VRAM at the last 64 pictures, by picture)
+   u32 samples = 0;            //(docs/44: PWM samples written to the ring at cart 0x3F0000, 32,768 of them; register 0xcc)
+@@ -30,6 +33,8 @@ struct SapphireHuc {
+     auto init = (int (*)(const char*, const char*))dlsym(h, "huchost_init");
+     frameFn = (int (*)(u16, const u32**))dlsym(h, "huchost_frame");
+     audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
++    psgFn = (int (*)(const u16**))dlsym(h, "huchost_psg"); psgCount = 0;
++    if(!getenv("ARES_HUC_PSGRING")) psgFn = nullptr;
+     vramFn = (const u16* (*)())dlsym(h, "huchost_vram");
+     if(!init || !frameFn || !init(getenv("ARES_HUC_STATE"), getenv("ARES_HUC_TRACK"))) { fprintf(stderr, "huchost: not started\n"); return; }
+     if(auto e = getenv("ARES_HUC_LEAD")) lead = atoi(e);
+@@ -40,6 +45,16 @@ struct SapphireHuc {
+   template<typename Put> auto produce(u32 want, Put put) -> void {
+     while(on && pictures < want) {
+       const u32* e = nullptr; int n = frameFn(pad, &e);
++      if(auto w = getenv("ARES_PCM_RAW")) {   //DIAG (docs/54): the PCM capture's sample count at each game frame made (<file>.at, u32)
++        static FILE* f; if(!f) { string nn = {w, ".at"}; f = fopen(nn, "wb"); }
++        if(f) { u32 k = (u32)aresPcmRawSamples; fwrite(&k, 4, 1, f); }
++      }
++      if(psgFn) {   //(Sapphire docs/54, the BootCamp's TPSG) the PSG's register writes into the ring the 68000 reads for the Sub-CPU:
++        //cart 0x07F000 (window 0) = 0x5450, + 2 the count of writes so far, from + 0x100 1,024 words (register << 8 | value)
++        const u16* w = nullptr; int nw = psgFn(&w);
++        for(int i = 0; i < nw; i++) { put(0x07f100 + (psgCount & 1023) * 2, w[i]); psgCount++; }
++        put(0x07f000, 0x5450); put(0x07f002, (u16)psgCount);
++      }
+       if(audioFn) {   //(docs/44) the frame's sound as the PWM's pulse widths, 1..cycle-1 about the middle
+         const s16* a = nullptr; int na = audioFn(&a);
+         if(auto w = getenv("ARES_HUC_WAV")) {   //DIAG (docs/48): the stand-in's sound in the game's time - raw s16, 22,044 Hz, and its count a frame (<w>.n, u16)
+diff --git a/ares/md/mcd/pcm.cpp b/ares/md/mcd/pcm.cpp
+index 18325ce..eb1f13e 100644
+--- a/ares/md/mcd/pcm.cpp
++++ b/ares/md/mcd/pcm.cpp
+@@ -15,6 +15,8 @@ auto MCD::PCM::unload(Node::Object parent) -> void {
+   ram.reset();
+ }
+ 
++extern "C" { u64 aresPcmRawSamples = 0; }   //DIAG (Sapphire docs/54): samples written to ARES_PCM_RAW so far
++
+ auto MCD::PCM::clock() -> void {
+   s32 left  = 0;
+   s32 right = 0;
+@@ -42,6 +44,8 @@ auto MCD::PCM::clock() -> void {
+   //clamp to 10-bit DAC output rate
+   left  = sclamp<16>(left ) >> 2 & ~15;
+   right = sclamp<16>(right) >> 2 & ~15;
++  { static int on = -1; static FILE* f; if(on < 0) { auto e = getenv("ARES_PCM_RAW"); on = e != nullptr; if(on) f = fopen(e, "wb"); }   //DIAG (Sapphire docs/54): the PCM chip alone, raw s16 mono, 32,552 Hz
++    if(on && f) { s16 v = (left + right) / 2; fwrite(&v, 2, 1, f); aresPcmRawSamples++; } }
+   stream->frame(left / 32768.0, right / 32768.0);
+ }
+ 
+-- 
+2.43.0
+
