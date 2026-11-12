@@ -36,8 +36,12 @@ static int16_t snd[2048]; static int nsnd;
 #define SND_RATE 22044                                      /* (the 32X's PWM: 23.01 MHz / 1,044) */
 static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 << 18;
 
+int scsi_pak_sector(int32_t sector, uint8_t *out);
+uint32_t rt_disc_reads;                                    /* (docs/49: the data sectors the game read) */
 int rt_disc_sector(int32_t sector, uint8_t *out)
 {
+    rt_disc_reads++;
+    { const int r = scsi_pak_sector(sector, out); if (r >= 0) return r; }   /* (docs/49: SCSI_PAK, the cart's copy) */
     if (!track || sector < 0 || fseek(track, (long)sector * 2048, SEEK_SET) || fread(out, 1, 2048, track) != 2048) return 0;
     return 1;
 }
@@ -71,6 +75,7 @@ int huchost_init(const char *state, const char *trk)
     ents = malloc(sizeof *ents * (size_t)maxents);
     rt_init(&rt, &st, banks);
     if (trk) track = fopen(trk, "rb");
+    fprintf(stderr, "huchost: the drive %s, the track %s\n", st.scsi_o ? "from the state" : "NOT in the state (no CD reads)", track ? "open" : "not open");   /* (docs/49) */
     if (st.scsi_o) {
         char err[256];
         if (!scsi_start_tab(&rt.hw, st.scsi_o, st.scsi_fifo, st.toc, st.disc_tab,

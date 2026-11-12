@@ -7,7 +7,9 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
-**Latest (9 Nov 2026, [docs/47](docs/47_THE_HARDWARE_PAGE_IN_RTL.md)):** the CPU's memory, the hardware page, the PSG and the
+**Latest (11 Nov 2026, [docs/49](docs/49_THE_DATA_TRACK_IN_THE_CART.md)):** the data track packed for the cart, 14.8 MB to
+6.72 MB (each different sector once, compressed), read back equal; stage 1 plays the same from it as from the disc.
+[docs/47](docs/47_THE_HARDWARE_PAGE_IN_RTL.md): the CPU's memory, the hardware page, the PSG and the
 ADPCM in RTL, each equal to Mednafen's behaviour over the game's windows. [docs/46](docs/46_THE_TITLE_CLEAN.md): the title and the intro draw as the reference in the
 live ares run (the first picture's VRAM and colours reach the player). [docs/40](docs/40_THE_GAME_LIVE_IN_ARES.md): the game plays live in ares from power-on, with
 the pad: the title, the briefings and the stages, through the fast build's FIFO player, with the cart CPU's stand-in

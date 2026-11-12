@@ -39,6 +39,12 @@ records where the work stands; it was paused before the long run was compared.
 **Second run** (`work/ar_s1L`, 40,000 frames, `ARES_HUC_WAV`), to cover the whole stage at that speed: started, not
 yet compared. Neither was the reference's effects-only capture (`work/stage1fx`).
 
+## Correction (docs/49)
+
+`sp/ps1.bin` has no CD drive in it: it was packed without `PACK_CUE`. The stand-in read no sector, and from about
+frame 7,000 of the run it waited for a load. The picture rate before that stands. The run must be made again from
+`sp/ps1d.bin`, which has the drive and the card in its own file.
+
 ## Next
 
 1. Compare `ar_s1L` (pictures over the whole stage, `FX=` for the effects).

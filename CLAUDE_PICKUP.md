@@ -152,6 +152,11 @@ Read `CLAUDE.md` first.
      sound from `playL`), huchost `HUC_MASKS`/`HUC_POKES` (the recording in ares), ares 0009 `ARES_HUC_WAV`,
      `tools/m3_stagecmp.py`. Found: the live build shows ~20-29 pictures a second (game slowed). Paused with
      `work/ar_s1L` (40,000 frames) and `work/stage1fx` not yet compared.
+  44. **docs/49, the data track in the cart:** `tools/m3_trackpack.py disc/t02.iso track02.pak` (14.8 -> 6.72 MB:
+     sectors once, LZ4 each), `tools/m3rt/trackpak.c` (all 7,599 equal), `SCSI_PAK=<pak>` for the drive model and the
+     stand-in; stage 1 from the pack equal to the disc (`tools/m3_hucrun.py`, 710 sectors). `tools/m3_tiles.py`: 121,628
+     tiles shown (3.7 MB). States need `PACK_CUE` (the drive) and the card in a file (`sp/ps1d.bin` + `.card`,
+     `HUC_CARD`). The owner: the CD for music only; diagnostics that never touch the screen (DraculaX docs/172-173).
 
 ## 2. Where things live
 

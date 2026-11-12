@@ -111,6 +111,26 @@ static void sector_subq(Hw *io, int32_t lba)             /* a sector read: its s
     memcpy(d->subq[1], d->subq_last, 12);
 }
 
+#ifndef RT_NO_DISC
+#include "../m3rt/trackpak.c"   /* (one file, so every build of this model has it) */
+#endif
+uint32_t scsi_pak_reads, scsi_pak_bad;    /* (docs/49) sectors read from SCSI_PAK, and those that failed */
+#ifndef RT_NO_DISC
+int scsi_pak_sector(int32_t sector, uint8_t *out)        /* 1 read, 0 failed its check, -1 no pack (SCSI_PAK unset) */
+{
+    static int tried, ok; static TrackPak pk;
+    if (!tried) {
+        tried = 1; const char *pn = getenv("SCSI_PAK"); FILE *pf = pn ? fopen(pn, "rb") : 0;
+        if (pf) { fseek(pf, 0, SEEK_END); const long n = ftell(pf); fseek(pf, 0, SEEK_SET); uint8_t *m = malloc((size_t)n);
+            ok = m && fread(m, 1, (size_t)n, pf) == (size_t)n && !trackpak_open(&pk, m, (uint32_t)n); fclose(pf); }
+        if (pn && !ok) fprintf(stderr, "SCSI_PAK: %s is not a pack\n", pn);
+    }
+    if (!ok) return -1;
+    const int r = trackpak_read(&pk, (uint32_t)sector, out) ? 0 : 1;
+    scsi_pak_reads = pk.reads; scsi_pak_bad = pk.bad;
+    return r;
+}
+#endif
 static int read_data_sector(Hw *io, int32_t lba, uint8_t *out)   /* 2048 bytes of a data track; 0 if not one */
 {
     Disc *k = &io->scsi.disc;
@@ -121,6 +141,13 @@ static int read_data_sector(Hw *io, int32_t lba, uint8_t *out)   /* 2048 bytes o
 #ifdef RT_NO_DISC
     note(io, "no disc files (RT_NO_DISC)"); memset(out, 0, 2048);
 #else
+    {   /* (docs/49) SCSI_PAK=<tools/m3_trackpack.py file>: the first data track from the cart's packed copy, not the disc */
+        static int pk_track;
+        if (!pk_track) for (int i = 1; i < 100 && !pk_track; i++) if (k->t[i].control & 4) pk_track = i;
+        if (t == pk_track) { const int r = scsi_pak_sector(lba - k->t[t].lba, out);
+            if (r == 0) { note(io, "SCSI_PAK: a sector failed its check"); memset(out, 0, 2048); }
+            if (r >= 0) return 1; }
+    }
     if (!k->t[t].f) { note(io, "data track file missing"); memset(out, 0, 2048); return 1; }
     fseek(k->t[t].f, k->t[t].offset + (long)(lba - k->t[t].lba) * 2048, SEEK_SET);
     if (fread(out, 1, 2048, k->t[t].f) != 2048) { note(io, "data track short"); memset(out, 0, 2048); }
