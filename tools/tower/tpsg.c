@@ -11,8 +11,10 @@ static const uint8_t SCALE[16] = { 0x00, 0x03, 0x05, 0x07, 0x09, 0x0B, 0x0D, 0x0
 void tpsg_power(Tpsg *t)
 {
     { uint8_t *z = (uint8_t *)t; for (unsigned i = 0; i < sizeof *t; i++) z[i] = 0; }
+    t->vol = 8;
     for (int c = 0; c < 6; c++) { t->ch[c].dirty = 1; t->out[c].fd = t->out[c].ls = 0xFFFF; t->out[c].env = t->out[c].pan = 0; t->out[c].on = 0;   /* (0: neither is ever sent as 0) */ t->out[c].noise = 0xFF; }
 }
+void tpsg_volume(Tpsg *t, unsigned vol) { t->vol = (uint8_t)(vol > 8 ? 8 : vol); }
 void tpsg_write(Tpsg *t, unsigned a, uint8_t v)
 {
     const int c = t->sel;
@@ -93,9 +95,9 @@ void tpsg_update(Tpsg *t, const TpsgOut *o)
         }
         const unsigned gl = GAIN[vl[0]], gr = GAIN[vl[1]], gm = gl > gr ? gl : gr;
         uint16_t fd = 0, ls = 0; uint8_t env = 0, pan = 0;
-        if (!gm) on = 0;
+        if (!gm || !t->vol) on = 0;
         if (on) {
-            env = (uint8_t)((gm * ENV_TOP + 127) / 255); if (!env) env = 1;
+            env = (uint8_t)((gm * ENV_TOP * t->vol + 1020) / 2040); if (!env) env = 1;   /* (/ 255, / 8: the menu's volume) */
             pan = (uint8_t)(((gl * 15 + gm / 2) / gm) | ((gr * 15 + gm / 2) / gm) << 4);     /* low nibble: left */
             if (noise) {
                 const unsigned f = 0x1F - (t->ch[c].noise & 0x1F);

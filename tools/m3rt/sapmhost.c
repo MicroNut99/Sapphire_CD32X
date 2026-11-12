@@ -25,9 +25,37 @@ static int32_t tab[SAPM_TAB_WORDS]; static FILE *track_f[101];
 static Sapk sapk; static int sapk_on;
 uint32_t rt_disc_reads; static long other_missed;
 uint32_t huchost_pack_reads(void) { return sapk.reads; } uint32_t huchost_pack_bad(void) { return sapk.bad; }
+/* docs/58, the options menu's stage select: a new game held to a stage. Found on the PC machine (tools/m2host/sapm_pc.c
+   SEC_LOG / SEC_REMAP / RUN_POKES): a new game reads the briefing's program (18 sectors at W_GAME), then one block of
+   116 at W_BRIEF - 52 sectors the game's own program, in Super RAM for the whole game, then 64 the first stage's own -
+   then the stage's block (596 at W_STAGE); a later stage reads only its own 64 (W_BRIEF_N + 724 a stage) and its block
+   (+ 724 a stage), the stage from base RAM $069C. So stage s (2-5) from the start: the machine reset, RUN pressed
+   each second until the game's start is read, the block's last 64 sectors served from stage s's, $069C = s - 1 once
+   the block's read has begun, and the game loads stage s itself. The drive four times as fast meanwhile (scsi_turbo:
+   27 s from the menu to the stage, 41 s without). On the cart this is the engine's to do (the feed's LBA, the poke
+   port, the firmware's rate): not written yet */
+#define W_GAME 11004
+#define W_BRIEF 4196
+#define W_BRIEF_OWN (W_BRIEF + 52)
+#define W_BRIEF_N 4920
+#define W_STAGE 3600
+static const uint8_t *rom_kept;                               /* (the System Card: huchost_warp's reset) */
+static int warp_stage, warp_phase, warp_lives; static long warp_t;   /* (phase 1: to the game's start; 2: to the stage's
+                                                                 block; 3: to the game's own first write of its lives, CD RAM
+                                                                 $A00C, 0 until then - the menu's count goes in after it) */
+extern int scsi_turbo;
 static int sector(void *user, int32_t lba, uint8_t *out)
 {
     (void)user; rt_disc_reads++;
+    if (warp_phase) {
+        if (warp_phase == 1 && lba == W_GAME) warp_phase = 2;
+        if (warp_phase == 2) {
+            if (lba == W_BRIEF) sapm_base_ram()[0x69C] = (uint8_t)(warp_stage - 1);
+            if (warp_stage >= 2 && lba >= W_BRIEF_OWN && lba < W_BRIEF_OWN + 64) lba = W_BRIEF_N + 724 * (warp_stage - 2) + (lba - W_BRIEF_OWN);
+            else if (lba >= W_STAGE + 724 * (warp_stage - 1) + 590 && lba < W_STAGE + 724 * (warp_stage - 1) + 596) { warp_phase = 3; scsi_turbo = 1;   /* (the block's end: the drive's own rate again) */
+                fprintf(stderr, "sapmhost: stage %d's block read, %ld frames after the reset\n", warp_stage, warp_t); }
+        }
+    }
     for (int t = tab[0]; t <= tab[1] && t < 101; t++) {
         const int32_t *x = tab + 3 + 6 * t;
         if (lba < x[0] || lba >= x[0] + x[1]) continue;
@@ -90,7 +118,11 @@ static uint16_t *rec_masks; static long rec_n; static uint32_t (*rec_pokes)[3]; 
 static void at_frame(void *user, long k)
 {
     (void)user;
-    sapm_pad(rec_masks ? (k + 1 < rec_n ? rec_masks[k + 1] : 0) : live_pad);
+    if (warp_phase) warp_t++;
+    if (warp_phase == 3 && sapm_cd_ram()[0xA00C]) { if (warp_lives) sapm_cd_ram()[0xA00C] = (uint8_t)warp_lives; warp_phase = 0;
+        fprintf(stderr, "sapmhost: the new game's lives written, %ld frames after the reset\n", warp_t); }
+    if (warp_phase == 1) sapm_pad(warp_t >= 120 && warp_t % 60 < 6 ? 8 : 0);   /* (RUN each second: the System Card, the title) */
+    else sapm_pad(rec_masks ? (k + 1 < rec_n ? rec_masks[k + 1] : 0) : live_pad);
     for (long i = 0; i < rec_np; i++) if (rec_pokes[i][0] == (uint32_t)(k + 1)) {
         const uint32_t a = rec_pokes[i][1];
         if (a < 0x2000) sapm_base_ram()[a] = (uint8_t)rec_pokes[i][2]; else if (a - 0x2000 < 0x10000) sapm_cd_ram()[a - 0x2000] = (uint8_t)rec_pokes[i][2];
@@ -115,12 +147,19 @@ int huchost_init(const char *state, const char *trk)
         fprintf(stderr, "sapmhost: track 2 from the cart's pack: %s\n", sapk_on ? "its directory found" : "NO DIRECTORY (the track's file instead)"); }
     ents = malloc(sizeof(uint32_t) * (size_t)maxents); memset(&shadow, 0, sizeof shadow);
     if (!sapm_power(rom, 0, tab, sector, 0)) return 0;
-    vdc_line0_hook = line0; vdc_split_hook = split; vdc_scroll_hook = scroll;
-    io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
+    rom_kept = rom;
     if (getenv("HUC_MASKS")) { long m; rec_masks = slurp(getenv("HUC_MASKS"), &m); rec_n = m / 2; }
     if (getenv("HUC_POKES")) { long m; rec_pokes = slurp(getenv("HUC_POKES"), &m); rec_np = m / 12; }
     sapm_on_frame(at_frame, 0);
     sapm_pad(rec_masks && rec_n ? rec_masks[0] : 0);
+    if (getenv("SAPM_SKIP")) {                                /* (docs/57: a test's start - that many frames run here first, with no
+                                                                 picture or sound made of them: a stage reached in seconds. The PSG's
+                                                                 chip then lacks what was written before: for speed tests, not sound) */
+        const long n = atol(getenv("SAPM_SKIP")); sapm_run_frames(n);
+        fprintf(stderr, "sapmhost: %ld frames run before the first picture\n", n);
+    }
+    vdc_line0_hook = line0; vdc_split_hook = split; vdc_scroll_hook = scroll;
+    io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
     fprintf(stderr, "sapmhost: the machine from power-on (the System Card, the disc's table%s)\n", rec_masks ? ", a recording's pad" : "");
     return 1;
 }
@@ -138,6 +177,55 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
     return nents;
 }
 int huchost_audio(const int16_t **samples) { *samples = snd; return nsnd; }
+/* docs/57 (a measure for the PC): the background of the last picture - the PC Engine palettes its window uses, their
+   colours in all, and whether they pack into the Genesis plane's 4 palettes of 15 (a palette's colours stay together;
+   greedy, the biggest first: what rt_bg2.c's pack can at best do) */
+int huchost_bgstat(int *colours_out, int *fits)
+{
+    const V32 *v = &pic; const int w = (v->MWR >> 4) & 3, mw = w == 0 ? 32 : w == 1 ? 64 : 128, mh = (v->MWR & 0x40) ? 64 : 32;
+    uint16_t used[16]; memset(used, 0, sizeof used);
+    if (!(v->t.CR & 0x80)) { *colours_out = 0; *fits = 1; return 0; }
+    for (int ty = 0; ty < 29; ty++) for (int tx = 0; tx < 33; tx++) {
+        const int my = ((v->BYR >> 3) + ty) & (mh - 1), mx = ((v->BXR >> 3) + tx) & (mw - 1);
+        const uint16_t e = v->vram[my * mw + mx]; const unsigned t = e & 0x7FF; uint16_t m = 0;
+        for (int y = 0; y < 8; y++) { const uint16_t a = v->vram[(t * 16 + y) & 0x7FFF], b = v->vram[(t * 16 + 8 + y) & 0x7FFF];
+            for (int x = 0; x < 8; x++) { const int c = (a >> x & 1) | (a >> (8 + x) & 1) << 1 | (b >> x & 1) << 2 | (b >> (8 + x) & 1) << 3; m |= (uint16_t)(1u << c); } }
+        used[e >> 12] |= m;
+    }
+    int np = 0; uint16_t set[16][16]; int ns[16]; int order[16];
+    static uint8_t seen[512]; memset(seen, 0, sizeof seen); int total = 0;
+    for (int p = 0; p < 16; p++) { ns[p] = 0; if (used[p] & 0xFFFE) np++;
+        for (int i = 1; i < 16; i++) if (used[p] >> i & 1) { const uint16_t c = v->color[p * 16 + i] & 0x1FF; int k; for (k = 0; k < ns[p] && set[p][k] != c; k++) { }
+            if (k == ns[p]) set[p][ns[p]++] = c; if (!seen[c]) { seen[c] = 1; total++; } }
+        order[p] = p; }
+    for (int i = 0; i < 16; i++) for (int j = i + 1; j < 16; j++) if (ns[order[j]] > ns[order[i]]) { const int t = order[i]; order[i] = order[j]; order[j] = t; }
+    uint16_t g[4][15]; int gn[4] = { 0, 0, 0, 0 }; int ok = 1;
+    for (int oi = 0; oi < 16 && ok; oi++) { const int p = order[oi]; if (!ns[p]) continue; int best = -1, bestadd = 99;
+        for (int q = 0; q < 4; q++) { int add = 0; for (int k = 0; k < ns[p]; k++) { int j; for (j = 0; j < gn[q] && g[q][j] != set[p][k]; j++) { } if (j == gn[q]) add++; }
+            if (gn[q] + add <= 15 && add < bestadd) { bestadd = add; best = q; } }
+        if (best < 0) { ok = 0; break; }
+        for (int k = 0; k < ns[p]; k++) { int j; for (j = 0; j < gn[best] && g[best][j] != set[p][k]; j++) { } if (j == gn[best]) g[best][gn[best]++] = set[p][k]; } }
+    *colours_out = total; *fits = ok; return np;
+}
 int huchost_psg(const uint16_t **w) { *w = psgw; const int n = npsg; npsg = 0; return n; }
+/* docs/58 (the options menu): a byte into the game's RAM through the cart's poke port - below 0x2000 the base RAM, from
+   0x2000 the CD RAM (the recordings' pokes' addresses) */
+void huchost_poke(uint32_t a, uint8_t v) { if (a < 0x2000) sapm_base_ram()[a] = v; else if (a - 0x2000 < 0x10000) sapm_cd_ram()[a - 0x2000] = v; }
+void huchost_warp(int stage)                                  /* (docs/58: the cart's register - a new game at stage 1-5;
+                                                                 bits 8-15: its lives, 0 the game's own) */
+{
+    warp_lives = stage >> 8 & 0xFF; stage &= 0xFF;
+    if (stage < 1 || stage > 5 || !rom_kept) return;
+    static uint8_t br[2048]; static uint16_t vr[65536], sa[256], co[512];
+    memcpy(br, sapm_bram(), sizeof br);                       /* (the backup RAM stays; the video memory too - its change
+                                                                 would be 32,768 words in one picture) */
+    memcpy(vr, sapm_vram(), sizeof vr); memcpy(sa, sapm_sat(), sizeof sa); memcpy(co, sapm_colors(), sizeof co);
+    for (unsigned c = 0; c < 6; c++) { psg_tap(0, (uint8_t)c); psg_tap(4, 0); }   /* (no note left sounding) */
+    if (!sapm_power(rom_kept, br, tab, sector, 0)) return;
+    memcpy(sapm_vram(), vr, sizeof vr); memcpy(sapm_sat(), sa, sizeof sa); memcpy(sapm_colors(), co, sizeof co);
+    rec_masks = NULL; rec_n = 0; rec_np = 0;                  /* (a recording's pad and pokes end here) */
+    warp_stage = stage; warp_phase = 1; warp_t = 0; scsi_turbo = 4; sapm_pad(0);
+    fprintf(stderr, "sapmhost: a new game at stage %d\n", stage);
+}
 const uint16_t *huchost_vram(void) { return vsnap; }
 uint32_t huchost_hash(void) { return sapm_hash(0); }

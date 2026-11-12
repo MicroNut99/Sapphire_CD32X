@@ -157,6 +157,18 @@ endif
 # did not trace runs interpreted
 # SAPK=1 (docs/52; with COMBO=1 CDR=1 and the stack's PACKED=1 EDCD_PACKED=1 EDCD_W0=8 FBCART=1): the data track and the
 # combinations from the packed launcher's pack (tools/sa_pack.py), the CD for its music only
+# SP_MENU=1 (docs/58, the live build): START opens the options menu (lives, autofire, the volumes, exact colours, credits)
+ifeq ($(SP_MENU),1)
+CCFLAGS += -DSP_MENU
+endif
+# PADVB=1 (docs/57, the live build; the stack built PADVB=1 too): the pad from COMM4 at every vertical blank, no command 48
+ifeq ($(PADVB),1)
+CCFLAGS += -DPADVB
+endif
+# FIFO_LAG=n (docs/57, the live build): a picture is asked for only when the SH2 is at most n frames behind the game (default 1; 99: as before)
+ifneq ($(FIFO_LAG),)
+CCFLAGS += -DFIFO_LAG=$(FIFO_LAG)
+endif
 # TPSG=1 (docs/54, with FIFO_LIVE=1 and the stack built TPSG=1): the PSG's sound by the Sega CD's PCM chip (command 103)
 ifeq ($(TPSG),1)
 CCFLAGS += -DTPSG

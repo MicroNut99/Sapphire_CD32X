@@ -25,6 +25,7 @@ typedef struct {
     /* what the PCM chip was last given (0xFFFF...: nothing yet) */
     struct { uint16_t fd, ls; uint8_t env, pan, on, noise, slot; } out[6];
     uint8_t noise_done;
+    uint8_t vol;                                          /* the player's own volume, 0 (silent) - 8 (full): tpsg_volume */
     struct { uint8_t wave[32], used; uint16_t age; } slot[TPSG_SLOTS]; uint16_t clock;   /* the waveforms the wave RAM holds */
 } Tpsg;
 /* the chip's side, given by the host: a register of channel ch (0 ENV, 1 PAN, 2 FDL, 3 FDH, 4 LSL, 5 LSH, 6 ST), the
@@ -38,6 +39,7 @@ typedef struct {
 void tpsg_power(Tpsg *t);
 void tpsg_write(Tpsg *t, unsigned a, uint8_t v);          /* a PSG register write ($0800 + a, a = 0-9) */
 void tpsg_update(Tpsg *t, const TpsgOut *o);              /* send the chip what changed */
+void tpsg_volume(Tpsg *t, unsigned vol);                  /* 0-8: every channel's level scaled (a game's menu); the next tpsg_update sends it */
 /* a tone's period (1-4095; 0 = 4096) as the chip's step and the cycles its loop holds; 0: too high to play (muted) */
 int tpsg_tone(unsigned period, uint16_t *fd, uint8_t *cycles);
 #endif

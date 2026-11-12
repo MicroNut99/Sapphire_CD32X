@@ -258,7 +258,15 @@ static int colours(Bg2 *b, const V32 *v, uint16_t *chgd)
         for (int p = 0; p < 16; p++) if (b->g[p] == g) for (int i = 1; i < 16; i++) if (b->m[p][i] == j) {
             const unsigned c = v->color[p * 16 + i] & 0x1FF; int k;
             for (k = 0; k < nv; k++) if (vals[k] == c) break;
-            if (k == nv) { vals[nv] = c; cnt[nv++] = 0; } cnt[k]++; }
+            if (k == nv) {
+                if (nv == 64) continue;            /* (Sapphire docs/58: no more than the arrays hold. 16 palettes' 240 entries
+                                                     can share a slot - all black in a fade - and then each take its own
+                                                     colour: the 65th wrote past cnt[], over the caller's saved registers
+                                                     (the secondary SH2 returned to address 1 in ares at the title and at
+                                                     the game's start). An entry not counted differs from the colour kept
+                                                     and is unmapped below like the rest) */
+                vals[nv] = c; cnt[nv++] = 0; }
+            cnt[k]++; }
         int keep = 0; for (int k = 1; k < nv; k++) if (cnt[k] > cnt[keep] || (cnt[k] == cnt[keep] && vals[k] == b->gcol[g][j])) keep = k;
         b->gcol[g][j] = (uint16_t)vals[keep];
         if (nv > 1) { ST(b->st.splits++);

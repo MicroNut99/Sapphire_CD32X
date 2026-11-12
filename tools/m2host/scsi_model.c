@@ -188,6 +188,8 @@ static int disc_open(Hw *io, const char *cue)
 }
 #endif
 
+int scsi_turbo = 1;   /* (Sapphire docs/58: the drive's data rate times this - the stage select's loads; 1 is the drive's own, the
+                         reference's) */
 /* ---- the commands ---- */
 static void do_read(Hw *io, uint32_t sa, uint32_t sc)
 {
@@ -198,7 +200,9 @@ static void do_read(Hw *io, uint32_t sa, uint32_t sc)
     if (!(k->t[t].control & 4)) { cc_error(io, 3, 0x1D); return; }
     if (!sc && (int32_t)sa == k->leadout) { cc_error(io, 3, 0x16); return; }
     d->sector_addr = sa; d->sector_count = sc;
-    if (sc) io->read_timer = (int32_t)((uint64_t)3 * 2048 * d->system_clock / d->rate);
+    { static int lg = -1; if (lg < 0) lg = getenv("SCSI_LOG") != NULL;   /* (docs/58) each read command as the game gives it */
+      if (lg) printf("scsi read lba %u n %u\n", (unsigned)sa, (unsigned)sc); }
+    if (sc) io->read_timer = (int32_t)((uint64_t)3 * 2048 * d->system_clock / d->rate) / scsi_turbo;
     else { io->read_timer = 0; status_message(io, 0, 0); }
     io->cdda_status = 0;
 }
@@ -282,7 +286,7 @@ static void run_read(Hw *io, int64_t run)
     if (io->read_timer <= 0) return;
     io->read_timer -= (int32_t)run;
     if (io->read_timer > 0) return;
-    const int32_t one = (int32_t)((uint64_t)2048 * d->system_clock / d->rate);
+    const int32_t one = (int32_t)((uint64_t)2048 * d->system_clock / d->rate) / scsi_turbo;
     if (2048 - d->fifo_n < 2048) { io->read_timer += one; return; }        /* the FIFO not empty yet: a sector later */
     uint8_t b[2048];
     if ((int32_t)d->sector_addr >= d->disc.leadout) { cc_error(io, 5, 0x25); return; }

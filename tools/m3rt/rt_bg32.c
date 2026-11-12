@@ -11,6 +11,17 @@
  *                                       entries it took: own[i] = 1, cram[i] = the colour (15-bit 32X); 0 if it had
  *                                       too many colours (more than the free entries: the picture is drawn anyway,
  *                                       the extra colours as the nearest)
+ *
+ * docs/58: drawn a tile's row at a time. It was a pixel at a time - four bits picked out of the tile's planes, the
+ * colour looked up, a byte written: 0.45 s a picture on the SH2 (ares, stage 1's start: 2.2 pictures a second, the
+ * master in it in 89 of 100 samples). Now in two parts, so both SH2s can draw:
+ *   bg32_masks(v, used)                 the colour indices the window's tiles use, a palette (from VRAM; the cart's
+ *                                       FPGA keeps them a tile - main.c - and the caller passes those instead)
+ *   bg32_prep(v, cram, own, used)       the entries, as before (a colour keeps its entry from picture to picture),
+ *                                       and each palette's table of two pixels at once; the return as bg32_draw's
+ *   bg32_rows(v, fb, pitch, y0, y1)     lines y0..y1-1: a tile's row = its two VRAM words through a table that
+ *                                       spreads a byte's bits into nibbles, four lookups for its 8 pixels, two longs
+ *                                       out - shifted when the scroll is not on a long (fb + y * pitch on one)
  */
 #include <string.h>
 #include "rt_bg32.h"
@@ -36,8 +47,36 @@ int bg32_wanted(const V32 *v)
     return n > 4;
 }
 
-int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t own[256])
+/* a byte's bits, each in its own nibble: bit 7 in the top one (a tile row's 8 pixels, left to right) */
+static uint32_t sp_tab[256];
+static uint8_t lut[16][16];                              /* (a palette's index -> the 32X entry; 0: the backdrop's) */
+static uint16_t lut2[16][256];                           /* (two pixels: the byte's nibbles -> two entries) */
+static void sp_make(void)
 {
+    if (sp_tab[1]) return;
+    for (int b = 0; b < 256; b++) { uint32_t w = 0; for (int k = 0; k < 8; k++) if (b >> (7 - k) & 1) w |= 1u << (28 - 4 * k); sp_tab[b] = w; }
+}
+#define ROW_NIB(a, b) (sp_tab[(a) & 0xFF] | sp_tab[(a) >> 8] << 1 | sp_tab[(b) & 0xFF] << 2 | sp_tab[(b) >> 8] << 3)
+
+void bg32_masks(const V32 *v, uint16_t used[16])
+{
+    sp_make();
+    const int mw = map_w(v), mh = map_h(v);
+    for (int p = 0; p < 16; p++) used[p] = 0;
+    for (int ty = 0; ty < 29; ty++) for (int tx = 0; tx < 33; tx++) {
+        const int my = ((v->BYR >> 3) + ty) & (mh - 1), mx = ((v->BXR >> 3) + tx) & (mw - 1);
+        const uint16_t e = v->vram[my * mw + mx]; const unsigned tile = e & 0xFFF; uint16_t m = 1;
+        if (tile < 0x800) for (int r = 0; r < 8; r++) {
+            uint32_t w = ROW_NIB(v->vram[tile * 16 + r], v->vram[tile * 16 + 8 + r]);
+            for (int k = 0; k < 8; k++, w >>= 4) m |= (uint16_t)(1u << (w & 15));
+        }
+        used[e >> 12] |= m;
+    }
+}
+
+int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t used_idx[16])
+{
+    sp_make();
     /* the 32X palette entries free: those of the sprite palettes no sprite of the table uses (entry 0 of each is
        transparent) */
     uint16_t spals = 0;
@@ -56,36 +95,77 @@ int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t 
         if (nfree) { idx_of[0] = freei[0]; used[nused++] = 0; own[freei[0]] = 1; cram[freei[0]] = 0; bg32_black = freei[0]; }
                                                               /* (black first: the borders, as the PC Engine's) */
     }
-    const int mw = map_w(v), mh = map_h(v);
-    for (int y = 0; y < 224; y++) {
-        const int yy = (v->BYR + y) & (mh * 8 - 1), my = yy >> 3, r = yy & 7;
-        uint8_t *o = fb + y * pitch;
-        for (int x = 0; x < 256; ) {
-            const int xx = (v->BXR + x) & (mw * 8 - 1), mx = xx >> 3;
-            const uint16_t e = v->vram[my * mw + mx];
-            const unsigned pal = e >> 12, tile = e & 0xFFF;
-            const uint16_t a = tile < 0x800 ? v->vram[tile * 16 + r] : 0, b = tile < 0x800 ? v->vram[tile * 16 + 8 + r] : 0;
-            for (int k = xx & 7; k < 8 && x < 256; k++, x++) {
-                const unsigned c = ((a >> (7 - k)) & 1) | (((a >> (15 - k)) & 1) << 1) | (((b >> (7 - k)) & 1) << 2) | (((b >> (15 - k)) & 1) << 3);
-                const unsigned col = (c ? v->color[pal * 16 + c] : v->color[0]) & 0x1FF;
-                uint16_t ix = idx_of[col];
-                if (ix == 0xFFFF) {
-                    if (nused < nfree) { ix = freei[nused]; used[nused++] = (uint16_t)col; own[ix] = 1; cram[ix] = c32(col); }
-                    else {                                    /* (out of entries: the nearest of those taken) */
-                        ok = 0; int best = 1 << 30;
-                        for (int i = 0; i < nused; i++) {
-                            const int dr = (int)(col & 7) - (int)(used[i] & 7), dg = (int)(col >> 6) - (int)(used[i] >> 6), db = (int)((col >> 3) & 7) - (int)((used[i] >> 3) & 7);
-                            const int d = dr * dr + dg * dg + db * db;
-                            if (d < best) { best = d; ix = freei[i]; }
-                        }
-                        if (ix == 0xFFFF) ix = 1;
+    for (int p = -1; p < 16; p++) {                           /* (-1: the backdrop, the colour of every index 0) */
+        if (p >= 0 && !(used_idx[p] & 0xFFFE)) continue;
+        for (int c = p < 0 ? 0 : 1; c < (p < 0 ? 1 : 16); c++) {
+            if (p >= 0 && !(used_idx[p] >> c & 1)) { lut[p][c] = lut[0][0]; continue; }
+            const unsigned col = v->color[p < 0 ? 0 : p * 16 + c] & 0x1FF;
+            uint16_t ix = idx_of[col];
+            if (ix == 0xFFFF) {
+                if (nused < nfree) { ix = freei[nused]; used[nused++] = (uint16_t)col; own[ix] = 1; cram[ix] = c32(col); }
+                else {                                        /* (out of entries: the nearest of those taken) */
+                    ok = 0; int best = 1 << 30;
+                    for (int i = 0; i < nused; i++) {
+                        const int dr = (int)(col & 7) - (int)(used[i] & 7), dg = (int)(col >> 6) - (int)(used[i] >> 6), db = (int)((col >> 3) & 7) - (int)((used[i] >> 3) & 7);
+                        const int d = dr * dr + dg * dg + db * db;
+                        if (d < best) { best = d; ix = freei[i]; }
                     }
-                    idx_of[col] = ix;
+                    if (ix == 0xFFFF) ix = 1;
                 }
-                o[x] = (uint8_t)ix;
+                idx_of[col] = ix;
             }
+            if (p < 0) { for (int q = 0; q < 16; q++) lut[q][0] = (uint8_t)ix; } else lut[p][c] = (uint8_t)ix;
+        }
+        if (p >= 0) { const uint8_t *l = lut[p]; uint16_t *t = lut2[p];
+            for (int n = 0; n < 256; n++) t[n] = (uint16_t)(l[n >> 4] << 8 | l[n & 15]); }
+    }
+    {   const uint8_t z = lut[0][0];                           /* (a tile past VRAM's tiles, a palette no tile uses: the backdrop) */
+        for (int p = 0; p < 16; p++) if (!(used_idx[p] & 0xFFFE)) { uint16_t *t = lut2[p]; for (int n = 0; n < 256; n++) t[n] = (uint16_t)(z << 8 | z); } }
+    if (!ok) nused = -1;                                      /* (out of entries: a new map at the next picture) */
+    return ok;
+}
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define PUT32(d, x) (*(d) = (x))
+#else
+#define PUT32(d, x) do { uint8_t *b_ = (uint8_t *)(d); const uint32_t x_ = (x); b_[0] = (uint8_t)(x_ >> 24); b_[1] = (uint8_t)(x_ >> 16); b_[2] = (uint8_t)(x_ >> 8); b_[3] = (uint8_t)x_; } while (0)
+#endif
+#ifdef __sh__
+__attribute__((optimize("O2")))                          /* (the build is -Os: this loop is the picture's time) */
+#endif
+void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
+{
+    const int mw = map_w(v), mh = map_h(v);
+    const unsigned o = v->BXR & 7; const int m0 = (int)(o >> 2);
+    const int mx0 = (v->BXR >> 3) & (mw - 1);
+    for (int y = y0; y < y1; y++) {
+        const int yy = (v->BYR + y) & (mh * 8 - 1), r = yy & 7;
+        const uint16_t *bat = v->vram + (yy >> 3) * mw;
+        uint32_t S[66]; uint32_t *q = S;                      /* (the line's 33 tiles' rows: 264 pixels as longs) */
+        for (int k = 0, mx = mx0; k < 33; k++, mx = (mx + 1) & (mw - 1)) {
+            const uint16_t e = bat[mx]; const unsigned tile = e & 0xFFF; const uint16_t *t2 = lut2[e >> 12];
+            if (tile < 0x800) {
+                const uint16_t a = v->vram[tile * 16 + r], b = v->vram[tile * 16 + 8 + r];
+                const uint32_t w = ROW_NIB(a, b);
+                *q++ = (uint32_t)t2[w >> 24] << 16 | t2[(w >> 16) & 0xFF];
+                *q++ = (uint32_t)t2[(w >> 8) & 0xFF] << 16 | t2[w & 0xFF];
+            } else { const uint32_t z = (uint32_t)t2[0] << 16 | t2[0]; *q++ = z; *q++ = z; }
+        }
+        uint32_t *d = (uint32_t *)(void *)(fb + y * pitch); const uint32_t *s_ = S + m0;
+        switch (o & 3) {                                      /* (each shift a constant: the SH2 shifts by a variable only
+                                                                 through a library call - two a long, the first version) */
+        case 0: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j]); break;
+        case 1: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j] << 8 | s_[j + 1] >> 24); break;
+        case 2: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j] << 16 | s_[j + 1] >> 16); break;
+        default: for (int j = 0; j < 64; j++) PUT32(d + j, s_[j] << 24 | s_[j + 1] >> 8); break;
         }
     }
-    if (!ok) nused = -1;                                      /* (out of entries: a new map at the next picture) */
+}
+
+int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t own[256])
+{
+    uint16_t used[16]; bg32_masks(v, used);
+    const int ok = bg32_prep(v, cram, own, used);
+    bg32_rows(v, fb, pitch, 0, 224);
     return ok;
 }

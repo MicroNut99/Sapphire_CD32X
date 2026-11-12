@@ -25,6 +25,23 @@ static FILE *track_f[101];
 static int sector(void *user, int32_t lba, uint8_t *out)
 {
     (void)user;
+    {   /* docs/58, SEC_LOG=1: each run of sectors read - its first frame, its first LBA and its length */
+        static int on = -1; static int32_t first = -1, next = -1; static long f0;
+        if (on < 0) on = getenv("SEC_LOG") != NULL;
+        if (on && (lba != next || out == NULL)) { if (first >= 0) printf("read frame %ld lba %d n %d\n", f0, first, next - first); first = lba; f0 = sapm_frame(); }
+        if (out == NULL) return 0;                 /* (the run's end: the last run printed) */
+        {   /* SEC_REMAP=<lo>:<n>:<to> (docs/58, the stage select's experiment): sectors lo..lo+n-1 come from to.. */
+            static int32_t lo = -2, n, to;
+            if (lo == -2) { const char *e = getenv("SEC_REMAP"); lo = -1; if (e) sscanf(e, "%d:%d:%d", &lo, &n, &to); }
+            if (lo >= 0 && lba >= lo && lba < lo + n) lba = to + (lba - lo);
+        }
+        {   /* SEC_DUMP=<lba>:<file>: base RAM, CD RAM and Super RAM as that sector is first asked for */
+            static int32_t at = -2; static const char *fn;
+            if (at == -2) { const char *e = getenv("SEC_DUMP"); at = e ? atoi(e) : -1; fn = e && strchr(e, ':') ? strchr(e, ':') + 1 : NULL; }
+            if (fn && lba == at) { FILE *f = fopen(fn, "wb"); if (f) { fwrite(sapm_base_ram(), 1, 8192, f); fwrite(sapm_cd_ram(), 1, 65536, f); fwrite(sapm_super_ram(), 1, 196608, f); fclose(f); } fn = NULL; }
+        }
+        next = lba + 1;
+    }
     for (int t = tab[0]; t <= tab[1]; t++) {
         const int32_t *x = tab + 3 + 6 * t;
         if (lba >= x[0] && lba < x[0] + x[1] && track_f[t]) {
@@ -42,6 +59,7 @@ static void *load(const char *p, long *n)
 }
 int main(int argc, char **argv)
 {
+    { extern int scsi_turbo; if (getenv("SCSI_TURBO")) scsi_turbo = atoi(getenv("SCSI_TURBO")); }   /* (docs/58: an experiment) */
     if (argc < 5) { fprintf(stderr, "sapm_pc <System Card> <backup RAM | -> <disc table> <masks> [frames]\n"); return 2; }
     long n; uint8_t *sc = load(argv[1], &n); const uint8_t *rom = n == 262144 + 512 ? sc + 512 : sc;
     if (n != 262144 && n != 262144 + 512) { fprintf(stderr, "the System Card: %ld bytes\n", n); return 2; }
@@ -70,6 +88,7 @@ int main(int argc, char **argv)
         const int64_t step = atol(getenv("RUN_STEP"));
         while (sapm_frame() < frames) sapm_run_until(sapm_now() + step);
     } else sapm_run_frames(frames);
+    sector(NULL, -1, NULL);
     return 0;
 }
 static void at_frame(void *user, long k)                       /* the frame's end: its hash, and the next frame's pad */
@@ -88,10 +107,17 @@ static void at_frame(void *user, long k)                       /* the frame's en
         static FILE *lf; if (!lf) lf = fopen("lines.bin", "wb");
         if (lf) fwrite(sapm_lines(), 2, 263 * 2, lf);
     }
+    if (getenv("RAM_LOG")) {   /* docs/58, RAM_LOG=<hex address>[,...] (below 0x2000 base RAM, from 0x2000 CD RAM): each byte as it changes */
+        static uint32_t ad[16]; static int na = -1, last[16];
+        if (na < 0) { na = 0; for (const char *q = getenv("RAM_LOG"); q && *q && na < 16; ) { ad[na] = (uint32_t)strtoul(q, (char **)&q, 16); last[na++] = -1; if (*q == ',') q++; } }
+        for (int i = 0; i < na; i++) { const int v = ad[i] < 0x2000 ? sapm_base_ram()[ad[i]] : sapm_cd_ram()[(ad[i] - 0x2000) & 0xFFFF];
+            if (v != last[i]) { printf("ram frame %ld %04X = %02X\n", k, ad[i], v); last[i] = v; } }
+    }
     {
-        uint8_t md[16]; sapm_md5(md);
+        static int quiet = -1; if (quiet < 0) quiet = getenv("QUIET") != NULL;   /* (docs/58: no md5 lines) */
+        uint8_t md[16]; if (!quiet) sapm_md5(md);
         if (getenv("PRINT_HASH")) printf("frame %ld hash %08x\n", k, sapm_hash(0));   /* (as the ares model's DRACX_HASHES) */
-        printf("frame %ld md5 ", k); for (int i = 0; i < 16; i++) printf("%02x", md[i]); printf("\n");
+        if (!quiet) { printf("frame %ld md5 ", k); for (int i = 0; i < 16; i++) printf("%02x", md[i]); printf("\n"); }
         if (getenv("RUN_STATE") && atol(getenv("RUN_STATE")) == k) sapm_state_text();
         const long every = getenv("RUN_DUMP_EVERY") ? atol(getenv("RUN_DUMP_EVERY")) : 0;   /* or every n frames: <file>.<k> */
         if ((getenv("RUN_DUMP") && atol(getenv("RUN_DUMP")) == k) || (every > 0 && k % every == 0 && k >= (getenv("RUN_DUMP_FROM") ? atol(getenv("RUN_DUMP_FROM")) : 0))) {   /* the state after frame k, as trace_main.c's RUN_DUMP */

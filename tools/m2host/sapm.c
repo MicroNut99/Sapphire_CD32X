@@ -207,8 +207,16 @@ int trace_check(Cpu *c, uint16_t pc)
 start:
     started = 1;
     { static long itf = -2; if (itf == -2) itf = getenv("ITRACE") ? atol(getenv("ITRACE")) : -1;
-      if (frame == itf) printf("i %04X %02X %02X %02X %02X %02X t %lld\n", pc, c->A, c->X, c->Y, c->S, c->P, (long long)t_ins); }
+      if (frame == itf) { static int once; if (!once) { once = 1; printf("mpr"); for (int i = 0; i < 8; i++) printf(" %02X", c->MPR[i]); printf("\n"); }
+          printf("i %04X %02X %02X %02X %02X %02X t %lld\n", pc, c->A, c->X, c->Y, c->S, c->P, (long long)t_ins); } }
     const uint8_t op = RD_(c, pc), k = huc_class[op];
+    {   /* (docs/58, IFF=1: the first run of three $FF opcodes - a jump into nothing - with the 48 instructions before it) */
+        static int on = -1, run; static uint16_t ring[64]; static uint8_t rb[64], ra[64]; static unsigned rn;
+        if (on < 0) on = getenv("IFF") != NULL;
+        if (on) { ring[rn & 63] = pc; rb[rn & 63] = c->MPR[pc >> 13]; ra[rn & 63] = c->A; rn++; run = op == 0xFF ? run + 1 : 0;
+            if (run == 3) { printf("iff frame %ld:", frame); for (unsigned i = rn - 51; i != rn; i++) printf(" %02X:%04X(%02X)", rb[i & 63], ring[i & 63], ra[i & 63]);
+                printf("\nmpr"); for (int i = 0; i < 8; i++) printf(" %02X", c->MPR[i]); printf("  S %02X\n", c->S); on = 0; } }
+    }
     prev_i_gate = (k & OC_IGATE) ? (c->P & IF) != 0 : -1;
     cur_op = op; cur_pc = pc; cur_p = c->P; cur_acc = 0; cur_wait = 0; cur_u = cpu_speed ? 3 : 12; bm_done = 0;
     cur_base = huc_cycles[op] + ((k & OC_DEC) && (c->P & DF) ? 1 : 0) + (prev_set && (k & OC_T) ? 3 : 0);

@@ -1,0 +1,114 @@
+From 10815be8e46a0d9a05a66221f9d69620db1d264f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 10:28:18 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in - the options menu's
+ poke port (0xcf-0xd1) and stage select (0xd2/0xd3, huchost_warp); DIAG -
+ PR/R15/R0-R3 at an illegal instruction (ARES_PC), ARES_WATCH: the last SH2
+ writes into an SDRAM range (docs/58)
+
+The watch found the secondary SH2's crash: rt_bg2.c's colours() ran past its 64-entry arrays in a fade.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/component/processor/sh2/exceptions.cpp  |  3 +++
+ ares/md/cartridge/board/sapphire-huchost.hpp | 14 ++++++++++++++
+ ares/md/m32x/bus-internal.cpp                | 18 ++++++++++++++++++
+ 3 files changed, 35 insertions(+)
+
+diff --git a/ares/component/processor/sh2/exceptions.cpp b/ares/component/processor/sh2/exceptions.cpp
+index abf476e..a12b8fd 100644
+--- a/ares/component/processor/sh2/exceptions.cpp
++++ b/ares/component/processor/sh2/exceptions.cpp
+@@ -1,3 +1,4 @@
++extern "C" void aresWatchDump() __attribute__((weak));   //DIAG (Sapphire docs/58): md/m32x/bus-internal.cpp, ARES_WATCH
+ auto SH2::exceptionHandler() -> void {
+   if(!exceptions) return;
+   if(inDelaySlot()) { cyclesUntilRecompilerExit = 0; return; }
+@@ -58,6 +59,8 @@ auto SH2::addressErrorDMA() -> void {
+ auto SH2::illegalInstruction() -> void {
+   if(inDelaySlot()) return illegalSlotInstruction();
+   debug(unusual, "[SH2] illegal instruction: 0x", hex(busReadWord(PC - 4), 4L), " @ 0x", hex(PC - 4));
++  if(getenv("ARES_PC")) fprintf(stderr, "[SH2] illegal instruction at %08x: PR %08x  R15 %08x  R0 %08x R1 %08x R2 %08x R3 %08x\n", (u32)(PC - 4), (u32)PR, (u32)R[15], (u32)R[0], (u32)R[1], (u32)R[2], (u32)R[3]);   //DIAG (Sapphire docs/58)
++  if(getenv("ARES_PC") && aresWatchDump) aresWatchDump();   //DIAG: the watched writes (md/m32x/bus-internal.cpp)
+   static constexpr u8 vector = 0x04;
+   push(SR);
+   push(PC - 4);
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index ef37fe9..ef766b0 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -17,6 +17,8 @@ struct SapphireHuc {
+   u16 pad = 0, padLow = 0;
+   int (*frameFn)(u16, const u32**) = nullptr;
+   int (*audioFn)(const s16**) = nullptr;
++  void (*pokeFn)(u32, u8) = nullptr; u32 pokeAt = 0;   //(docs/58)
++  void (*warpFn)(int) = nullptr; u8 warpLives = 0;      //(docs/58: the stage select)
+   int (*psgFn)(const u16**) = nullptr;   //(docs/54: the frame's PSG register writes)
+   u32 psgCount = 0;
+   u16 psgW[65536]; u16 psgN[1024]; u32 psgWw = 0, psgWr = 0, psgFw = 0, psgFr = 0;   //(docs/55: frames' PSG writes waiting for their vertical blank)
+@@ -52,6 +54,8 @@ struct SapphireHuc {
+     frameFn = (int (*)(u16, const u32**))dlsym(h, "huchost_frame");
+     audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
+     psgFn = (int (*)(const u16**))dlsym(h, "huchost_psg"); psgCount = 0;
++    pokeFn = (void (*)(u32, u8))dlsym(h, "huchost_poke");
++    warpFn = (void (*)(int))dlsym(h, "huchost_warp");
+     if(!getenv("ARES_HUC_PSGRING")) psgFn = nullptr;
+     psgNow = getenv("ARES_HUC_PSGRING") && getenv("ARES_HUC_PSGRING")[0] == '2'; psgWw = psgWr = psgFw = psgFr = 0; psgVc = 0;
+     vramFn = (const u16* (*)())dlsym(h, "huchost_vram");
+@@ -103,6 +107,16 @@ struct SapphireHuc {
+   }
+   auto write(u32 r, u32 v) -> bool {
+     if(!on) return false;
++    //(Sapphire docs/58: the options menu) the poke port into the cart CPU's RAM: 0xcf the address' low byte, 0xd0 its high
++    //byte, 0xd1 the value - written at once (below 0x2000 the base RAM, from 0x2000 the CD RAM, as the recordings' pokes)
++    if(r == 0xcf) { pokeAt = (pokeAt & 0xff00) | v; return true; }
++    if(r == 0xd0) { pokeAt = (pokeAt & 0x00ff) | v << 8; return true; }
++    if(r == 0xd1) { if(pokeFn) pokeFn(pokeAt, v); if(getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: poke %04x = %02x\n", pokeAt, v); return true; }
++    //0xd2: a new game held to stage 1-5 (the stand-in resets its machine, presses RUN to the game's start and serves the
++    //stage's own sectors - sapmhost.c huchost_warp; on the cart the engine's reset, feed and poke port)
++    //(0xd3 first: the new game's lives, 0 the game's own)
++    if(r == 0xd3) { warpLives = v; return true; }
++    if(r == 0xd2) { if(warpFn) warpFn(v | warpLives << 8); if(getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: warp to stage %d, lives %d\n", v, warpLives); return true; }
+     if(r == 0xcd) { padLow = v; if(getenv("ARES_HUC_LOG2")) fprintf(stderr, "huchost: w cd %02x\n", v); return true; }
+     if(r == 0xce) { u16 p = (u16)(v << 8 | padLow); if(p != pad && getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: pad %04x at picture %u\n", p, pictures); pad = p; return true; }
+     return false;
+diff --git a/ares/md/m32x/bus-internal.cpp b/ares/md/m32x/bus-internal.cpp
+index 14d0a19..82c1729 100644
+--- a/ares/md/m32x/bus-internal.cpp
++++ b/ares/md/m32x/bus-internal.cpp
+@@ -82,6 +82,20 @@ auto M32X::readInternal(n1 upper, n1 lower, n32 address, n16 data) -> n16 {
+   return data;
+ }
+ 
++//DIAG (Sapphire docs/58): ARES_WATCH=<lo>,<hi> (hex, SDRAM offsets) - the last 1,024 SH2 writes into the range are kept,
++//with the writing CPU's PC, PR and R15, and printed at an illegal instruction (exceptions.cpp, ARES_PC=1)
++static u32 diagWatchLo = 0, diagWatchHi = 0; static int diagWatchInit = 0;
++struct DiagWatch { u32 a, d, pc, pr, sp; u8 cpu, mask; };
++static DiagWatch diagW[1024]; static u32 diagWn = 0;
++extern "C" void aresWatchDump() {
++  if(!diagWatchHi) return;
++  const u32 n = diagWn < 1024 ? diagWn : 1024;
++  fprintf(stderr, "[watch] the last %u writes into SDRAM %05x-%05x (of %u):\n", n, diagWatchLo, diagWatchHi, diagWn);
++  for(u32 i = diagWn - n; i != diagWn; i++) { const DiagWatch& w = diagW[i & 1023];
++    fprintf(stderr, "[watch] %c %05x %s= %04x  pc %08x pr %08x r15 %08x\n", w.cpu ? 's' : 'm', w.a, w.mask == 3 ? "" : w.mask == 2 ? "hi " : "lo ", w.d, w.pc, w.pr, w.sp); }
++  diagWatchHi = 0;   //(once)
++}
++
+ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
+   if(address >= 0x0000'4000 && address <= 0x0000'43ff) {
+     return writeInternalIO(upper, lower, address, data);
+@@ -113,6 +127,10 @@ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
+   }
+ 
+   if(address >= 0x0600'0000 && address <= 0x0603'ffff) {
++    if(!diagWatchInit) { diagWatchInit = 1; if(const char* e = getenv("ARES_WATCH")) { char* q; diagWatchLo = (u32)strtoul(e, &q, 16) & 0x3ffff; diagWatchHi = *q == ',' ? (u32)strtoul(q + 1, nullptr, 16) & 0x7ffff : 0; } }
++    if(diagWatchHi) { const u32 a = address & 0x3ffff;
++      if(a >= diagWatchLo && a < diagWatchHi) { auto& c = shm.active() ? shm : shs;
++        diagW[diagWn++ & 1023] = {a, (u32)data, (u32)c.regs.PC, (u32)c.regs.PR, (u32)c.regs.R[15], (u8)!shm.active(), (u8)((u32)upper << 1 | (u32)lower)}; } }
+     stats.sdramWrite++;
+     busCharge(timing.sdramWrite, timing.holdWrite);
+     if(upper) sdram[address >> 1 & 0x1ffff].byte(1) = data.byte(1);
+-- 
+2.43.0
+

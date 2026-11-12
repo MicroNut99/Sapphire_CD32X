@@ -50,6 +50,16 @@ void sec_dma1_handler(void) { }
    cache first (the master changed VRAM, the table and the tags since), the master waits for the job's end before the
    game goes on (nothing the drawing reads may change under it) */
 static volatile uint32_t sec_job_, sec_done_; static const V32 *volatile sec_v_;
+#ifdef BG32
+/* (docs/58) the 32X-layer background's lower half: the secondary draws it while the master draws the upper (it idled
+   through bg32_draw, the master in it in 89 of 100 samples at stage 1's start) */
+#define BG32_SEC
+static volatile uint32_t sec_b32_, sec_b32d_, sec_nobg_; static const V32 *volatile sec_bv_;
+#define SEC_NOBG (*(volatile uint32_t *)((uintptr_t)&sec_nobg_ | 0x20000000))
+#define SEC_B32  (*(volatile uint32_t *)((uintptr_t)&sec_b32_ | 0x20000000))
+#define SEC_B32D (*(volatile uint32_t *)((uintptr_t)&sec_b32d_ | 0x20000000))
+#define SEC_BV   (*(const V32 *volatile *)((uintptr_t)&sec_bv_ | 0x20000000))
+#endif
 #define SEC_JOB  (*(volatile uint32_t *)((uintptr_t)&sec_job_ | 0x20000000))
 #define SEC_DONE (*(volatile uint32_t *)((uintptr_t)&sec_done_ | 0x20000000))
 #define SEC_V    (*(const V32 *volatile *)((uintptr_t)&sec_v_ | 0x20000000))
@@ -104,7 +114,17 @@ void secondary(void)
 #endif
     for (;;) {
         uint32_t j;
-        while ((j = SEC_JOB) == seen) for (int i = 0; i < 200; i++) __asm__ volatile("");
+        while ((j = SEC_JOB) == seen) {
+#ifdef BG32_SEC
+            static uint32_t seen32; const uint32_t q = SEC_B32;
+            if (q != seen32) {                                /* (docs/58: lines 112-223 of a 32X-layer background) */
+                seen32 = q; SH2_CCR = 0x11;                   /* (the tables and VRAM are the master's: read again) */
+                bg32_rows(SEC_BV, (uint8_t *)&MARS_FRAMEBUFFER + 0x200 + 32, 320, 112, 224);
+                SEC_B32D = q;
+            }
+#endif
+            for (int i = 0; i < 200; i++) __asm__ volatile("");
+        }
         seen = j;
 #ifdef DX_PLAY
         if (j == 0xFFFFFFFFu) {                               /* (docs/70: a stage switch - to the blob's park) */
@@ -176,6 +196,15 @@ void secondary(void)
 extern void CacheControl(int mode);
 
 #define COMM8_32   (*(volatile uint32_t *)0x20004028)
+/* (docs/57) PADVB=1: COMM4 and COMM6 are the stack's PADVB (ledger 37) - the 68000's blank handler writes pad 1 into COMM4
+   once COMM6 holds 0x5056 - so this program's own figures do not go there */
+#ifdef PADVB
+#define SET_COMM4(x) ((void)(x))
+#define SET_COMM6(x) ((void)(x))
+#else
+#define SET_COMM4(x) (MARS_SYS_COMM4 = (x))
+#define SET_COMM6(x) (MARS_SYS_COMM6 = (x))
+#endif
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
 static volatile int cdr_busy_v;                               /* (docs/69: a sector read under way) */
 #define cdr_busy SH(cdr_busy_v)
@@ -349,7 +378,7 @@ static SDTEXT void on_frame(Rt *r)
 #ifdef PROF_LOG
     prof_frame();
 #endif
-    MARS_SYS_COMM4 = (short)nframes;                          /* the progress (ares prints COMM4 each second) */
+    SET_COMM4((short)nframes);                          /* the progress (ares prints COMM4 each second) */
 #ifdef RT_COMBO
     combo_check(r);                                           /* (docs/39: the game's code changed to another combination?) */
 #endif
@@ -498,6 +527,11 @@ static int sec_bg_job(const V32 *v, int buf) {
 #ifdef BG2_PROF
     { const uint8_t t1 = sec_clk(); DIAGW[31] += (uint8_t)(t1 - t0); }
 #endif
+#ifdef BG32_SEC
+    if (SEC_NOBG) return 0;                                   /* (docs/58: a 32X-layer background covers the plane and the
+                                                                 plane's pack failed - no list, the swap alone; bg2_frame
+                                                                 finds what changed by its tags when it next runs) */
+#endif
     const int n = bg2_frame(&bg2, v, buf); return bg2.jn ? n | 0x8000 : n; }
 #endif
 static void bg2_setup(void)
@@ -608,6 +642,11 @@ static void pace_vbi(void)
 #ifdef BG32
 #include "rt_bg32.h"
 static uint16_t bg32_cram[256]; static uint8_t bg32_own[256]; static int bg32_on;   /* (docs/42) */
+int bg32_cols;                                                /* (docs/58: the last counted window's colours) */
+uint32_t bg2_fpga_tile(unsigned t);
+#if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
+static int opt_exact;                                         /* (docs/58: the menu's EXACT COLOURS, below) */
+#endif
 #endif
 static const uint8_t c5[8] = { 0, 4, 9, 13, 18, 22, 27, 31 };   /* (tools/m1b_motion.py c32word: v * 255 / 7, top 5 bits) */
 /* the picture's sprite colours (cram_pend, pal_dirty) and its number in the left border - the master's, or with SEC=2
@@ -878,13 +917,73 @@ static void draw_hook(V32 *v)
            the sprites, before they are listed - the buffer's sprite boxes forgotten, as the background covers them.
            Leaving the mode clears the buffer's picture once */
         static uint8_t had[2];
+#if defined(BG2_DRAW) && !defined(BG32_ALWAYS)
+#if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
+#define BG32_EXACT opt_exact                              /* (docs/58: the menu's EXACT COLOURS) */
+#else
+#define BG32_EXACT 1
+#endif
+        /* (docs/57) ... and only while the Genesis plane's own pack of the colours fails. "More than 4 palettes" alone sent
+           most of stage 1 here (84 % of its first pictures), where the plane's pack fits them: 4 palettes of 15 hold a
+           picture's 30-50 colours. The pack's answer is the picture before's (bg2.col_ok: the list is made after this);
+           left only after 4 pictures that fit. BG32_ALWAYS: the rule as docs/42 had it */
+        /* (docs/58) A picture with more than 60 colours can never go into 4 palettes of 15 - the title's 89, the
+           intro's 71: always the 32X layer, as before, whatever the pack said of the picture before. The count: the
+           window's tiles' colour masks, which the FPGA keeps (docs/31), a long a tile. (The secondary SH2's crash at the
+           title with this rule was rt_bg2.c's colours(): 64-entry arrays overrun in a fade - mended there) */
+        static int fit_n; static uint16_t bg32_used[16];
+        if (bg2.col_ok && !bg2.late) { if (fit_n < 4) fit_n++; } else if (!bg2.col_ok) fit_n = 0;   /* (docs/58: and the plane whole) */
+        int want = bg32_wanted(v);
+        if (want) {
+            const int w_ = (v->MWR >> 4) & 3, mw = w_ == 0 ? 32 : w_ == 1 ? 64 : 128, mh = (v->MWR & 0x40) ? 64 : 32;
+#ifdef BG2_FPGA_TILES
+            uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
+            memset(used, 0, sizeof bg32_used); memset(seen, 0, sizeof seen);
+            for (int ty = 0; ty < 29; ty++) for (int tx = 0; tx < 33; tx++) {
+                const uint16_t e = v->vram[(((v->BYR >> 3) + ty) & (mh - 1)) * mw + (((v->BXR >> 3) + tx) & (mw - 1))];
+                used[e >> 12] |= (uint16_t)bg2_fpga_tile(e & 0x7FF);
+            }
+            for (int p_ = 0; p_ < 16; p_++) for (int i = 1; i < 16; i++) if (used[p_] >> i & 1) {
+                const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) { seen[c] = 1; cols++; } }
+#else
+            const int cols = 61;                              /* (no tile masks to count with: docs/42's rule) */
+            (void)mw; (void)mh;
+#endif
+            bg32_cols = cols;
+            want = cols > 60 || ((fit_n < 4) && BG32_EXACT);
+        }
+#ifdef BG32_SEC
+        /* (docs/58) Under the 32X layer, while the plane's pack fails, the plane's list is made only every 8th picture -
+           to ask the pack again. It took the secondary 34 ms a picture at stage 1's start (the pack tried anew, the tiles
+           converted again), for a plane nobody sees. Once it fits, every picture again, and the plane is shown when it
+           has fitted 4 times and is whole */
+        { static unsigned probe; SEC_NOBG = (want && !bg2.col_ok && (++probe & 7) != 0); }
+#endif
+        const int tb = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1;
+#else
         const int tb = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1, want = bg32_wanted(v);
+#endif
         if (want || had[tb]) {
             spr_last_clear(tb);
             if (want) {
-                bg32_draw(v, (uint8_t *)&MARS_FRAMEBUFFER + 0x200 + 32, 320, bg32_cram, bg32_own);
-                const uint16_t k = (uint16_t)(bg32_black << 8 | bg32_black);   /* (the borders black, over the plane) */
-                for (int y = 0; y < 224; y++) for (int x = 0; x < 16; x++) { FB[0x100 + y * 160 + x] = k; FB[0x100 + y * 160 + 144 + x] = k; }
+                /* (docs/58: a tile's row at a time, and by both SH2s - rt_bg32.c) */
+                uint8_t *const fbp = (uint8_t *)&MARS_FRAMEBUFFER + 0x200 + 32;
+#if defined(BG2_DRAW) && !defined(BG32_ALWAYS) && defined(BG2_FPGA_TILES)
+                const uint16_t *const um = bg32_used;         /* (the window's indices, a palette: counted above) */
+#else
+                uint16_t um[16]; bg32_masks(v, um);
+#endif
+                bg32_prep(v, bg32_cram, bg32_own, um);
+#if defined(BG32_SEC) && defined(SPR_SEC)
+                { static uint32_t n32; SEC_BV = v; SEC_B32 = ++n32;
+                  bg32_rows(v, fbp, 320, 0, 112);
+                  while (SEC_B32D != n32) { } }
+#else
+                bg32_rows(v, fbp, 320, 0, 224);
+#endif
+                /* (the borders: the opaque black 0x10 both buffers have from the start and from every clear - docs/45;
+                   they were written again with the background's own black each picture, 7,168 words - docs/58) */
+                if (!had[tb]) for (int y = 0; y < 224; y++) for (int x = 0; x < 16; x++) { FB[0x100 + y * 160 + x] = 0x1010; FB[0x100 + y * 160 + 144 + x] = 0x1010; }
             }
             else {                                            /* (the buffer as at the start: the picture clear, the borders
                                                                  the opaque 0x10 they always have - docs/45) */
@@ -927,7 +1026,7 @@ static void draw_hook(V32 *v)
     while (SEC_DONE != job) { }                               /* (its background's list made: nothing it reads changes) */
 #endif
     pace_n++;
-    MARS_SYS_COMM6 = (short)pace_missed;
+    SET_COMM6((short)pace_missed);
     return;
 #elif defined(SPR_SPLIT)
     spr_frame_list(v, cur ^ 1);
@@ -1009,9 +1108,9 @@ static void draw_hook(V32 *v)
 #endif
         pace_req = cur ^ 1; pal_go = cur ^ 1;                 /* (the swap: pace_vbi, at the next blank) */
 #ifdef KEEP_TEST
-        { extern unsigned keep_bad; MARS_SYS_COMM6 = (short)keep_bad; }
+        { extern unsigned keep_bad; SET_COMM6((short)keep_bad); }
 #else
-        MARS_SYS_COMM6 = (short)pace_missed;
+        SET_COMM6((short)pace_missed);
 #endif
         return;
     }
@@ -1022,7 +1121,7 @@ static void draw_hook(V32 *v)
     pal_go = cur ^ 1;
     MARS_VDP_FBCTL = (uint16_t)(cur ^ 1); pace_req = cur ^ 1;
     if ((MARS_VDP_FBCTL & MARS_VDP_FS) == pace_req) pace_vbi();   /* (asked in a blank: swapped at once, after its interrupt) */
-    MARS_SYS_COMM6 = (short)pace_missed;
+    SET_COMM6((short)pace_missed);
 }
 #endif
 #endif
@@ -1092,6 +1191,156 @@ static void fifo_cdda(int loop, unsigned trk)
 #endif
 }
 #endif
+#if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
+/* SP_MENU=1 (docs/58; the owner: "Add an options menu like MetalSlug"): START opens it in the live build. The game stops
+   under it - the cart's CPU makes a frame only when this program asks - the effects are silenced (the stack's command
+   103, volume 0) and the voices' PWM is off. UP / DOWN pick, LEFT / RIGHT change, A / C / START do it, B goes back.
+     RESUME
+     LIVES           into the game's count (CD RAM $A00C, docs/37) through the cart's poke port (registers 0xcf-0xd1)
+     INFINITE LIVES  the count written again every 32 frames
+     AUTOFIRE        button II (B) held = pressed every other pair of frames
+     MUSIC VOLUME    the CD audio, 0-8 (command 103, COMM2 = 3: the BIOS's fader)
+     EFFECTS VOLUME  the PSG on the PCM chip, 0-8 (command 103, COMM2 = 2)
+     EXACT COLOURS   ON: a picture whose colours the Genesis plane can't hold is drawn on the 32X layer (exact, slower);
+                     OFF: always the plane (the nearest fit, never slow)
+     CREDITS
+   The menu is the 32X layer, opaque, in entries of the palette nothing else writes (index 0 of sprite palettes 2-5). */
+static int opt_lives = 3, opt_inf, opt_auto, opt_mus = 8, opt_fx = 8, opt_exact = 1, opt_req;
+#define O_TXT 0x20
+#define O_HI 0x30
+#define O_DIM 0x40
+#define O_BOX 0x50
+static void o_fill(int x0, int y0, int x1, int y1, uint8_t c)
+{
+    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x += 2) FB[0x100 + y * 160 + (x >> 1)] = (uint16_t)(c << 8 | c);
+}
+static void o_text(int x, int y, const char *t, uint8_t c)
+{
+    for (; *t; t++, x += 8) {
+        int ch = (uint8_t)*t; if (ch < 32 || ch > 127) ch = '?';
+        const unsigned char *g = font8x8[ch - 32];
+        for (int r = 0; r < 8; r++) for (int b = 0; b < 8; b += 2)
+            FB[0x100 + (y + r) * 160 + ((x + b) >> 1)] = (uint16_t)(((g[r] & (0x80 >> b)) ? c : O_BOX) << 8 | ((g[r] & (0x40 >> b)) ? c : O_BOX));
+    }
+}
+static void o_mid(int y, const char *t, uint8_t c) { o_text((160 - 4 * (int)strlen(t)) & ~1, y, t, c); }
+static void o_show(void)                                      /* the buffer drawn in on screen: an empty list for the swap */
+{
+    const int b = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1;
+    FB[BG2_LIST >> 1] = 0; bg2_pairs = 0;
+#ifdef VS_SEC
+    pace_req = b; pal_go = b; lst_op = 2 + b; lst_ready = 1;
+#else
+    bg2_send(BG2_LIST, 2 + b); pace_req = b; pal_go = b;
+#endif
+    while (pal_go >= 0) { }
+}
+static uint16_t opt_pad(void)
+{
+#ifdef PADVB
+    static uint16_t last; const uint16_t w = (uint16_t)MARS_SYS_COMM4; if (w != 0xFFFF) last = (w & 0xF000) == 0xF000 ? 0 : w; return last;
+#else
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+    return cd_pad(0, 0);
+#endif
+}
+static void opt_cmd103(unsigned comm2, uint32_t comm8)
+{
+#ifdef TPSG
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+    MARS_SYS_COMM2 = (uint16_t)comm2; COMM8_32 = comm8; COMM12_16 = 0;
+    MARS_SYS_COMM0 = 103;
+    for (int n = 0; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { }
+#else
+    (void)comm2; (void)comm8;
+#endif
+}
+static void opt_poke(unsigned a, unsigned val) { CS_WR(0xcf, a & 0xFF); CS_WR(0xd0, (a >> 8) & 0xFF); CS_WR(0xd1, val & 0xFF); }
+static int opt_lives_on;                                      /* (the menu set the lives once: a new game's too) */
+static void opt_lives_set(void) { opt_poke(0xC00C, (unsigned)opt_lives); }
+static char *o_num(char *d, int v) { if (v >= 10) *d++ = (char)('0' + v / 10); *d++ = (char)('0' + v % 10); *d = 0; return d; }
+static void opt_menu(void)
+{
+    volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
+    static const char *const rows[9] = { "RESUME", "STAGE", "LIVES", "INFINITE LIVES", "AUTOFIRE", "MUSIC VOLUME", "EFFECTS VOLUME", "EXACT COLOURS", "CREDITS" };
+    enum { R_RESUME, R_STAGE, R_LIVES, R_INF, R_AUTO, R_MUS, R_FX, R_EXACT, R_CRED, R_N };
+    static int opt_stage = 1; int warp = 0;
+    static const char *const cred[] = { "GINGA FUKEI DENSETSU", "SAPPHIRE", "(C) HUDSON SOFT 1995", "", "THE CD32X PORT:", "THE GAME'S OWN PROGRAM,", "ON THE CART'S OWN CPU",
+        "EFFECTS: THE SEGA CD'S PCM CHIP", "MUSIC: CD AUDIO", "CD32X BOOT STACK", "REFERENCE: MEDNAFEN", 0 };
+    pwm_on = 0;                                               /* (the voices' ring stands still under the menu) */
+    opt_cmd103(2, 0);                                         /* (the effects silent: their notes would hang) */
+    bg2_take();                                               /* (the last picture's pairs, op 1, left the 32X's VDP the 68000's:
+                                                                 nothing drawn or coloured would land) */
+    while (!(MARS_VDP_FBCTL & MARS_VDP_VBLK)) { }
+    cram[O_TXT] = 0x7FFF; cram[O_HI] = 0x03FF; cram[O_DIM] = 0x4210; cram[O_BOX] = 0x2800;
+    int row = 0, page = 0, lives_touched = 0; uint16_t was = opt_pad() | SEGA_CTRL_START;
+    for (;;) {
+        o_fill(0, 0, 320, 224, O_BOX); spr_last_clear((MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1);
+        if (page == 0) {
+            o_mid(24, "SAPPHIRE  CD32X", O_TXT); o_mid(40, "OPTIONS", O_DIM);
+            for (int i = 0; i < R_N; i++) {
+                const uint8_t c = i == row ? O_HI : O_TXT; char t[8]; const char *val = 0; const int y = 58 + 13 * i;
+                o_text(64, y, rows[i], c);
+                if (i == R_STAGE) { o_num(t, opt_stage); val = t; }
+                else if (i == R_LIVES) { o_num(t, opt_lives); val = t; }
+                else if (i == R_INF) val = opt_inf ? "ON" : "OFF";
+                else if (i == R_AUTO) val = opt_auto ? "ON" : "OFF";
+                else if (i == R_MUS) { o_num(t, opt_mus); val = t; }
+                else if (i == R_FX) { o_num(t, opt_fx); val = t; }
+                else if (i == R_EXACT) val = opt_exact ? "ON" : "OFF";
+                if (val) { o_text(208, y, "<", O_DIM); o_text(224, y, val, c); o_text(256, y, ">", O_DIM); }
+            }
+            if (row == R_STAGE) o_mid(180, "A/START: A NEW GAME FROM THIS STAGE", O_DIM);
+            if (row == R_EXACT) o_mid(180, opt_exact ? "EVERY COLOUR RIGHT, SLOWER PLACES" : "NEVER SLOW, NEAREST COLOURS", O_DIM);
+            o_mid(196, "UP/DOWN PICK  LEFT/RIGHT CHANGE", O_DIM); o_mid(206, "A/START: DO IT   B: BACK", O_DIM);
+        } else {
+            for (int i = 0; cred[i]; i++) o_mid(28 + 13 * i, cred[i], O_TXT);
+            o_mid(196, "PORTED BY MICRONUT99", O_HI);
+        }
+        o_show();
+        while (!(MARS_VDP_FBCTL & MARS_VDP_VBLK)) { }           /* (the colours again, the 32X's VDP this CPU's: the swap is done) */
+        cram[O_TXT] = 0x7FFF; cram[O_HI] = 0x03FF; cram[O_DIM] = 0x4210; cram[O_BOX] = 0x2800;
+        uint16_t p, k;
+        do { const uint32_t t = gTicks; while (gTicks == t) { } p = opt_pad(); k = (uint16_t)(p & ~was); was = p; } while (!k);
+        const int ok = (k & (SEGA_CTRL_A | SEGA_CTRL_C | SEGA_CTRL_START)) != 0, back = (k & SEGA_CTRL_B) != 0;
+        const int d = (k & SEGA_CTRL_RIGHT) ? 1 : (k & SEGA_CTRL_LEFT) ? -1 : 0;
+        if (page) { if (ok || back) page = 0; continue; }
+        if (k & SEGA_CTRL_UP) row = (row + R_N - 1) % R_N;
+        if (k & SEGA_CTRL_DOWN) row = (row + 1) % R_N;
+        if (back || (ok && row == R_RESUME)) break;
+        if (ok && row == R_CRED) { page = 1; continue; }
+        if (row == R_STAGE) {                                 /* (left/right the stage, A/START the new game) */
+            if (d) { opt_stage += d; if (opt_stage < 1) opt_stage = 5; if (opt_stage > 5) opt_stage = 1; }
+            else if (ok) { warp = opt_stage; break; }
+            continue;
+        }
+        const int ch = d ? d : ok ? 1 : 0;
+        if (!ch) continue;
+        if (row == R_LIVES) { opt_lives += ch; if (opt_lives < 1) opt_lives = 9; if (opt_lives > 9) opt_lives = 1; lives_touched = 1; opt_lives_on = 1; }
+        if (row == R_INF) opt_inf = !opt_inf;
+        if (row == R_AUTO) opt_auto = !opt_auto;
+        if (row == R_MUS) { opt_mus += ch; if (opt_mus < 0) opt_mus = 0; if (opt_mus > 8) opt_mus = 8; opt_cmd103(3, (uint32_t)opt_mus * 0x80); }   /* (heard at once) */
+        if (row == R_FX) { opt_fx += ch; if (opt_fx < 0) opt_fx = 0; if (opt_fx > 8) opt_fx = 8; }
+        if (row == R_EXACT) opt_exact = !opt_exact;
+    }
+    if (!warp && (lives_touched || opt_inf)) opt_lives_set();
+    for (int b = 0; b < 2; b++) {                             /* both buffers as the game keeps them: the picture clear, the borders opaque */
+        for (int y = 0; y < 224; y++) for (int x = 0; x < 160; x++) FB[0x100 + y * 160 + x] = (x < 16 || x >= 144) ? 0x1010 : 0;
+        spr_last_clear((MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1);
+        if (!b) o_show();
+    }
+    memset(bg32_own, 0, sizeof bg32_own);                     /* (a 32X-layer background takes its entries again) */
+    opt_cmd103(2 | (unsigned)opt_fx << 8, 0);                 /* (the effects back, at the menu's volume) */
+    while (opt_pad() & (SEGA_CTRL_START | SEGA_CTRL_A | SEGA_CTRL_B | SEGA_CTRL_C)) { const uint32_t t = gTicks; while (gTicks == t) { } }   /* (let go first) */
+    if (warp) {                                               /* (docs/58: the cart's CPU reset, held to the stage - the engine
+                                                                 presses RUN to the game's start and serves the stage's own
+                                                                 sectors; the lives, if the menu ever set them, go in when
+                                                                 the new game has written its own) */
+        CS_WR(0xd3, opt_lives_on ? opt_lives : 0); CS_WR(0xd2, warp);
+    }
+    pace_last = gTicks;
+}
+#endif
 static void fifo_play(V32 *v, long frames)
 {
 #ifdef FIFO_LIVE
@@ -1101,7 +1350,7 @@ static void fifo_play(V32 *v, long frames)
 #else
     const uint32_t *f = (const uint32_t *)0x02200000;
 #endif
-    const uint32_t t0 = gTicks; long k = 0; unsigned addr = 0;
+    uint32_t t0 = gTicks; long k = 0; unsigned addr = 0;      /* (t0 moves on by a menu's time) */
 #ifdef SPR_FPGA_CELLS
     CS_WR(0xcb, 0xa5); CS_WR(0xcb, 0x5a);                     /* (docs/29: the store's start - its registers answer from here) */
 #endif
@@ -1141,10 +1390,26 @@ static void fifo_play(V32 *v, long frames)
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
                 cdr_busy = 1;
 #endif
+#ifdef PADVB
+                /* (docs/57) the pad from COMM4, where the 68000 puts it at every vertical blank (the stack's PADVB): no
+                   command. Command 48 here, once a game frame, waited for whatever command was under way - a
+                   background list the 68000 was still running - and held the game to the picture's rate */
+                static int pv_on; if (!pv_on) { pv_on = 1; MARS_SYS_COMM4 = (short)0xFFFF; MARS_SYS_COMM6 = 0x5056; }
+                static uint16_t pv_last; { const uint16_t w = (uint16_t)MARS_SYS_COMM4; if (w != 0xFFFF) pv_last = (w & 0xF000) == 0xF000 ? 0 : w; }
+                const uint16_t rawp = pv_last; uint32_t m = sp_pad_mask(rawp);
+#else
                 for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
-                const uint32_t m = sp_pad_mask(cd_pad(0, 0));
+                const uint16_t rawp = cd_pad(0, 0); uint32_t m = sp_pad_mask(rawp);
+#endif
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
                 cdr_busy = 0;
+#endif
+#ifdef SP_MENU
+                { static uint16_t st_was; if ((rawp & SEGA_CTRL_START) && !(st_was & SEGA_CTRL_START)) opt_req = 1; st_was = rawp; }
+                if (opt_auto && (k & 2)) m &= ~1u;                /* (autofire: II let go every other pair of frames) */
+                if (opt_inf && (k & 31) == 0) opt_lives_set();
+#else
+                (void)rawp;
 #endif
                 if (m != last) { CS_WR(0xcd, m & 0xFF); CS_WR(0xce, (m >> 8) & 0xFF); last = m; }
             }
@@ -1179,10 +1444,34 @@ static void fifo_play(V32 *v, long frames)
             /* (the release before the count: the store, which follows this count, locks at this very frame) */
             /* (docs/33: a frame drawn at most every 2nd frame - a solid 30, no picture a refresh after the one before) */
             { static int released; static uint32_t want = 0xFFFFFFFFu; static long drawn_k = -2;
-              if (!released && pic_free() && k - drawn_k >= 2) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu; }
+              /* (docs/57: and only when this CPU is not behind the game - a picture that takes four frames to draw was
+                 asked for every second frame, so the game ran at the picture's rate: 13-27 frames a second in stage 1.
+                 Behind by more than FIFO_LAG frames: the frames' entries only, until it has caught up. A picture at
+                 least every 12th frame all the same) */
+#ifndef FIFO_LAG
+#define FIFO_LAG 1
+#endif
+              /* (docs/58) The game never runs faster than its own rate: what it fell behind beyond FIFO_DEBT frames
+                 is forgiven, not made up later (after stage 1's slow start it ran 97 frames a second for 50 s) */
+#ifndef FIFO_DEBT
+#define FIFO_DEBT 8
+#endif
+              { const long b0 = (long)(gTicks - t0) - k; if (b0 > FIFO_DEBT) t0 += (uint32_t)(b0 - FIFO_DEBT); }
+              const long behind = (long)(gTicks - t0) - k;
+#ifdef SP_MENU
+#define OPT_HOLD (!opt_req)                                   /* (no new picture asked for once the menu is: it opens when this one is shown) */
+#else
+#define OPT_HOLD 1
+#endif
+              if (!released && OPT_HOLD && pic_free() && k - drawn_k >= 2 && (behind <= FIFO_LAG || k - drawn_k >= 12)) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu; }
               CS_WR(0xca, (k + 1) & 0xFF);                       /* (the boundaries this CPU has passed: the store's pace) */
               if (released && want == 0xFFFFFFFFu) { const uint16_t l = CS_RD(0xc9); if (l != 0xFFFF) want = l; }
-              if (released && (uint32_t)(k + 1) == want) { cs_purge(); draw_hook(v); fifo_pics++; released = 0; drawn_k = k; } }
+              if (released && (uint32_t)(k + 1) == want) { cs_purge(); draw_hook(v); fifo_pics++; released = 0; drawn_k = k; }
+#ifdef SP_MENU
+              if (opt_req && !released && pic_free() && MARS_SYS_COMM0 == 0) {   /* (docs/58: nothing under way - the menu) */
+                  const uint32_t ta = gTicks; opt_req = 0; opt_menu(); t0 += gTicks - ta; drawn_k = k; }
+#endif
+              }
 #else
             if (pic_free() && (long)(gTicks - t0) < k + 1) { draw_hook(v); fifo_pics++; }
 #endif
@@ -1701,7 +1990,7 @@ int main(void)
             const volatile uint8_t *c = (const volatile uint8_t *)(0x22000000 + at[k]);
             for (int i = 0; i < 8192; i++) if (c[i] != pool_slot[0][i]) { bad++; if (first == 0xFFFFFFFF) first = (uint32_t)k << 16 | (uint32_t)i; }
         }
-        COMM8_32 = bad; MARS_SYS_COMM4 = (uint16_t)(first >> 16); MARS_SYS_COMM6 = (uint16_t)first;
+        COMM8_32 = bad; SET_COMM4((uint16_t)(first >> 16)); SET_COMM6((uint16_t)first);
         cd_status(0x4B10); while (1) { }
     }
 #endif
@@ -1890,7 +2179,7 @@ int main(void)
     bg2_take();                                               /* (the last commit done before COMM8 is the report's) */
     MARS_SYS_COMM2 = (short)bg2_late;
 #endif
-    COMM8_32 = pace_n << 16 | (pace_worst & 0xFFFF); MARS_SYS_COMM4 = (short)nframes; MARS_SYS_COMM6 = (short)pace_missed;
+    COMM8_32 = pace_n << 16 | (pace_worst & 0xFFFF); SET_COMM4((short)nframes); SET_COMM6((short)pace_missed);
     cd_status(0x4B10); while (1) { }                          /* (the last picture stays on screen) */
 #endif
 #ifdef SPR_DRAW
@@ -1929,10 +2218,10 @@ int main(void)
     line(0, "IDLE DIGEST     ", digest, 1, C_WHITE);
     line(8, "IDLES HASHED    ", idles_hashed, 0, C_GREY);
     show();
-    COMM8_32 = digest; MARS_SYS_COMM4 = (short)nframes; MARS_SYS_COMM6 = (short)vblanks;
+    COMM8_32 = digest; SET_COMM4((short)nframes); SET_COMM6((short)vblanks);
 #else
     show();
-    COMM8_32 = mean; MARS_SYS_COMM4 = (short)nframes; MARS_SYS_COMM6 = (short)vblanks;
+    COMM8_32 = mean; SET_COMM4((short)nframes); SET_COMM6((short)vblanks);
 #endif
 #ifdef HUC_MARKS
     {                                                         /* the marks' hash, as rt_pc prints it ("marks: hash") */
