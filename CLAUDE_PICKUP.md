@@ -161,6 +161,10 @@ Read `CLAUDE.md` first.
      ADPCM from the playback's own nibbles (`io_adpcm_hook`, io_run at each frame's end): 0.47; the PSG clock for clock
      (`tools/m3rt/psg_c.c`, = Mednafen, `PSGC=1 run_eqpsg.sh`); the reference's writes through it: 0.91
      (`m3_psglog.py`, `psg_render.c`). Open: the stand-in's PSG writes differ from frame 8,500 (the driver reads something).
+  46. **docs/51, the console log:** saspeed `SA_LOG=1` (with `FBCART=1`): 4 KB at cart 0x3EF000 by command 101 at the
+     ring fills and combination loads; `tools/sa_log.py`, `tools/usb/sa_watch.sh` (edlink memrd); ares patch 0010
+     `ARES_CART_DUMP=0x3EF000:4096:<file>`. Harmless in ares against a control run. Build: `EXTRA="SA_LOG=1 FBCART=1"
+     tools/m3_combo_build.sh /abs/comboh /abs/sp/pon.bin - <tag> <frames>` (the combination root must be absolute).
 
 ## 2. Where things live
 

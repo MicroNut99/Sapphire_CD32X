@@ -7,7 +7,9 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
-**Latest (11 Nov 2026, [docs/49](docs/49_THE_DATA_TRACK_IN_THE_CART.md)):** the data track packed for the cart, 14.8 MB to
+**Latest (11 Nov 2026, [docs/51](docs/51_THE_CONSOLE_LOG.md)):** a log for the console, read over USB, never on the screen
+([docs/50](docs/50_THE_SOUND_AGAINST_THE_REFERENCE.md): the stand-in's sound against the reference, part by part).
+[docs/49](docs/49_THE_DATA_TRACK_IN_THE_CART.md): the data track packed for the cart, 14.8 MB to
 6.72 MB (each different sector once, compressed), read back equal; stage 1 plays the same from it as from the disc.
 [docs/47](docs/47_THE_HARDWARE_PAGE_IN_RTL.md): the CPU's memory, the hardware page, the PSG and the
 ADPCM in RTL, each equal to Mednafen's behaviour over the game's windows. [docs/46](docs/46_THE_TITLE_CLEAN.md): the title and the intro draw as the reference in the

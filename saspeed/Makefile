@@ -155,6 +155,10 @@ BG_OBJ = $(BUILD)/rt_bg2.o $(if $(filter 1,$(BG32)),$(BUILD)/rt_bg32.o)
 endif
 # SPLAY=1 (docs/36): Sapphire played with pad 1 from the state (LEVEL01) on, no end; the code the state's window
 # did not trace runs interpreted
+# SA_LOG=1 (docs/51; the stack with FBCART=1): the console's log, 4 KB at cart SA_LOG_AT (0x3EF000), read over USB
+ifeq ($(SA_LOG),1)
+CCFLAGS += -DSA_LOG
+endif
 ifeq ($(SPLAY),1)
 CCFLAGS += -DRT_PLAY -DSAPPHIRE_PLAY
 # (docs/46) the picture's number in the left border (white blocks: tools/m3_sprcheck.py's) is off in the played game; PICNUM=1 keeps it

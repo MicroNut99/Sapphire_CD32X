@@ -435,7 +435,11 @@ static uint32_t bg2_sent, bg2_words, bg2_fail, bg2_late;
 static volatile int bg2_pairs_v;                                /* (the picture's list has pairs: op 1 after its swap) */     /* (late: blanks the list was still running at) */
 #define bg2_given SH(bg2_given_v)
 #define bg2_pairs SH(bg2_pairs_v)
-static void bg2_wait(void) { for (int n = 0; n < 2000000 && MARS_SYS_COMM0 != 0; n++) { } }
+static void bg2_wait(void) { for (int n = 0; n < 2000000 && MARS_SYS_COMM0 != 0; n++) { }
+#ifdef SA_LOG
+    { extern uint32_t sa_to[8]; if (MARS_SYS_COMM0 != 0) sa_to[4]++; }
+#endif
+}
 static int bg2_run(uint32_t off)                              /* a list at off in the buffer seen: 1 done */
 {
     bg2_wait();
@@ -1262,6 +1266,67 @@ static int pool_wb(const uint8_t *mem, uint8_t *home)
 #ifdef CDR_LOG
 static uint32_t cdr_nlog;
 #endif
+#ifdef SA_LOG
+/* SA_LOG=1 (docs/51): the console's log. A 4 KB block at cart SA_LOG_AT, written through the frame buffer by the stack's
+   command 101 (FBCART) at the moments the frame buffer is already handed over safely - a combination's load, every 8th
+   CD ring fill - never on the screen, never through anything the display uses while it shows (DraculaX docs/172: a
+   log through the display's list area and a watchdog that drew were what stopped its game on the console). The owner's
+   USB script reads it (edlink memrd); tools/sa_log.py prints it. Every wait that gives up counts here. */
+#ifndef SA_LOG_AT
+#define SA_LOG_AT 0x3EF000u                                   /* (window 1 past IMAGE21.RAW's end, below the sound ring) */
+#endif
+uint32_t sa_to[8];                                            /* the waits that gave up: [0] a command's start, [1] command 91,
+                                                                 [2] command 38 (a load), [3] command 101, [4] bg2_wait,
+                                                                 [5] the swap before a hand-over, [6-7] spare */
+uint32_t sa_where;                                            /* the last place passed (sa_log.py names them) */
+static uint32_t sa_seq, sa_fills, sa_wfail;
+static void sa_log_put(void)
+{
+    static uint32_t blk[1024] __attribute__((aligned(16)));
+    extern uint32_t combo_stat[4];
+    uint32_t *b = blk; for (int i = 0; i < 1024; i++) b[i] = 0;
+    b[0] = 0x53414C47u; b[1] = 1; b[2] = ++sa_seq; b[3] = (uint32_t)rt.frame; b[4] = rt.c.pc | (uint32_t)rt.c.MPR[2] << 16 | (uint32_t)rt.c.MPR[3] << 24;
+    b[5] = sa_where; b[6] = sa_fills; b[7] = sa_wfail;
+#ifdef RT_CD_RING
+    b[8] = cdr_misses; b[9] = cdr_fail;
+#endif
+#ifdef RT_COMBO
+    b[10] = combo_stat[0]; b[11] = combo_stat[1]; b[12] = combo_stat[3];
+#endif
+#ifdef BG2_DRAW
+    b[13] = bg2_sent; b[14] = bg2_fail; b[15] = bg2_late;
+#endif
+    for (int i = 0; i < 8; i++) b[16 + i] = sa_to[i];
+    b[24] = MARS_SYS_COMM0 | (uint32_t)MARS_SYS_COMM2 << 16; b[25] = COMM8_32; b[26] = COMM12_16;
+    b[27] = rt.c.A | (uint32_t)rt.c.X << 8 | (uint32_t)rt.c.Y << 16 | (uint32_t)rt.c.S << 24;
+    uint32_t f = 2166136261u; for (int i = 0; i < 1023; i++) { f ^= b[i]; f *= 16777619u; } b[1023] = f;   /* (its own sum) */
+#ifdef BG2_DRAW
+    while (pal_go >= 0) { }                                   /* (as pool_wb, docs/75: the picture asked for shown first) */
+#endif
+    cdr_busy = 1;
+#ifdef BG2_DRAW
+    bg2_take();
+#else
+#ifndef BG2_LIST
+#define BG2_LIST 0x11A00
+#endif
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+#endif
+    int ok = 1;
+    volatile uint16_t *d = (volatile uint16_t *)(0x24000000 + BG2_LIST); const uint16_t *q = (const uint16_t *)blk;
+    for (int i = 0; i < 2048; i++) d[i] = q[i];
+    volatile uint8_t *fm = (volatile uint8_t *)0x20004000;
+    *fm = 0x00; while (MARS_SYS_INTMSK & 0x8000) { }
+    MARS_SYS_COMM2 = (uint16_t)(BG2_LIST >> 4); COMM8_32 = SA_LOG_AT | 1u << 24; COMM12_16 = 0xFFFF;
+    MARS_SYS_COMM0 = 101;
+    { int n = 0; for (; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { } if (MARS_SYS_COMM0 != 0) sa_to[3]++; }
+    if (COMM12_16 != 0) ok = 0;
+    *fm = 0x80; while (!(MARS_SYS_INTMSK & 0x8000)) { }
+    cdr_busy = 0;
+    CacheControl(0x11);
+    if (!ok) sa_wfail++;
+}
+#endif
 int rt_disc_sector(int32_t sector, uint8_t *out)
 {
     if (sector < 0) return 0;
@@ -1272,10 +1337,17 @@ int rt_disc_sector(int32_t sector, uint8_t *out)
         MARS_SYS_COMM2 = (uint16_t)(c * 16); COMM8_32 = (CDR_CART + slot * 32768u) | 15u << 24; COMM12_16 = 0xFFFF;
         MARS_SYS_COMM0 = 91;
         for (int n = 0; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { }
+#ifdef SA_LOG
+        if (MARS_SYS_COMM0 != 0) sa_to[1]++;
+        sa_where = 0x91000000u | (c & 0xFFFFFF);
+#endif
         const int ok = COMM12_16 == 0;
         cdr_busy = 0; cdr_misses++;
         if (!ok) { cdr_fail++; cdr_tag[slot] = 0; return 0; }
         cdr_tag[slot] = (uint16_t)(c + 1);
+#ifdef SA_LOG
+        if ((++sa_fills & 7) == 1) sa_log_put();             /* (the 1st, 9th, ... fill: the game is loading) */
+#endif
     }
     const uint32_t *src = (const uint32_t *)(0x22000000u + CDR_CART + slot * 32768u + ((unsigned)sector & 15) * 2048u);
     uint32_t *dst = (uint32_t *)out; for (int i = 0; i < 512; i++) dst[i] = src[i];
@@ -1328,6 +1400,9 @@ static int combo_load(Rt *r, int c)
     bg2_take();
 #endif
     for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+#ifdef SA_LOG
+    sa_where = 0x38000000u | (uint32_t)(104 + c);
+#endif
     int ok = cd_load(104 + c);
     CacheControl(0x11);                                       /* (the cart's lines: purged) */
 #ifdef RT_CD_RING
@@ -1349,6 +1424,9 @@ static int combo_load(Rt *r, int c)
     else { rt_combo_tab = 0; rt_hot_tab = 0; combo_cur = -1; combo_stat[1]++; ok = 0; }
     combo_stat[0]++; combo_stat[3] = (uint32_t)combo_cur;
     rt_blocks_changed(r);
+#ifdef SA_LOG
+    sa_where = 0x38FF0000u | (uint32_t)(104 + c); sa_log_put();
+#endif
     return ok;
 }
 static void combo_check(Rt *r)

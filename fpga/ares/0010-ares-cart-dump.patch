@@ -1,0 +1,38 @@
+From 5d9d8ade4151fadbda3451a3bda67928b4a1d785 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 18:42:49 -0800
+Subject: [PATCH] md/everdrive-pro: DIAG ARES_CART_DUMP - a cart block appended
+ to a file each time its last word is written (Sapphire docs/51)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/everdrive-pro.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 2282afb..bce6559 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -267,6 +267,18 @@ struct EverDrivePro : Interface {
+     if(lower) ram[word].byte(0) = data.byte(0);
+     u32 local = (n22)address;
+     invalidate(local & ~1u, 2);
++    //DIAG (Sapphire docs/51): ARES_CART_DUMP=<cart offset>:<bytes>:<file> - when the block's last word is written (a
++    //command 101 block ends there), the block is appended to <file> with its count before it (u32): what the
++    //owner's USB script would read with edlink memrd
++    static s64 dOff = -2, dLen; static FILE* dFile;
++    if(dOff == -2) { dOff = -1; if(auto e = getenv("ARES_CART_DUMP")) { long long o, l; char f[512];
++      if(sscanf(e, "%lli:%lli:%511s", &o, &l, f) == 3) { dOff = o; dLen = l; dFile = fopen(f, "wb"); } } }
++    if(dOff >= 0 && dFile && (s64)word * 2 == dOff + dLen - 2) {
++      static u32 nDump; u32 fr = ++nDump;   //(the block's count)
++      fwrite(&fr, 4, 1, dFile);
++      for(s64 k = 0; k < dLen / 2; k++) { u16 w = ram[(dOff >> 1) + k]; u8 b[2] = {(u8)(w >> 8), (u8)w}; fwrite(b, 1, 2, dFile); }
++      fflush(dFile);
++    }
+   }
+ 
+   auto corrupt(u32 word, n16 data) -> void {
+-- 
+2.43.0
+
