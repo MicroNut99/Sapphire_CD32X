@@ -38,8 +38,11 @@ picture asked for shown first, `bg2_take`, the frame buffer to the 68000 and bac
 Never on the screen. Nothing is written while a picture is being shown or a list is being run.
 
 **Reading it:**
-- `tools/usb/sa_watch.sh [name] [reads]`: for the owner's laptop with `edlink.exe`. It only reads (`memrd 0x3EF000`,
-  4 KB every 3 s), keeps every read, prints the latest, and zips them.
+- `tools/usb/sa_after.sh [name]`: for the owner's laptop with `edlink.exe`. It reads the block **once, after the
+  run** (`memrd 0x3EF000`, 4 KB) and zips it. **Corrected the same day by DraculaX docs/177-178:** while the
+  EverDrive's USB reads the cart's memory, the console's reads of that chip get the USB's words, and every packed
+  DraculaX kit that froze had such a read running. The first version of this script read every 3 s during play; it
+  is withdrawn and was never sent.
 - `tools/sa_log.py <file>`: prints a block, or the last three of a file of them.
 - In ares, `ARES_CART_DUMP=0x3EF000:4096:<file>` (patch `0010`) appends the block each time its last word is written,
   in the same form.

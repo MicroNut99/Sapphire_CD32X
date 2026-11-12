@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """sa_log.py <file> [--all] - Sapphire docs/51: the console log (saspeed SA_LOG=1) printed. <file>: the 4 KB block as
 read from the cart (edlink memrd --addr 0x3EF000 --len 4096 --file <file>), or several of them, each after a u32 stamp
-(usb/sa_watch.sh's and ares ARES_CART_DUMP's form: a u32 count, then the 4096 bytes, repeated). Big-endian words, as the SH2 wrote them."""
+(usb/sa_after.sh's and ares ARES_CART_DUMP's form: a u32 count, then the 4096 bytes, repeated). Big-endian words, as the SH2 wrote them."""
 import sys, struct
 WAITS = ['a command\'s start', 'command 91 (a CD ring fill)', 'command 38 (a load)', 'command 101 (this log)',
-         'bg2_wait (a list)', 'the swap before a hand-over', '-', '-']
+         'bg2_wait (a list)', 'the swap before a hand-over', 'a packed sector that failed its sum', 'command 68 (a page)']
 def where(w):
     k = w >> 24
     if k == 0x91: return 'CD ring fill, chunk %d (sectors %d-%d)' % (w & 0xFFFFFF, (w & 0xFFFFFF) * 16, (w & 0xFFFFFF) * 16 + 15)
+    if k == 0x9A: return 'a sector from the pack (%d)' % (w & 0xFFFFFF)
     if k == 0x38: return ('combination file %d loaded' if (w >> 16) & 0xFF == 0xFF else 'loading combination file %d') % (w & 0xFFFF)
     return 'start (nothing passed yet)' if w == 0 else '0x%08X' % w
 def show(b, stamp=None):
@@ -21,6 +22,7 @@ def show(b, stamp=None):
     print('  last place: %s' % where(w[5]))
     print('  CD ring fills %d (failed %d), logs not written %d; combination loads %d (failed %d), the current %d' %
           (w[8], w[9], w[7], w[10], w[11], w[12] if w[12] < 0x80000000 else -1))
+    if w[28] or w[30]: print('  from the pack: %d sectors read, %d failed their sums, %d page switches' % (w[28], w[29], w[30]))
     print('  background lists sent %d, failed %d, late %d' % (w[13], w[14], w[15]))
     tos = [(WAITS[i], w[16 + i]) for i in range(8) if w[16 + i]]
     print('  waits that gave up: %s' % (', '.join('%s %d' % t for t in tos) if tos else 'none'))

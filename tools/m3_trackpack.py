@@ -17,10 +17,12 @@ The file (big-endian):
 Game data: the file stays in the work folder. tools/m3rt/trackpak.c reads it (and checks every sector here)."""
 import sys, struct
 
-def lz4_compress(src):
-    """Greedy LZ4 block: hash of 4 bytes, the last 5 bytes literals (lz4's end rules: the last match ends 12 bytes
-    before the end at the latest, the last 5 bytes are literals)."""
-    n = len(src); out = bytearray(); anchor = 0; i = 0; table = {}
+def lz4_compress(src, depth=48, start=0):
+    """LZ4 block, lz4's end rules (the last match ends 12 bytes before the end at the latest, the last 5 bytes are
+    literals). Matches from hash chains of 4 bytes (`depth` tried), one step of lazy matching: where the next byte
+    starts a longer match, this byte goes as a literal (as lz4's high-compression mode). start > 0: src[:start] is a
+    dictionary the decoder has before its output (matches may reach into it); only src[start:] is coded."""
+    n = len(src); out = bytearray(); anchor = start; i = start; head = {}; prev = [-1] * n
     limit = n - 12
     def emit(lit, mlen, off):
         L = len(lit); tok_l = min(L, 15); tok_m = 0 if mlen is None else min(mlen - 4, 15)
@@ -36,21 +38,35 @@ def lz4_compress(src):
             r = mlen - 4 - 15
             while r >= 255: out.append(255); r -= 255
             out.append(r)
+    ins = 0
+    def insert_to(p):  # (the dictionary's places go in as the coding reaches them: all of it before the first byte)
+        nonlocal ins
+        while ins <= p and ins < limit:
+            k = src[ins:ins + 4]; prev[ins] = head.get(k, -1); head[k] = ins; ins += 1
+    def best(p):
+        insert_to(p)
+        j = prev[p]; bl = 0; bo = 0; d = 0
+        while j >= 0 and p - j <= 65535 and d < depth:
+            if src[j + bl] == src[p + bl] if p + bl < n - 5 else False:
+                m = 0
+                while p + m < n - 5 and src[j + m] == src[p + m]: m += 1
+                if m > bl: bl, bo = m, p - j
+            j = prev[j]; d += 1
+        return (bl, bo) if bl >= 4 else (0, 0)
     while i < limit:
-        k = src[i:i + 4]; j = table.get(k); table[k] = i
-        if j is not None and i - j <= 65535:
-            m = 4
-            while i + m < n - 5 and src[j + m] == src[i + m]: m += 1
-            emit(src[anchor:i], m, i - j)
-            for p in range(i + 1, min(i + m, limit)): table[src[p:p + 4]] = p
-            i += m; anchor = i
+        m, o = best(i)
+        if m:
+            if i + 1 < limit:
+                m2, o2 = best(i + 1)
+                if m2 > m + 1: i += 1; continue          # (the next byte's match is longer: this one a literal)
+            emit(src[anchor:i], m, o); i += m; anchor = i
         else:
             i += 1
     emit(src[anchor:], None, 0)
     return bytes(out)
 
-def lz4_decompress(b, size):
-    out = bytearray(); i = 0
+def lz4_decompress(b, size, dic=b''):
+    out = bytearray(dic); size += len(dic); i = 0
     while i < len(b):
         t = b[i]; i += 1; L = t >> 4
         if L == 15:
@@ -66,7 +82,7 @@ def lz4_decompress(b, size):
                 if x != 255: break
         for _ in range(m): out.append(out[-off])
     assert len(out) == size
-    return bytes(out)
+    return bytes(out[len(dic):])
 
 def fnv(b):
     h = 0x811C9DC5

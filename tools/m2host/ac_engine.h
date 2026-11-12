@@ -19,6 +19,11 @@
  *   $1AC5                             poke: v written to the cart at the poke address, which steps (docs/11: the
  *                                     game's writes to its RAM banks kept in the cart). Not in bank 31, not in
  *                                     the engine's window: refused (the address still steps)
+ * Arming (docs/52): from its reset the engine answers every read with 0xFFFF and changes nothing, until three reads
+ * in a row: register $1AF0, $1AEF, $1AF7, each with 0xA5 in the value field (ACE_ARM_OFF). The 32X boot ROM's
+ * checksum reads the whole cart in order; through the window such a scan set the region table and poked bytes into
+ * the cart where the garbage table pointed - the program, the pack. A scan in order never makes the three reads.
+ * The runtime (rt.c) arms it before it sets the table.
  * The card's RAM is read only (the game never writes it in play: docs/02 §4); a data port's write steps the address.
  */
 #ifndef AC_ENGINE_H
@@ -36,6 +41,10 @@
 #define ACE_REG_POKE_A     0xC2                      /* 0xC2-0xC4 */
 #define ACE_REG_POKE       0xC5
 #define ACE_NONE           0xFFFFu
+#define ACE_ARM_OFF(r)     ((uint32_t)0xA5 << 9 | (uint32_t)(r) << 1)   /* (a read, not a write: bit 17 clear) */
+#define ACE_ARM_1 0xF0
+#define ACE_ARM_2 0xEF
+#define ACE_ARM_3 0xF7
 #define ACE_BANK31         0xF80000u                 /* bank 31 (the EverDrive's battery RAM): never read (0xFF), never poked */
 static inline int ace_poke_ok(uint32_t a) { return a < ACE_BANK31 && (a < ACE_WINDOW || a >= ACE_WINDOW + ACE_SIZE); }
 
@@ -48,6 +57,7 @@ typedef struct {
     uint32_t poke_a; long pokes;
     long ram_writes;                                 /* (docs/38) the card's RAM written into the cart by its data ports */
     long misses;
+    uint8_t armed, arm_st;                           /* (docs/52) the arming: off from its reset */
 } AcEngine;
 void ace_reset(AcEngine *e, uint8_t *cart);
 uint16_t ace_bus_read(AcEngine *e, uint32_t off);    /* a read at window + off: the word the cart bus sees */

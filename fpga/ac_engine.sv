@@ -30,6 +30,11 @@ module ac_engine(
     localparam [21:18] WINDOW = 4'b0111;   // cart 0x1C0000-0x1FFFFF
 
     assign sel = rd & (addr[21:18] == WINDOW);
+    // (docs/52) the arming: from its reset nothing but 0xFFFF and no change, until three reads in a row - registers
+    // $1AF0, $1AEF, $1AF7 with 0xA5 in the value field (ac_engine.h ACE_ARM_OFF). The 32X boot ROM's checksum reads the
+    // whole window in order, which set the region table and poked the cart where it pointed; a scan never arms it
+    reg         armed;
+    reg   [1:0] arm_st;
     wire        wr_op = addr[17];          // (a write: value in addr[16:9])
     wire  [7:0] r     = addr[8:1];
     wire  [7:0] v     = addr[16:9];
@@ -56,12 +61,12 @@ module ac_engine(
     wire        poke    = sel && wr_op && r == 8'hC5;
     wire        poke_ok = poke_a[23:19] != 5'd31 && poke_a[23:18] != 6'b000111;   // (not bank 31, not this window)
     assign mem_addr  = poke ? poke_a : ca;
-    assign mem_oe    = sel && dport && hit;
+    assign mem_oe    = sel && armed && dport && hit;
     // (docs/38) a data port's write: the byte into the cart at its place, during the CPU's read (a stage's load)
     wire        wport   = sel && wr_op && r < 8'h80 && r[3:1] == 3'd0;
     wire        wport_ok = hit && ca[23:18] != 6'b000111;                    // (not this window)
-    assign mem_we_hi = (poke && poke_ok && !poke_a[0]) || (wport && wport_ok && !ca[0]);
-    assign mem_we_lo = (poke && poke_ok &&  poke_a[0]) || (wport && wport_ok &&  ca[0]);
+    assign mem_we_hi = armed && ((poke && poke_ok && !poke_a[0]) || (wport && wport_ok && !ca[0]));
+    assign mem_we_lo = armed && ((poke && poke_ok &&  poke_a[0]) || (wport && wport_ok &&  ca[0]));
     assign mem_di    = {v, v};
     wire  [7:0] mem_byte = ca[0] ? mem_do[7:0] : mem_do[15:8];
 
@@ -97,7 +102,7 @@ module ac_engine(
             endcase
         end
     end
-    assign dout = wr_op ? 16'hFFFF : {8'h00, rv};
+    assign dout = (wr_op || !armed) ? 16'hFFFF : {8'h00, rv};
 
     // ---- the end of the CPU's read: the port steps, a write is made
     reg  [2:0] sel_st;
@@ -125,9 +130,16 @@ module ac_engine(
 
     always @(posedge clk) begin
         if (rst) begin
+            armed <= 1'b0; arm_st <= 2'd0;
             for (i = 0; i < 4; i = i + 1) begin base[i] <= 0; offs[i] <= 0; incr[i] <= 0; ctrl[i] <= 0; end
             for (i = 0; i < 32; i = i + 1) unit[i] <= 16'hFFFF;
             latch <= 0; shift_bits <= 0; rotate_bits <= 0; poke_a <= 0;
+        end else if (done && !armed) begin                                   // (docs/52) the arming
+            if (!h_wr && h_v == 8'hA5) begin
+                if (h_r == (arm_st == 2'd0 ? 8'hF0 : arm_st == 2'd1 ? 8'hEF : 8'hF7)) begin
+                    if (arm_st == 2'd2) begin armed <= 1'b1; arm_st <= 2'd0; end else arm_st <= arm_st + 2'd1;
+                end else arm_st <= (h_r == 8'hF0) ? 2'd1 : 2'd0;
+            end else arm_st <= 2'd0;
         end else if (done) begin
             if (!h_wr) begin
                 if (h_r < 8'h80 && h_r[3:1] == 3'd0 && ctrl[h_p][0]) begin          // a data read: auto-increment

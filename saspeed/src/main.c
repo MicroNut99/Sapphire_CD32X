@@ -1277,14 +1277,27 @@ static uint32_t cdr_nlog;
 #endif
 uint32_t sa_to[8];                                            /* the waits that gave up: [0] a command's start, [1] command 91,
                                                                  [2] command 38 (a load), [3] command 101, [4] bg2_wait,
-                                                                 [5] the swap before a hand-over, [6-7] spare */
+                                                                 [5] the swap before a hand-over, [6] SAPK: a packed sector
+                                                                 that failed its sum, [7] SAPK: command 68 */
 uint32_t sa_where;                                            /* the last place passed (sa_log.py names them) */
 static uint32_t sa_seq, sa_fills, sa_wfail;
 static void sa_log_put(void)
 {
-    static uint32_t blk[1024] __attribute__((aligned(16)));
     extern uint32_t combo_stat[4];
-    uint32_t *b = blk; for (int i = 0; i < 1024; i++) b[i] = 0;
+#ifdef BG2_DRAW
+    while (pal_go >= 0) { }                                   /* (as pool_wb, docs/75: the picture asked for shown first) */
+#endif
+    cdr_busy = 1;
+#ifdef BG2_DRAW
+    bg2_take();
+#else
+#ifndef BG2_LIST
+#define BG2_LIST 0x11A00
+#endif
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+#endif
+    volatile uint32_t *b = (volatile uint32_t *)(0x24000000 + BG2_LIST);   /* (built in the list area: no SDRAM to spare) */
+    for (int i = 0; i < 1024; i++) b[i] = 0;
     b[0] = 0x53414C47u; b[1] = 1; b[2] = ++sa_seq; b[3] = (uint32_t)rt.frame; b[4] = rt.c.pc | (uint32_t)rt.c.MPR[2] << 16 | (uint32_t)rt.c.MPR[3] << 24;
     b[5] = sa_where; b[6] = sa_fills; b[7] = sa_wfail;
 #ifdef RT_CD_RING
@@ -1298,28 +1311,19 @@ static void sa_log_put(void)
 #endif
     for (int i = 0; i < 8; i++) b[16 + i] = sa_to[i];
     b[24] = MARS_SYS_COMM0 | (uint32_t)MARS_SYS_COMM2 << 16; b[25] = COMM8_32; b[26] = COMM12_16;
+#ifdef SAPK
+    { extern uint32_t pk_reads, pk_bad, pk_switch; b[28] = pk_reads; b[29] = pk_bad; b[30] = pk_switch; }
+#endif
     b[27] = rt.c.A | (uint32_t)rt.c.X << 8 | (uint32_t)rt.c.Y << 16 | (uint32_t)rt.c.S << 24;
     uint32_t f = 2166136261u; for (int i = 0; i < 1023; i++) { f ^= b[i]; f *= 16777619u; } b[1023] = f;   /* (its own sum) */
-#ifdef BG2_DRAW
-    while (pal_go >= 0) { }                                   /* (as pool_wb, docs/75: the picture asked for shown first) */
-#endif
-    cdr_busy = 1;
-#ifdef BG2_DRAW
-    bg2_take();
-#else
-#ifndef BG2_LIST
-#define BG2_LIST 0x11A00
-#endif
-    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
-#endif
     int ok = 1;
-    volatile uint16_t *d = (volatile uint16_t *)(0x24000000 + BG2_LIST); const uint16_t *q = (const uint16_t *)blk;
-    for (int i = 0; i < 2048; i++) d[i] = q[i];
     volatile uint8_t *fm = (volatile uint8_t *)0x20004000;
     *fm = 0x00; while (MARS_SYS_INTMSK & 0x8000) { }
+    const int lv = SetSH2SR(15);                              /* (the 68000 writes the cart with RV = 1: no interrupt meanwhile) */
     MARS_SYS_COMM2 = (uint16_t)(BG2_LIST >> 4); COMM8_32 = SA_LOG_AT | 1u << 24; COMM12_16 = 0xFFFF;
     MARS_SYS_COMM0 = 101;
     { int n = 0; for (; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { } if (MARS_SYS_COMM0 != 0) sa_to[3]++; }
+    SetSH2SR(lv);
     if (COMM12_16 != 0) ok = 0;
     *fm = 0x80; while (!(MARS_SYS_INTMSK & 0x8000)) { }
     cdr_busy = 0;
@@ -1327,9 +1331,145 @@ static void sa_log_put(void)
     if (!ok) sa_wfail++;
 }
 #endif
+#ifdef SAPK
+/* SAPK=1 (docs/52): the game's data from the cart, the CD for its music only. A packed launcher (BootCamp PACKED-1,
+   ledger 35; tools/sa_pack.py) brings everything: the program in bank EDCD_W0, LEVEL01.BIN and IMAGE21.RAW where their
+   loads put them, and a pack - the data track's different sectors (each an LZ4 block, tools/m3_trackpack.py) and the
+   combination files (4 KB LZ4 pieces) - in the cart's spare places, with its directory at cart 0x040000 (window 0, the
+   program's bank). A piece is in window 0 (no switch) or in a page that window 1 shows for the read: the stack's
+   command 68, then back to page 1 (the blocks' page); the reads go cache-through, so no line is purged. Every sector is
+   checked against its sum (a bad one counted) */
+#define PK_DIR ((const uint32_t *)0x22040000u)
+static int pk_cur = 1;
+uint32_t pk_reads, pk_bad, pk_switch;
+static int pk_page(int p)
+{
+    if (p == pk_cur) return 1;
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+    const int lv = SetSH2SR(15);                              /* (docs/52: the 68000 switches the page with RV = 1 - an
+                                                                 interrupt's code fetched from the cart then reads garbage;
+                                                                 ares: pri_vbi_handler's literal, an address error) */
+    MARS_SYS_COMM2 = (uint16_t)p; COMM12_16 = 0xFFFF;
+    MARS_SYS_COMM0 = 68;
+    for (int n = 0; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { }
+    SetSH2SR(lv);
+#ifdef SA_LOG
+    if (MARS_SYS_COMM0 != 0) sa_to[7]++;
+#endif
+    pk_switch++;
+    if (COMM12_16 != 1) return 0;
+    pk_cur = p; return 1;
+}
+static const uint8_t *pk_at(uint32_t loc)                     /* page << 24 | offset: 0xFF = window 0; else window 1 */
+{
+    const uint32_t pg = loc >> 24, off = loc & 0xFFFFFF;
+    if (pg == 0xFF) return (const uint8_t *)(0x22000000u + off);
+    if (!pk_page((int)pg)) return 0;
+    return (const uint8_t *)(0x22200000u + off);
+}
+static int pk_lz4(const uint8_t *s, uint32_t n, uint8_t *out, uint32_t cap, const uint8_t *dic, uint32_t dn)
+{   /* (dic: dn bytes the output follows - a match may reach back into them) */
+    uint32_t i = 0, o = 0;
+    while (i < n) {
+        const uint8_t t = s[i++]; uint32_t L = t >> 4;
+        if (L == 15) { uint8_t x; do { if (i >= n) return -1; x = s[i++]; L += x; } while (x == 255); }
+        if (i + L > n || o + L > cap) return -1;
+        for (uint32_t k = 0; k < L; k++) out[o++] = s[i++];
+        if (i >= n) break;
+        if (i + 2 > n) return -1;
+        const uint32_t off = s[i] | (uint32_t)s[i + 1] << 8; i += 2;
+        uint32_t m = (t & 15) + 4;
+        if ((t & 15) == 15) { uint8_t x; do { if (i >= n) return -1; x = s[i++]; m += x; } while (x == 255); }
+        if (off == 0 || off > o + dn || o + m > cap) return -1;
+        for (uint32_t k = 0; k < m; k++, o++) out[o] = off > o ? dic[dn + o - off] : out[o - off];
+    }
+    return (int)o;
+}
+static int pk_ok(void) { return PK_DIR[0] == 0x5341504Bu && PK_DIR[1] == 2; }   /* "SAPK", version 2 */
+/* the directory (big-endian longs): [0] SAPK [1] version 1 [2] track sectors [3] different [4] the map's offset from the
+   directory (a long a track sector: bit 31 stored as it is, the rest the different one's number) [5] the pieces' table
+   (two longs a different sector: loc, length) [6] the sums (a long a track sector, FNV-1a) [7] combinations [8] their
+   table's offset (a long each: the offset of its list - a count, then loc and (length << 16 | stored length) a piece)
+   [9] the sectors' dictionary's offset [10] its length (64 KB: a sector's matches may reach back into it) */
+#define PK_W(o) ((const uint32_t *)((const uint8_t *)PK_DIR + (o)))
+static int pk_sector(int32_t sector, uint8_t *out)
+{
+    const uint32_t *d = PK_DIR;
+    if (sector < 0 || (uint32_t)sector >= d[2]) return 0;
+    cdr_busy = 1; pk_reads++;
+    const uint32_t e = PK_W(d[4])[sector], u = e & 0xFFFFFF;
+    const uint32_t *pc = PK_W(d[5]) + 2 * u;
+    const uint8_t *src = pk_at(pc[0]);
+    int ok = src != 0;
+    if (ok) {
+        if (e & 0x80000000u) { if (pc[1] != 2048) ok = 0; else for (int i = 0; i < 2048; i++) out[i] = src[i]; }
+        else ok = pk_lz4(src, pc[1], out, 2048, (const uint8_t *)PK_W(d[9]), d[10]) == 2048;
+    }
+    pk_page(1);
+    cdr_busy = 0;
+#ifdef SA_LOG
+    if ((pk_reads & 63) == 1) { sa_where = 0x9A000000u | (uint32_t)sector; sa_log_put(); }   /* (the 1st, 65th ... read) */
+#endif
+    if (ok) {
+        uint32_t h = 2166136261u; for (int i = 0; i < 2048; i++) { h ^= out[i]; h *= 16777619u; }
+        ok = h == PK_W(d[6])[sector];
+    }
+    if (!ok) { pk_bad++;
+#ifdef SA_LOG
+        sa_to[6]++;
+#endif
+        for (int i = 0; i < 2048; i++) out[i] = 0; }
+    return ok;
+}
+/* a combination from the pack into window 1 at 0x200000: each 4 KB piece read (its page shown), unpacked into the frame
+   buffer's list area and copied into the cart by the stack's command 101 (FBCART), as pool_wb / sa_log_put do */
+static int pk_combo(int c)
+{
+    const uint32_t *d = PK_DIR;
+    if ((uint32_t)c >= d[7]) return 0;
+    const uint32_t *l = PK_W(PK_W(d[8])[c]);
+    const uint32_t np = l[0];
+    uint8_t *buf = (uint8_t *)(0x24000000 + BG2_LIST);        /* (the frame buffer's list area: no SDRAM to spare) */
+    int ok = 1;
+    for (uint32_t k = 0; k < np && ok; k++) {
+        const uint32_t loc = l[1 + 2 * k], ln = l[2 + 2 * k] >> 16, sl = l[2 + 2 * k] & 0xFFFF;
+#ifdef BG2_DRAW
+        while (pal_go >= 0) { }
+        cdr_busy = 1;
+        bg2_take();                                           /* (the list area ours: a list or a commit under way ended) */
+#else
+        cdr_busy = 1;
+        for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+#endif
+        for (int i = 0; i < 2048; i++) ((volatile uint16_t *)buf)[i] = 0;   /* (ares, docs/52: a byte write of 0 into the frame
+                                                                 buffer left the byte as it was - the area cleared by words first) */
+        const uint8_t *src = pk_at(loc);
+        if (!src) ok = 0;
+        else if (sl == ln) for (uint32_t i = 0; i < ln; i++) buf[i] = src[i];
+        else if (pk_lz4(src, sl, buf, 4096, 0, 0) != (int)ln) ok = 0;
+        pk_page(1);
+        if (!ok) { cdr_busy = 0; break; }
+        volatile uint8_t *fm = (volatile uint8_t *)0x20004000;
+        *fm = 0x00; while (MARS_SYS_INTMSK & 0x8000) { }
+        const int lv = SetSH2SR(15);                          /* (the 68000 writes the cart with RV = 1: no interrupt meanwhile) */
+        MARS_SYS_COMM2 = (uint16_t)(BG2_LIST >> 4); COMM8_32 = (0x200000u + k * 4096u) | 1u << 24; COMM12_16 = 0xFFFF;
+        MARS_SYS_COMM0 = 101;
+        for (int n = 0; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { }
+        SetSH2SR(lv);
+        if (COMM12_16 != 0) ok = 0;
+        *fm = 0x80; while (!(MARS_SYS_INTMSK & 0x8000)) { }
+        cdr_busy = 0;
+    }
+    CacheControl(0x11);
+    return ok;
+}
+#endif
 int rt_disc_sector(int32_t sector, uint8_t *out)
 {
     if (sector < 0) return 0;
+#ifdef SAPK
+    if (pk_ok()) return pk_sector(sector, out);             /* (docs/52: from the cart's pack, not the disc) */
+#endif
     const unsigned c = (unsigned)sector >> 4, slot = c % CDR_N;
     if (cdr_tag[slot] != (uint16_t)(c + 1)) {
         cdr_busy = 1;                                         /* (pace_vbi sends nothing meanwhile) */
@@ -1403,10 +1543,18 @@ static int combo_load(Rt *r, int c)
 #ifdef SA_LOG
     sa_where = 0x38000000u | (uint32_t)(104 + c);
 #endif
-    int ok = cd_load(104 + c);
+#ifdef SAPK
+    int ok;
+    if (pk_ok()) ok = pk_combo(c);                            /* (docs/52: from the cart's pack) */
+    else {
+#endif
+    ok = cd_load(104 + c);
     CacheControl(0x11);                                       /* (the cart's lines: purged) */
 #ifdef RT_CD_RING
     if (!cd_open(102)) ok = 0;                                /* (command 91 reads the open file: the track again) */
+#endif
+#ifdef SAPK
+    }
 #endif
 #if defined(RT_CD_RING) || defined(RT_POOL) || defined(BG2_DRAW)
     cdr_busy = 0;
@@ -1461,10 +1609,16 @@ int main(void)
        its two halves load (LEVEL03.BIN, file 103, at window 1's start; IMAGE24.RAW, file 24, at slot 24 = 1 MB on),
        then window 1 is page 1 again for the blocks. Only the EverDrive's engine reads it, by its physical address */
 #ifndef CARD_NOLOAD
+#ifdef SAPK
+    if (!pk_ok())                                             /* (docs/52: packed - the card is in page 6 already) */
+#endif
     if (!cart_page(CARD_PAGE) || !cd_load(103) || !cd_load(24) || !cart_page(1)) { cd_status(0x4EE6); while (1) { } }
 #endif                                                        /* (CARD=2: from power-on - the game fills the card itself) */
 #endif
 #ifdef RT_COMBO
+#ifdef SAPK
+    if (!pk_ok())                                             /* (docs/52: packed - IMAGE21.RAW and LEVEL01.BIN are in place) */
+#endif
     if (!cd_load(21) || !cd_load(201)) { cd_status(0x4EE0); while (1) { } }   /* (docs/39: the shared blocks; the
                                                                  combination comes at the first frame's end) */
 #else
@@ -1543,6 +1697,9 @@ int main(void)
 #ifdef RT_CD_RING
     if (st.scsi_o) {                                          /* (the drive, docs/69: the track's file opened, kept open) */
         char err[4];
+#ifdef SAPK
+        if (!pk_ok())                                         /* (docs/52: the track is the pack's, no file to open) */
+#endif
         if (!cd_open(102)) { cd_status(0x4EE3); while (1) { } }
         if (!scsi_start_tab(&rt.hw, st.scsi_o, st.scsi_fifo, st.toc, st.disc_tab,
                             st.io_t0 + (int64_t)(int32_t)(st.scsi_o[34] - st.io_regs[18]), err, sizeof err)) { cd_status(0x4EE4); while (1) { } }

@@ -13,13 +13,23 @@ void ace_reset(AcEngine *e, uint8_t *cart)
     static const uint32_t zero[19];
     const uint8_t *const none[32] = { 0 };
     ac_start_regions(&e->ac, zero, none);
-    e->cart = cart; e->misses = 0; e->poke_a = 0; e->pokes = 0; e->ram_writes = 0;
+    e->cart = cart; e->misses = 0; e->poke_a = 0; e->pokes = 0; e->ram_writes = 0; e->armed = 0; e->arm_st = 0;
     for (int k = 0; k < 32; k++) { e->unit[k] = ACE_NONE; ace_region(e, k); }
 }
 
 uint16_t ace_bus_read(AcEngine *e, uint32_t off)
 {
     const unsigned r = (off >> 1) & 0xFF;
+    {   /* (docs/52) the arming: $1AF0, $1AEF, $1AF7 read in a row with 0xA5 in the value field; till then nothing */
+        static const uint8_t key[3] = { ACE_ARM_1, ACE_ARM_2, ACE_ARM_3 };
+        if (!e->armed) {                             /* (the read that arms it still reads 0xFFFF: it arms at its end, as the RTL) */
+            if (!(off & ACE_WR) && ((off >> 9) & 0xFF) == 0xA5) {
+                if (r == key[e->arm_st]) { if (++e->arm_st == 3) { e->armed = 1; e->arm_st = 0; } }
+                else e->arm_st = r == key[0] ? 1 : 0;
+            } else e->arm_st = 0;
+            return 0xFFFF;
+        }
+    }
     if (!(off & ACE_WR)) {                           /* a register read */
         if (r >= 0x80 && r < 0xE0) return 0xFF;      /* (the set-up registers: not readable, as the card's) */
         const long m = e->ac.misses;

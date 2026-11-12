@@ -155,6 +155,11 @@ BG_OBJ = $(BUILD)/rt_bg2.o $(if $(filter 1,$(BG32)),$(BUILD)/rt_bg32.o)
 endif
 # SPLAY=1 (docs/36): Sapphire played with pad 1 from the state (LEVEL01) on, no end; the code the state's window
 # did not trace runs interpreted
+# SAPK=1 (docs/52; with COMBO=1 CDR=1 and the stack's PACKED=1 EDCD_PACKED=1 EDCD_W0=8 FBCART=1): the data track and the
+# combinations from the packed launcher's pack (tools/sa_pack.py), the CD for its music only
+ifeq ($(SAPK),1)
+CCFLAGS += -DSAPK
+endif
 # SA_LOG=1 (docs/51; the stack with FBCART=1): the console's log, 4 KB at cart SA_LOG_AT (0x3EF000), read over USB
 ifeq ($(SA_LOG),1)
 CCFLAGS += -DSA_LOG

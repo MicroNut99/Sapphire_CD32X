@@ -1,0 +1,133 @@
+From 36ad26b857c5fe95116b830f06fbaf54fed84b3b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:52:28 -0800
+Subject: [PATCH] md/everdrive-pro: the Arcade Card engine armed by three
+ reads; DIAG ARES_CART_WATCH, ARES_ACE_WHO, ARES_PC (Sapphire docs/52)
+
+The 32X boot ROM's checksum reads the whole cart in order, the engine's window with it, where a read is a
+write: the engine now answers 0xFFFF and changes nothing until three reads in a row arm it (as fpga/ac_engine.sv).
+ARES_CART_WATCH names who wrote a cart range, ARES_ACE_WHO the SH2 PC of each engine read, ARES_PC=1 prints the
+SH2s' PCs with the frame dumps.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ android/native/src/frontend.cpp                |  5 +++++
+ android/native/src/frontend.hpp                |  1 +
+ android/native/src/harness.cpp                 |  2 ++
+ ares/md/cartridge/board/arcade-card-engine.hpp | 13 +++++++++++--
+ ares/md/cartridge/board/everdrive-pro.cpp      |  5 +++++
+ 5 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/android/native/src/frontend.cpp b/android/native/src/frontend.cpp
+index f420cfb..2d82ad1 100644
+--- a/android/native/src/frontend.cpp
++++ b/android/native/src/frontend.cpp
+@@ -528,6 +528,11 @@ void Session::cpuState(uint32_t out[4]) const {
+   out[3] = ares::MegaDrive::mcd.communication.cfs;
+ }
+ 
++void Session::sh2State(uint32_t out[4]) const {
++  out[0] = ares::MegaDrive::m32x.shm.regs.PC; out[1] = ares::MegaDrive::m32x.shm.regs.PR;
++  out[2] = ares::MegaDrive::m32x.shs.regs.PC; out[3] = ares::MegaDrive::m32x.shs.regs.PR;
++}
++
+ void Session::cddState(uint32_t out[4]) const {
+   out[0] = (uint32_t)ares::MegaDrive::mcd.cdd.io.status;
+   out[1] = (uint32_t)ares::MegaDrive::mcd.cdd.io.track;
+diff --git a/android/native/src/frontend.hpp b/android/native/src/frontend.hpp
+index ced5d16..331fb84 100644
+--- a/android/native/src/frontend.hpp
++++ b/android/native/src/frontend.hpp
+@@ -104,6 +104,7 @@ public:
+   //32X COMM0-COMM14 (index 0-7), as the 68000 sees them: the CD32X boot stacks post their
+   //status in COMM12 (0x4B10 = game running), handy for the log view and the test harness
+   uint16_t comm(uint32_t index) const;
++  void sh2State(uint32_t out[4]) const;  //(DIAG) the master's PC and PR, the slave's
+   void cpuState(uint32_t out[4]) const;  //main 68000 pc, sub 68000 pc, mega CD comm flags main / sub
+   void cddState(uint32_t out[4]) const;  //the mega CD drive: status, track, sector, CD audio attenuator
+   //cd32x-timing: SH2 accesses since boot: cart reads, frame buffer reads, writes, SDRAM reads, writes, 32X swaps
+diff --git a/android/native/src/harness.cpp b/android/native/src/harness.cpp
+index 886de25..a8cf0bf 100644
+--- a/android/native/src/harness.cpp
++++ b/android/native/src/harness.cpp
+@@ -237,6 +237,8 @@ int main(int argc, char** argv) {
+         printf("    68k pc=%06X  sub pc=%06X  mcd flags main=%02X sub=%02X\n", c[0] & 0xffffff, c[1] & 0xffffff, c[2], c[3]);
+         uint32_t d[4]; session.cddState(d);
+         printf("    cdd status=%X track=%u sector=%u cda-attenuator=%04X\n", d[0], d[1], d[2], d[3]);
++        uint32_t s2[4]; session.sh2State(s2);   //(Sapphire docs/52) the SH2s' program counters and PR
++        printf("    sh2 master pc=%08X pr=%08X  slave pc=%08X pr=%08X\n", s2[0], s2[1], s2[2], s2[3]);
+       }
+       if(stats) {
+         uint64_t now[6];
+diff --git a/ares/md/cartridge/board/arcade-card-engine.hpp b/ares/md/cartridge/board/arcade-card-engine.hpp
+index 57245d6..93bec06 100644
+--- a/ares/md/cartridge/board/arcade-card-engine.hpp
++++ b/ares/md/cartridge/board/arcade-card-engine.hpp
+@@ -18,12 +18,13 @@ struct ArcadeCardEngine {
+   n16 unit[32];
+   n24 pokeAddress;
+   i32 poked = -1;                //the byte the last access wrote (the board invalidates it), or -1
++  bool armed = false; u8 armSt = 0;   //(Sapphire docs/52) off from its reset until $1AF0, $1AEF, $1AF7 are read with 0xA5
+ 
+   auto reset() -> void {
+     for(auto& p : port) p = {};
+     latch = 0; shiftBits = 0; rotateBits = 0;
+     for(auto& u : unit) u = 0xffff;
+-    pokeAddress = 0; poked = -1;
++    pokeAddress = 0; poked = -1; armed = false; armSt = 0;
+   }
+ 
+   static auto index(const Port& p) -> u32 {
+@@ -45,6 +46,14 @@ struct ArcadeCardEngine {
+   template<typename Ram> auto access(u32 off, Ram& ram, u32 words) -> n16 {
+     u32 r = off >> 1 & 0xff;
+     poked = -1;
++    if(!armed) {  //(Sapphire docs/52) the 32X boot ROM's checksum reads the window in order: it must change nothing
++      static const u8 key[3] = {0xf0, 0xef, 0xf7};
++      if(!(off & 0x20000) && (off >> 9 & 0xff) == 0xa5) {
++        if(r == key[armSt]) { if(++armSt == 3) { armed = true; armSt = 0; } }
++        else armSt = r == key[0] ? 1 : 0;
++      } else armSt = 0;
++      return 0xffff;
++    }
+     if(!(off & 0x20000)) {
+       if(r < 0x80) {
+         auto& p = port[r >> 4 & 3];
+@@ -145,6 +154,6 @@ struct ArcadeCardEngine {
+ 
+   auto serialize(serializer& s) -> void {
+     for(auto& p : port) { s(p.base); s(p.offset); s(p.increment); s(p.control); }
+-    s(latch); s(shiftBits); s(rotateBits); s(unit);
++    s(latch); s(shiftBits); s(rotateBits); s(unit); s(armed); s(armSt);
+   }
+ };
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index bce6559..66166f7 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -239,9 +239,12 @@ struct EverDrivePro : Interface {
+     if(aceOn) {
+       n22 local = address;
+       if(local >= 0x1c0000) if(local < 0x200000) {
++        { static int nl; if(getenv("ARES_ACE_WHO") && nl++ < 8) fprintf(stderr, "ace who: %s (PC %08x) reads %06x (port %05x)\n", cpu.active() ? "68000" : (m32x.shm.active() ? "master" : "secondary"), cpu.active() ? 0u : (u32)(m32x.shm.active() ? m32x.shm.regs.PC : m32x.shs.regs.PC), (u32)address, (u32)(local - 0x1c0000)); }   //DIAG (Sapphire docs/52)
+         n16 d = ace.access(local - 0x1c0000, ram, ram.size());
+         if(ace.poked >= 0) {  //a poke: the windows that show it see the new byte (the SH2s' code included)
+           u32 word = (u32)ace.poked >> 1;
++          { static s64 wa = -2; static int nlog; if(wa == -2) { wa = -1; if(auto e = getenv("ARES_CART_WATCH")) wa = strtoll(e, nullptr, 0); }   //DIAG (Sapphire docs/52)
++            if(wa >= 0 && (s64)(word >> 18) == (wa >> 19) && nlog++ < 20) fprintf(stderr, "cart watch: the card engine poked %06x (port %05x)\n", (u32)ace.poked, (u32)(local - 0x1c0000)); }
+           for(u32 n : range(8)) if(bank[n] == word >> 18) invalidate(n << 19 | (word << 1 & 0x7ffff), 2);
+         }
+         return d;
+@@ -263,6 +266,8 @@ struct EverDrivePro : Interface {
+   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+     if(!writeEnable || writeProtect) return;
+     u32 word = offset(address) >> 1;
++    { static s64 wa = -2; if(wa == -2) { wa = -1; if(auto e = getenv("ARES_CART_WATCH")) wa = strtoll(e, nullptr, 0); }   //DIAG (Sapphire docs/52)
++      if(wa >= 0 && (s64)word == (wa >> 1)) fprintf(stderr, "cart watch: %06x <- %04x (bus address %06x, upper %d lower %d)\n", (u32)wa, (u32)data, (u32)address, (int)upper, (int)lower); }
+     if(upper) ram[word].byte(1) = data.byte(1);
+     if(lower) ram[word].byte(0) = data.byte(0);
+     u32 local = (n22)address;
+-- 
+2.43.0
+

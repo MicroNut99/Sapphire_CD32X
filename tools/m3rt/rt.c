@@ -768,6 +768,7 @@ void rt_ace_poke_run(uint32_t ca, const uint8_t *src, uint32_t n)
 }
 static void ace_load(Rt *r, const RtState *st)       /* the state's card into the engine */
 {
+    ace_rd(ACE_ARM_OFF(ACE_ARM_1)); ace_rd(ACE_ARM_OFF(ACE_ARM_2)); ace_rd(ACE_ARM_OFF(ACE_ARM_3));   /* (docs/52: armed first) */
     const uint32_t *s = st->ac_regs;
     for (int p = 0; p < 4; p++) {
         const unsigned q = p << 4; const uint32_t *w = s + p * 4;

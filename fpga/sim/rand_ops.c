@@ -21,6 +21,11 @@ int main(int argc, char **argv)
     snprintf(p, sizeof p, "%s/log.txt", argv[2]); FILE *f = fopen(p, "w");
     static AcEngine e; ace_reset(&e, cart);
 #define OP(o) do { const uint32_t o_ = (o); fprintf(f, "%05x %04x\n", o_, ace_bus_read(&e, o_)); } while (0)
+    /* (docs/52) not armed: the 32X boot ROM's checksum - the whole window read in order - and random accesses change
+       nothing and read 0xFFFF; then the three arming reads */
+    for (uint32_t o = 0; o < ACE_SIZE; o += 2) OP(o);
+    for (int i = 0; i < 2000; i++) { const uint32_t x = rnd(); OP((x & 0x3FFFE)); }
+    OP(ACE_ARM_OFF(ACE_ARM_1)); OP(ACE_ARM_OFF(ACE_ARM_2)); OP(ACE_ARM_OFF(ACE_ARM_3));
     for (int k = 0; k < 32; k++) {                          /* the table: units in the first 1.9 MB, a few not here */
         const uint32_t x = rnd() & 7;                       /* (1 in 8 not here, 1 in 8 reaching into bank 31) */
         const uint16_t u = x == 0 ? 0xFFFF : x == 1 ? (uint16_t)(0xF7F8 + rnd() % 0x100) : (uint16_t)(rnd() % 0x1D00);
@@ -46,6 +51,6 @@ int main(int argc, char **argv)
         }
     }
     fclose(f);
-    printf("%ld operations, %ld reads of a region not here, %ld pokes made\n", n + 64, e.misses, e.pokes);
+    printf("%ld operations, %ld reads of a region not here, %ld pokes made; armed %d\n", n + 64 + ACE_SIZE / 2 + 2003, e.misses, e.pokes, e.armed);
     return 0;
 }

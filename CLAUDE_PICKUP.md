@@ -162,9 +162,15 @@ Read `CLAUDE.md` first.
      (`tools/m3rt/psg_c.c`, = Mednafen, `PSGC=1 run_eqpsg.sh`); the reference's writes through it: 0.91
      (`m3_psglog.py`, `psg_render.c`). Open: the stand-in's PSG writes differ from frame 8,500 (the driver reads something).
   46. **docs/51, the console log:** saspeed `SA_LOG=1` (with `FBCART=1`): 4 KB at cart 0x3EF000 by command 101 at the
-     ring fills and combination loads; `tools/sa_log.py`, `tools/usb/sa_watch.sh` (edlink memrd); ares patch 0010
+     ring fills and combination loads; `tools/sa_log.py`, `tools/usb/sa_after.sh` (edlink memrd once, after the run: never during play, DraculaX docs/177); ares patch 0010
      `ARES_CART_DUMP=0x3EF000:4096:<file>`. Harmless in ares against a control run. Build: `EXTRA="SA_LOG=1 FBCART=1"
      tools/m3_combo_build.sh /abs/comboh /abs/sp/pon.bin - <tag> <frames>` (the combination root must be absolute).
+  47. **docs/52, the game in the cart:** the BootCamp's PACKED-1 (`e283d48`, ledger §35 + 35b; build tree `work/bc4`).
+     `CARDF=/abs/sp/t12k.card EXTRA="FRAMES=1700" tools/m3_sapk_build.sh /abs/comboh /abs/sp/t12k.bin <tag> <frames...>`
+     builds `work/Sapphire_<tag>.32X` (`tools/sa_pack.py`) and runs ares from it; `tools/sa_sdram.py <elf> <dump> <n>`.
+     saspeed `SAPK=1`. The engine is armed by three reads (RTL, C model, ares patch 0011, `ace_load`); interrupts are
+     masked around commands 68/101; the frame buffer takes no 0x00 byte. ares only: end hash `b2fc64ab` at frame 1,700
+     (10,000 ares frames take about 3.5 minutes; that run needs 60,000). Next: the live FPGA build reads the pack.
 
 ## 2. Where things live
 

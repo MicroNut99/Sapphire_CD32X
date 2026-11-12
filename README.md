@@ -7,7 +7,10 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
-**Latest (11 Nov 2026, [docs/51](docs/51_THE_CONSOLE_LOG.md)):** a log for the console, read over USB, never on the screen
+**Latest (11 Nov 2026, [docs/52](docs/52_THE_GAME_IN_THE_CART.md)):** the game in the cart: one 14 MB `.32X` (the
+BootCamp's packed launcher) holds the program, the data track and the blocks; the disc keeps only the music. In ares the
+stage 1 to 2 window ends equal to the PC's with nothing read from the disc. Not yet on a console.
+[docs/51](docs/51_THE_CONSOLE_LOG.md): a log for the console, read over USB after the run, never on the screen
 ([docs/50](docs/50_THE_SOUND_AGAINST_THE_REFERENCE.md): the stand-in's sound against the reference, part by part).
 [docs/49](docs/49_THE_DATA_TRACK_IN_THE_CART.md): the data track packed for the cart, 14.8 MB to
 6.72 MB (each different sector once, compressed), read back equal; stage 1 plays the same from it as from the disc.
