@@ -69,8 +69,19 @@ The rest:
 
 So the game's sound driver runs differently in the stand-in from there. The pictures stay equal or come back to equal
 (docs/49), so it is something the driver reads that the pictures don't show. The ADPCM's or the drive's status are the
-first suspects; the timer is not (the models note any timer access and there were none). This is the next thing to
-find.
+first suspects; the timer is not (the models note any timer access and there were none).
+
+**Where the writes part** (`PSND_LOG=<file>`: the stand-in's writes in order, against `m3_psglog.py`'s):
+- The first 9,937 writes are the reference's. The reference has two more at power-on, before the state.
+- At reference frame 8,558 the driver writes the channel select `0` five times where Mednafen writes it four. That
+  part of the driver silences the channels: select n, control 0 for each.
+- An extra pass of a loop that writes the select while it waits is what timing gives: the loop runs until something
+  outside the CPU changes (the CD unit's or the ADPCM's status). From there on, the driver's own state goes another
+  way.
+
+So the stand-in's model of when that status changes is off by about one pass of the loop. The pictures don't show
+it. The way in is the status reads around frame 8,558, the runtime's against Mednafen's (`RUN_IO_LOG`-style, with
+their times).
 
 ## Levels
 

@@ -7,6 +7,7 @@
  * The ADPCM: the MSM5205's 4-bit ADPCM from ADPCM RAM, the nibbles the drive model's playback passed over in the
  * frame (its read address and nibble before and after), stretched to the frame's samples.
  */
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
@@ -25,6 +26,8 @@ long psnd_writes;                                       /* (DIAG, docs/50: the P
 void psnd_write(unsigned r, uint8_t v)
 {
     psnd_writes++;
+    { static FILE *lg; static int tried; if (!tried) { tried = 1; if (getenv("PSND_LOG")) lg = fopen(getenv("PSND_LOG"), "wb"); }
+      if (lg) { const uint8_t b[2] = { (uint8_t)r, v }; fwrite(b, 1, 2, lg); } }   /* (DIAG, docs/50: the writes in order) */
     if (nev < 8192) { ev[nev].until = rt_io_until; ev[nev].r = (uint8_t)r; ev[nev].v = v; nev++; }
 }
 static void psnd_apply(unsigned r, uint8_t v)
