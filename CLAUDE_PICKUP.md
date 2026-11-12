@@ -171,6 +171,11 @@ Read `CLAUDE.md` first.
      saspeed `SAPK=1`. The engine is armed by three reads (RTL, C model, ares patch 0011, `ace_load`); interrupts are
      masked around commands 68/101; the frame buffer takes no 0x00 byte. ares only: end hash `b2fc64ab` at frame 1,700
      (10,000 ares frames take about 3.5 minutes; that run needs 60,000). Next: the live FPGA build reads the pack.
+  48. **docs/53:** `tools/m3rt/sapk.c` + `fpga/huc/pak_read.sv` (`fpga/huc/run_eqpak.sh <.32X> <track>`): the pack by the
+     cart's physical addresses; stand-in `HUC_SAPK=<.32X>`. `tools/sa_pack.py --live`, `tools/m3_live_pack.sh` (tree `work/bc5`).
+     **The machine with no translated code:** `tools/m2_machine.py <gen> <m2mach> <sapm_pc>`; `work/sapm_pc sys/syscard3.pce -
+     disc/sap_tab.bin inp/playL_masks.u16 [frames]` with `RUN_POKES=work/pokes_playL.u32` prints each frame's md5
+     (`inp/playL_hashes.txt`): 74,656 of 75,000 equal. Gate-of-Thunder_CD32X and DraculaX_32X are the examples to follow.
 
 ## 2. Where things live
 

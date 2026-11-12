@@ -5,6 +5,9 @@ the program and all the game's data: the CD is left for the music.
     python3 tools/sa_pack.py --edcd <EDCD.32X built EDCD_PACKED=1 EDCD_W0=8> --rom <the prepped GAME.32X>
         --state <LEVEL01.BIN> --shared <IMAGE21.RAW> --combos <C00.BIN ...> --track <the data track .iso> -o <out.32X>
         [--card <the state's card, 2 MB: page 6>]
+    python3 tools/sa_pack.py --live --edcd ... --rom ... --state ... --level <LEVEL00.BIN> --track ... -o <out.32X>
+        (docs/53, the live build: the CPU is the FPGA's - no blocks; the track's pack is read by the cart's physical
+        addresses, fpga/huc/pak_read.sv, and lies clear of page 1 - the rings - and of pages 5 and 6)
 
 The BootCamp's PACKED-1 (ledger 35) as DraculaX_32X tools/pack_game.py uses it: bank 0 the launcher with "EDPK" at 0x1E0,
 bank 8 the program with "EDPK" + its length at + 0x7FFF0. Then Sapphire's data, where the program reads it (saspeed SAPK=1):
@@ -29,8 +32,10 @@ def opt(name, many=False):
         while j < len(a) and not a[j].startswith('-'): j += 1
         v = a[i + 1:j]; del a[i:j]; return v
     v = a[i + 1]; del a[i:i + 2]; return v
-out = opt('-o'); edcd = opt('--edcd'); rom = opt('--rom'); state = opt('--state'); shared = opt('--shared')
-combos = opt('--combos', True); track = opt('--track'); card = opt('--card') if '--card' in a else None
+live = '--live' in a
+if live: a.remove('--live')
+out = opt('-o'); edcd = opt('--edcd'); rom = opt('--rom'); state = opt('--state'); shared = None if live else opt('--shared')
+combos = [] if live else opt('--combos', True); track = opt('--track'); card = opt('--card') if '--card' in a else None
 B = 0x80000; W0 = 8; P = 0x200000
 ed = bytearray(open(edcd, 'rb').read()); r = open(rom, 'rb').read()
 assert len(ed) <= 0x10000 and ed[0x100:0x104] == b'SEGA', 'the launcher'
@@ -43,7 +48,10 @@ o = W0 * B; f[o:o + B] = bytes(B); f[o:o + len(r)] = r; f[o + 0x7FFF0:o + 0x7FFF
 st = open(state, 'rb').read(); f[0x080000:0x080000 + len(st)] = st
 if card:                                                        # (a state with the Arcade Card's 2 MB: page 6, as CARD=1 loads it)
     cd_ = open(card, 'rb').read(); assert len(cd_) <= P; f[6 * P:6 * P + len(cd_)] = cd_
-sh = open(shared, 'rb').read(); f[0x2A0000:0x2A0000 + len(sh)] = sh
+sh = b'' if live else open(shared, 'rb').read(); f[0x2A0000:0x2A0000 + len(sh)] = sh
+if live and '--level' in a:                                     # (the live build's LEVEL00.BIN where file 100 would put it: the
+    lv = open(opt('--level'), 'rb').read(); assert len(lv) <= 0x1F0000   # program's start runs code from it; the FIFO's ring takes the place after)
+    f[0x200000:0x200000 + len(lv)] = lv
 st_end = (0x080000 + len(st) + 0xFFF) & ~0xFFF; sh_end = (0x2A0000 + len(sh) + 0xFFF) & ~0xFFF
 assert st_end <= 0x1C0000 and sh_end <= 0x3EF000
 
@@ -77,6 +85,8 @@ assert dir_end <= 0x7F000, 'the directory reaches the bank end'
 # (offsets as the program sees them: window 0's from cart 0; a page's from window 1's start)
 regions = [(0xFF, dir_end, 0x7FFF0), (0xFF, st_end, 0x1C0000), (1, sh_end - P, 0x3EF000 - P),
            (2, 0x080000, P), (3, 0, P), (4, 0, P), (5, 0, P)]   # (not page 0: command 68 takes pages 1-7 only)
+if live:   # (docs/53: page 1 is the FIFO's and the sound's ring, page 5 is kept for the FPGA CPU's own memory, page 6 the card)
+    regions = [(0xFF, dir_end, 0x7FFF0), (0xFF, st_end, 0x1C0000), (2, 0x080000, P), (3, 0, P), (4, 0, P)]
 ri = 0; pos = regions[0][1]
 def phys(pg, off):
     if pg == 0xFF: return W0 * B + off if off < B else off

@@ -27,7 +27,7 @@ def main():
         if a[0] == '--frames': frames = int(a[1]); a = a[2:]
         elif a[0] == '--long': frames = None; a = a[1:]
         else: sys.exit('unknown option ' + a[0])
-    exe = os.path.join(W, 'm2check')
+    exe = os.environ.get("M2_EXE", os.path.join(W, "m2check"))   # (docs/53: M2_EXE=<work>/m2mach, the machine with no translated code)
     print('| Window | Frames run | Equal to Mednafen | Instructions | Interpreted | Stopped |')
     print('|---|---|---|---|---|---|')
     bad = 0

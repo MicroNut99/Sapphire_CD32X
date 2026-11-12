@@ -21,6 +21,7 @@ for f in range(n):
 try: print('ADPCM nibbles decoded: %d' % C.c_long.in_dll(L, 'psnd_nibbles').value)
 except ValueError: pass
 print('data sectors the game read: %d' % C.c_uint32.in_dll(L, 'rt_disc_reads').value)
+if os.environ.get('HUC_SAPK'): print('from the cart\'s pack (HUC_SAPK): %d read, %d bad' % (L.huchost_pack_reads(), L.huchost_pack_bad()))
 try:
     r = C.c_uint32.in_dll(L, 'scsi_pak_reads').value; b = C.c_uint32.in_dll(L, 'scsi_pak_bad').value
     print('sectors from the pack: %d, failed checks %d' % (r, b))

@@ -131,13 +131,14 @@ int scsi_pak_sector(int32_t sector, uint8_t *out)        /* 1 read, 0 failed its
     return r;
 }
 #endif
+int32_t rt_disc_lba;                                               /* (docs/53, DraculaX docs/99: the sector's own LBA, for a reader that needs the track) */
 static int read_data_sector(Hw *io, int32_t lba, uint8_t *out)   /* 2048 bytes of a data track; 0 if not one */
 {
     Disc *k = &io->scsi.disc;
     const int t = track_of(k, lba);
     if (!t || !(k->t[t].control & 4)) return 0;
     if (lba < k->t[t].lba || lba >= k->t[t].lba + k->t[t].sectors) { memset(out, 0, 2048); return 1; }   /* gap */
-    if (k->tab) { if (!rt_disc_sector(lba - k->t[t].lba, out)) { note(io, "data sector not read"); memset(out, 0, 2048); } return 1; }
+    if (k->tab) { rt_disc_lba = lba; if (!rt_disc_sector(lba - k->t[t].lba, out)) { note(io, "data sector not read"); memset(out, 0, 2048); } return 1; }
 #ifdef RT_NO_DISC
     note(io, "no disc files (RT_NO_DISC)"); memset(out, 0, 2048);
 #else

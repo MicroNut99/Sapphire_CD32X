@@ -37,10 +37,14 @@ static int16_t snd[2048]; static int nsnd;
 static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 << 18;
 
 int scsi_pak_sector(int32_t sector, uint8_t *out);
+#include "sapk.h"
+static Sapk sapk; static int sapk_on;                          /* (docs/53: HUC_SAPK=<the packed .32X>, the cart's own pack) */
+uint32_t huchost_pack_reads(void) { return sapk.reads; } uint32_t huchost_pack_bad(void) { return sapk.bad; }
 uint32_t rt_disc_reads;                                    /* (docs/49: the data sectors the game read) */
 int rt_disc_sector(int32_t sector, uint8_t *out)
 {
     rt_disc_reads++;
+    if (sapk_on) { if (sector >= 0 && sapk_sector(&sapk, (uint32_t)sector, out)) return 1; memset(out, 0, 2048); return 0; }
     { const int r = scsi_pak_sector(sector, out); if (r >= 0) return r; }   /* (docs/49: SCSI_PAK, the cart's copy) */
     if (!track || sector < 0 || fseek(track, (long)sector * 2048, SEEK_SET) || fread(out, 1, 2048, track) != 2048) return 0;
     return 1;
@@ -75,6 +79,9 @@ int huchost_init(const char *state, const char *trk)
     ents = malloc(sizeof *ents * (size_t)maxents);
     rt_init(&rt, &st, banks);
     if (trk) track = fopen(trk, "rb");
+    if (getenv("HUC_SAPK")) { long pn; const uint8_t *pf = slurp(getenv("HUC_SAPK"), &pn);
+        sapk_on = pf && sapk_open(&sapk, pf, (uint32_t)pn);
+        fprintf(stderr, "huchost: the track from the cart's pack: %s\n", sapk_on ? "its directory found" : "NO DIRECTORY (the disc's file instead)"); }
     fprintf(stderr, "huchost: the drive %s, the track %s\n", st.scsi_o ? "from the state" : "NOT in the state (no CD reads)", track ? "open" : "not open");   /* (docs/49) */
     if (st.scsi_o) {
         char err[256];

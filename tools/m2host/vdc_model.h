@@ -27,6 +27,11 @@ typedef struct Vdc {
     /* the IRQ line (status & 0x3F): when it last rose, and the interval before the last status read cleared it */
     int64_t irq_rise, irq_prev_rise, irq_prev_clear;
     long dma_cut;                                   /* VRAM DMAs cut short by the display starting (none expected) */
+    /* docs/105: the background's offsets each line draws with (Mednafen's BG_YMoo / BG_YOffset / BG_XOffset): Y set by
+       a BYR write or at the display's first line, one up a line; X taken from BXR at the display start's third step.
+       lines[raster counter]: (X, Y) as the line took them - the picture's line table */
+    uint16_t bg_ymoo, bg_yoff; int need_bgy_inc;
+    uint16_t lines[263][2];
 } Vdc;
 void vdc_init(Vdc *v);
 uint8_t vdc_read(Vdc *v, unsigned a);
@@ -43,3 +48,5 @@ void vt_run(Vdc *v, int64_t t);                     /* run the chips to time t *
 int32_t vt_next_event(Vdc *v, int64_t cd_next);     /* master clocks to the VCE's next event (Mednafen CalcNextEvent) */
 int vt_irq_at(const Vdc *v, int64_t t);             /* was the VDC's IRQ line high at time t */
 void vt_dot_clock(Vdc *v, uint8_t vce_cr);          /* a VCE control write */
+extern void (*vdc_scroll_hook)(struct Vdc *v);              /* docs/105: called after each BXR / BYR write (NULL: none) */
+extern void (*vdc_vram_hook)(unsigned addr);              /* docs/101: called with each VRAM word written (NULL: none) */

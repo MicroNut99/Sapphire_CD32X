@@ -9,6 +9,8 @@
 #include "vdc_model.h"
 
 static const uint16_t vram_inc[4] = { 1, 32, 64, 128 };
+void (*vdc_scroll_hook)(Vdc *v);                             /* (docs/105: each BXR / BYR write) */
+void (*vdc_vram_hook)(unsigned addr);                       /* (docs/101: each VRAM word written, for the video window's stamps) */
 
 void vdc_init(Vdc *v) { memset(v, 0, sizeof *v); v->irq_rise = v->irq_prev_rise = INT64_MAX; v->irq_prev_clear = 0; }
 
@@ -21,7 +23,7 @@ static void commit_pending(Vdc *v)
     if (v->timed ? (v->sat_dma > 0 || v->dma_running || v->myst_ph) : v->busy) return;
     if (v->pending_write) {
         if (v->pending_write_addr == vdc_watch) fprintf(stderr, "  VRAM %04X <- %04X\n", vdc_watch, v->pending_write_latch);
-        if (v->pending_write_addr < 0x8000) v->vram[v->pending_write_addr] = v->pending_write_latch;   /* 32 K words */
+        if (v->pending_write_addr < 0x8000) { v->vram[v->pending_write_addr] = v->pending_write_latch; if (vdc_vram_hook) vdc_vram_hook(v->pending_write_addr); }   /* 32 K words */
         v->pending_write = 0;
     }
     if (v->pending_read) { v->read_buffer = v->vram[v->pending_read_addr]; v->pending_read = 0; }
@@ -44,7 +46,7 @@ void vdc_dma_finish(Vdc *v)
     do {
         const uint16_t w = v->vram[v->SOUR];
         if (v->DESR == vdc_watch) fprintf(stderr, "  VRAM %04X <- %04X (DMA from %04X)\n", vdc_watch, w, v->SOUR);
-        v->vram[v->DESR] = w;
+        v->vram[v->DESR] = w; if (vdc_vram_hook) vdc_vram_hook(v->DESR);
         v->SOUR += (v->DCR & 4) ? -1 : 1;
         v->DESR += (v->DCR & 8) ? -1 : 1;
         v->LENR--;
@@ -128,8 +130,8 @@ void vdc_write(Vdc *v, unsigned a, uint8_t val)
         break;
     case 0x05: SETP(v->CR, val, msb); break;
     case 0x06: SETP(v->RCR, val, msb); v->RCR &= 0x3FF; break;
-    case 0x07: SETP(v->BXR, val, msb); v->BXR &= 0x3FF; break;
-    case 0x08: SETP(v->BYR, val, msb); v->BYR &= 0x1FF; break;
+    case 0x07: SETP(v->BXR, val, msb); v->BXR &= 0x3FF; if (vdc_scroll_hook) vdc_scroll_hook(v); break;
+    case 0x08: SETP(v->BYR, val, msb); v->BYR &= 0x1FF; v->bg_ymoo = v->BYR; if (vdc_scroll_hook) vdc_scroll_hook(v); break;
     case 0x09: SETP(v->MWR, val, msb); break;
     case 0x0A: SETP(v->HSR, val, msb); break;
     case 0x0B: SETP(v->HDR, val, msb); break;

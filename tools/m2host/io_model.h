@@ -88,6 +88,7 @@ int scsi_start(Hw *io, const uint32_t *o, const uint8_t *fifo, const uint32_t *t
    sector comes from rt_disc_sector(sector in the track, 2048 bytes), the game's own (the SH2: the CD32X disc) */
 int scsi_start_tab(Hw *io, const uint32_t *o, const uint8_t *fifo, const uint32_t *toc, const int32_t *tab, int64_t t0, char *err, int errn);
 int rt_disc_sector(int32_t sector, uint8_t *out);
+extern int32_t rt_disc_lba;                             /* (DraculaX docs/99) the LBA of the sector rt_disc_sector is asked for */
 void scsi_run(Hw *io, int64_t t);
 int64_t scsi_next(const Hw *io, int lazy);           /* lazy: CD-DA's next event is its next sector, not sample */
 int scsi_bytes(Hw *io, unsigned n, uint8_t *out);         /* docs/75: n data bytes in one go (rt_cdstep) */

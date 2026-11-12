@@ -43,8 +43,16 @@ static void fetch_sprites(Vdc *v)                            /* the sprites on t
     v->spr_fetch = n * 4;                                     /* (sprite overflow, CR bit 1, is not enabled here) */
 }
 
+static void bgy_step(Vdc *v)                                  /* (docs/105: the Y offset's step, where Mednafen takes it) */
+{
+    if (!v->need_bgy_inc) return;
+    v->need_bgy_inc = 0;
+    v->bg_ymoo = v->rcr_count == 0 ? v->BYR : (uint16_t)(v->bg_ymoo + 1);
+}
+
 static void inc_rcr(Vdc *v)
 {
+    bgy_step(v); v->need_bgy_inc = 1;
     v->rcr_count++;
     if (--v->vphase_ctr <= 0) {
         v->vphase = (v->vphase + 1) % 4;
@@ -83,7 +91,7 @@ static void dma_step(Vdc *v)                                  /* one half of a w
 {
     if (!v->dma_rw) v->dma_buf = v->vram[v->SOUR];
     else {
-        if (v->DESR < 0x8000) v->vram[v->DESR] = v->dma_buf;
+        if (v->DESR < 0x8000) { v->vram[v->DESR] = v->dma_buf; if (vdc_vram_hook) vdc_vram_hook(v->DESR); }
         v->SOUR += (v->DCR & 4) ? 0xFFFF : 1; v->DESR += (v->DCR & 8) ? 0xFFFF : 1;
         if (--v->LENR == 0xFFFF) { v->dma_running = 0; vdc_commit(v); if (v->DCR & 2) raise(v, 0x10); return; }
     }
@@ -118,8 +126,10 @@ static void vdc_tick(Vdc *v)                                  /* one VDC clock *
         v->hphase = (v->hphase + 1) % 7;
         switch (v->hphase) {
         case H_HDS: hds_start(v); break;
-        case H_HDS2: v->hphase_ctr = (int32_t)t_bxr(v); break;
-        case H_HDS3: v->hphase_ctr = (int32_t)((v->hds_c + 1) * 8 - t_byr(v) - t_bxr(v)); break;
+        case H_HDS2: v->hphase_ctr = (int32_t)t_bxr(v); if (!v->in_exhsync) bgy_step(v); v->bg_yoff = v->bg_ymoo; break;
+        case H_HDS3: v->hphase_ctr = (int32_t)((v->hds_c + 1) * 8 - t_byr(v) - t_bxr(v));
+            if (v->rcr_count < 263) { v->lines[v->rcr_count][0] = v->BXR; v->lines[v->rcr_count][1] = v->bg_yoff; }
+            break;
         case H_HDW:
             v->need_rcr_inc = 1;
             if (v->vphase != V_VDW && v->need_vb_test) { if (v->CR & 8) raise(v, 0x20); v->need_vb_test = 0; }

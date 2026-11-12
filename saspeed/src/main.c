@@ -1622,6 +1622,9 @@ int main(void)
     if (!cd_load(21) || !cd_load(201)) { cd_status(0x4EE0); while (1) { } }   /* (docs/39: the shared blocks; the
                                                                  combination comes at the first frame's end) */
 #else
+#ifdef SAPK                                                   /* (docs/53, the live build packed: the state is in place, no blocks) */
+    if (!(((const uint32_t *)0x22040000u)[0] == 0x5341504Bu && ((const uint32_t *)0x22040000u)[1] == 2))
+#endif
     if (!cd_load(100) || !cd_load(201)) { cd_status(0x4EE0); while (1) { } }
 #endif
 #endif
