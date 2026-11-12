@@ -8,11 +8,15 @@ L = C.CDLL(sys.argv[1]); n = int(sys.argv[4])
 L.huchost_init.argtypes = [C.c_char_p, C.c_char_p]
 if not L.huchost_init(sys.argv[2].encode(), sys.argv[3].encode()): sys.exit('huchost_init failed')
 e = C.POINTER(C.c_uint32)(); s = C.POINTER(C.c_int16)(); h = hashlib.md5(); ne = 0
+import os
+wo = os.environ.get('HUC_WAVOUT')                  # (docs/49) the sound, raw s16 22,044 Hz, and <file>.n: a u16 count a frame
+wf = open(wo, 'wb') if wo else None; wn = open(wo + '.n', 'wb') if wo else None
 for f in range(n):
     k = L.huchost_frame(0, C.byref(e)); ne += k
     if k: h.update(C.string_at(e, 4 * k))
     a = L.huchost_audio(C.byref(s))
     if a: h.update(C.string_at(s, 2 * a))
+    if wf: wf.write(C.string_at(s, 2 * a) if a else b''); wn.write(a.to_bytes(2, 'little'))
     if (f + 1) % 1000 == 0 or f + 1 == n: print('frame %d: %d entries, %s' % (f + 1, ne, h.hexdigest()[:16]), flush=True)
 print('data sectors the game read: %d' % C.c_uint32.in_dll(L, 'rt_disc_reads').value)
 try:

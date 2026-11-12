@@ -113,10 +113,36 @@ either. What DraculaX learned:
 5. **Counters for every wait.** A wait that can last for ever (a swap, a command's answer, a sector) counts and gives
    up, and the log says which wait and how often.
 
+## Stage 1 in ares from the pack, and the sound (the same day)
+
+**ares** (`work/ar_s1d`: `ps1d`, `SCSI_PAK`, the `playL` recording through the stand-in, `BG32=1 PWM_SOUND=1
+FIFO_CDDA=1`, 40,000 frames):
+- The stand-in reads its sectors from the pack.
+- The run goes through stage 1 and into stage 2. The last stage-1 picture placed is at reference frame 17,819 by ares
+  frame 22,800, and from ares frame 24,300 on nothing is in the reference, which ends at stage 1's end.
+- **The rate:** 12,835 frames of the game in about 24,000 32X frames, so **0.53 pictures a 32X frame, about 32 a
+  second on average**. docs/48's 0.33 was a slow part, and the stall after it was the state's missing drive.
+
+**Sound: a state from the middle of the game has no PSG in it.**
+- The pack keeps no PSG registers or waveforms, so the stand-in's PSG starts empty and stays silent until the game
+  rewrites a channel. From `ps1d` its effects are an eighth of the reference's level, and the loudness doesn't follow
+  the reference's (correlation -0.12).
+- **From power-on** (`sp/pon.bin`, `playL` from frame 0, the pack, `tools/m3_hucrun.py` with `HUC_WAVOUT`; frames
+  8,150-21,000 against the reference with its CD audio off): the level is right (RMS 1,981 against 2,027), but the
+  loudness a frame correlates only 0.16 (0.16 over 30 frames as well, best lag one frame).
+- In the seconds with sound, docs/48's first run had a spectra correlation median of 0.88.
+
+**The stand-in against Mednafen** (`playL` from power-on, VRAM at the first display line):
+- Equal at frames 600, 2,000 and 5,000.
+- Then 24-466 words apart from frame 8,150 to 17,000, and 3,449 at 20,000.
+
+So the stand-in drifts from the reference somewhere after frame 5,000, and the sound's poor correlation may be that
+same drift. Finding where it starts (frame by frame, between 5,000 and 8,150) comes before any sound tuning. The open
+finding of docs/40 (the interpreter alone drifts from the blocks) is the first suspect.
+
 ## Next
 
-1. Run docs/48's stage again from `ps1d`, with the pack in ares (`SCSI_PAK`), the stand-in's sound (`ARES_HUC_WAV`)
-   and the pictures against the reference.
+1. Where the stand-in leaves Mednafen between frames 5,000 and 8,150; then the sound again.
 2. Check `map_sapphire.sv` against DraculaX's finding on pages 4-6 and windows 6-7, then fix the layout.
 3. The pack's reader on the target: in the SH2 build, the drive's sectors from the cart. In the FPGA build, an LZ4
    reader in the CD unit.
