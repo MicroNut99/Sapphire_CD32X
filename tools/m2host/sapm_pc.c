@@ -57,9 +57,16 @@ static void *load(const char *p, long *n)
     fseek(f, 0, SEEK_END); *n = ftell(f); fseek(f, 0, SEEK_SET);
     void *b = malloc(*n + 1); if (fread(b, 1, *n, f) != (size_t)*n) exit(2); fclose(f); return b;
 }
+/* SPLIT_LOG=<from>,<to> (docs/59): each frame's scroll at the display's first line and at each raster match (the line
+   after it, as the stand-in's pictures take them) */
+static long sl_from = -1, sl_to;
+static void sl_line0(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) printf("split frame %ld line 0: BXR %u BYR %u CR %04X MWR %02X\n", f, v->BXR, v->BYR, v->CR, v->MWR); }
+static void sl_split(Vdc *v, int what) { const long f = sapm_frame(); if (what == 1 && f >= sl_from && f < sl_to) printf("split frame %ld line %d: BXR %u BYR %u CR %04X (at the match)\n", f, v->rcr_count + 1, v->BXR, v->BYR, v->CR); }
+static void sl_scroll(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) printf("split frame %ld   scroll write: BXR %u BYR %u\n", f, v->BXR, v->BYR); }
 int main(int argc, char **argv)
 {
     { extern int scsi_turbo; if (getenv("SCSI_TURBO")) scsi_turbo = atoi(getenv("SCSI_TURBO")); }   /* (docs/58: an experiment) */
+    if (getenv("SPLIT_LOG")) { sscanf(getenv("SPLIT_LOG"), "%ld,%ld", &sl_from, &sl_to); vdc_line0_hook = sl_line0; vdc_split_hook = sl_split; vdc_scroll_hook = sl_scroll; }
     if (argc < 5) { fprintf(stderr, "sapm_pc <System Card> <backup RAM | -> <disc table> <masks> [frames]\n"); return 2; }
     long n; uint8_t *sc = load(argv[1], &n); const uint8_t *rom = n == 262144 + 512 ? sc + 512 : sc;
     if (n != 262144 && n != 262144 + 512) { fprintf(stderr, "the System Card: %ld bytes\n", n); return 2; }

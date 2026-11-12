@@ -5,7 +5,7 @@
 
 int bg32_wanted(const V32 *v);
 int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t own[256]);
-int bg32_bands(const V32 *v, uint16_t bl[4], uint16_t bx[3], uint16_t by[3]);   /* (the raster splits' bands; bl[nb] = 224) */
+int bg32_bands(const V32 *v, uint16_t bl[6], uint16_t bx[5], uint16_t by[5]);   /* (the raster splits' bands, 5 at most; bl[nb] = 224) */
 void bg32_masks(const V32 *v, uint16_t used[16]);       /* (docs/58: bg32_draw in its parts, for two SH2s) */
 int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t used[16]);
 void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1);

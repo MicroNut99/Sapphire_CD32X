@@ -3,7 +3,7 @@
 # the FIFO fed by the cart CPU's stand-in) from the packed launcher, the disc with no data on it - the music alone.
 # The program is in the file's bank 8, the state at cart 0x080000, the data track's pack where the FPGA's CPU side
 # reads it (fpga/huc/pak_read.sv; the stand-in: HUC_SAPK = the same file). Work folder: bc5 (a copy of bc4). EXTRA as m3_live_run.sh's.
-S=$1; WD=$2; T=$3; shift 3; W=/home/claude/work; BC=$W/bc5; B=$BC/saspeed
+S=$1; WD=$2; T=$3; shift 3; W=/home/claude/work; BC=${BCTREE:-$W/bc5}; B=$BC/saspeed
 R0=/home/claude/sapphire_cd32x; cp $R0/saspeed/src/* $B/src/; cp $R0/saspeed/Makefile $R0/saspeed/saspeed.ld $R0/saspeed/saspeed_combo.blk $B/; cp $R0/tools/m3rt/* $BC/tools/m3rt/; cp $R0/tools/m2host/*.[ch] $BC/tools/m2host/
 cp $R0/saspeed/game_files.h $BC/stack/subcpu/game_files.h
 make -C $B clean > /dev/null 2>&1

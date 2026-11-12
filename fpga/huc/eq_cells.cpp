@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
         t->ent_valid = 0; while (t->busy) tick();
         if (draw) {
             t->rd_r = 0xc9; t->eval();
-            if (t->rd_q != (uint16_t)(k + 1) || !cs_locked()) { if (bad++ < 10) fprintf(stderr, "frame %ld: locked at %u, want %ld\n", k, t->rd_q, k + 1); }
+            if (t->rd_q != (uint16_t)((k + 1) & 0x7FFF) || !cs_locked()) { if (bad++ < 10) fprintf(stderr, "frame %ld: locked at %u, want %ld\n", k, t->rd_q, k + 1); }
             compare(k); pics++;
         }
         if (fi >= ne) break;

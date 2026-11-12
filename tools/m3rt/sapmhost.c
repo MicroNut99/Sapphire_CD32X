@@ -82,7 +82,11 @@ static void line0(Vdc *v)
 }
 static void split(Vdc *v, int what)
 {
-    if (what == 1) { if (sp_n < 4) { const int k = sp_n++; sp[k].line = (uint16_t)(v->rcr_count + 1); sp[k].bxr = v->BXR; sp[k].byr = v->BYR; sp[k].cr = v->CR; sp_cur = k; } }
+    /* (docs/59) A frame with more matches than the picture's 4 places: the last match keeps the last place. The game
+       scrolls line by line before stage 1's boss (a match on every line from 37 on, the score bar's at 203 the last):
+       with the first four kept and every later write landing in the fourth, the bar was gone and its "sprites off"
+       sat at line 40 - no ship for four seconds. The lines' own scroll between is not shown */
+    if (what == 1) { const int k = sp_n < 4 ? sp_n++ : 3; sp[k].line = (uint16_t)(v->rcr_count + 1); sp[k].bxr = v->BXR; sp[k].byr = v->BYR; sp[k].cr = v->CR; sp_cur = k; }
     else if (what < 0) sp_cur = -1;
     else if (sp_cur >= 0) sp[sp_cur].cr = v->CR;
 }

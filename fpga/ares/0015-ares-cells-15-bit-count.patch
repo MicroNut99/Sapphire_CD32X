@@ -1,0 +1,30 @@
+From b1d48b0b007cf1e5bb154bd61084b1ce979d678f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 14:49:35 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's cell store - the lock's boundary
+ count is 15 bits (0xffff is "not locked yet"; docs/59)
+
+After 65,535 game frames the SH2 waited for a boundary that never came: no picture again.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/sapphire-cells.hpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ares/md/cartridge/board/sapphire-cells.hpp b/ares/md/cartridge/board/sapphire-cells.hpp
+index ecb7c44..d04b37d 100644
+--- a/ares/md/cartridge/board/sapphire-cells.hpp
++++ b/ares/md/cartridge/board/sapphire-cells.hpp
+@@ -73,7 +73,7 @@ struct SapphireCells {
+   auto boundary() -> void {
+     if(checkAt) { u32 k = boundaries & 63; if(checkPic[k] == boundaries) { u32 bad = 0, first = 0xffff; for(u32 i : range(0x8000)) if(cvram[i] != checkAt[k][i]) { if(!bad) first = i; bad++; }
+       if(bad) { fprintf(stderr, "cells: boundary %u: %u VRAM words apart, first %04x:", boundaries, bad, first); u32 n = 0; for(u32 i : range(0x8000)) if(cvram[i] != checkAt[k][i] && n++ < 6) fprintf(stderr, " %04x=%04x/%04x", i, cvram[i], checkAt[k][i]); fprintf(stderr, "\n"); checkAt = nullptr; } } }
+-    boundaries++; if(armed) { armed = false; locked = true; lockedAt = boundaries; memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: locked at %u\n", boundaries); } }
++    boundaries++; if(armed) { armed = false; locked = true; lockedAt = boundaries & 0x7fff;   /*(15 bits, as the RTL: 0xffff is "not locked yet" - Sapphire docs/59)*/ memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: locked at %u\n", boundaries); } }
+   auto release() -> void { if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: release (boundaries %u)\n", boundaries); locked = false; armed = true; lockedAt = 0xffff; memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); }
+ 
+   auto power() -> void {
+-- 
+2.43.0
+

@@ -229,9 +229,13 @@ static int in_win(const Bg2 *b, int a)
 static void bands(Bg2 *b, const V32 *v)           /* (docs/16) the bands and their windows, from the scroll and the splits */
 {
     b->nb = 1; b->bl[0] = 0; b->bx[0] = v->BXR; b->by[0] = v->BYR;
-    for (int i = 0; i < v->spl_n && b->nb < 3; i++) {
+    /* (Sapphire docs/59) of more than two splits the first and the last: the last is the score bar's (a picture whose
+       lines scroll one by one before a boss has four, the bar's the fourth; the first two alone lost the bar) */
+    int val[4], nv = 0; unsigned was = 0;
+    for (int i = 0; i < v->spl_n && nv < 4; i++) { const unsigned l = v->spl[i].line; if (l == 0 || l >= 224 || l <= was) continue; val[nv++] = i; was = l; }
+    for (int q = 0; q < nv && b->nb < 3; q++) {
+        const int i = (b->nb == 2 && nv > 2) ? val[nv - 1] : val[q];
         const unsigned l = v->spl[i].line;
-        if (l == 0 || l >= 224 || l <= b->bl[b->nb - 1]) continue;
         b->bl[b->nb] = (uint16_t)l; b->bx[b->nb] = v->spl[i].bxr; b->by[b->nb] = (uint16_t)((v->spl[i].byr + 1) & 0x1FF); b->nb++;
     }
     b->nr = b->nb;

@@ -78,13 +78,13 @@ static void sp_make(void)
 }
 #define ROW_NIB(a, b) (sp_tab[(a) & 0xFF] | sp_tab[(a) >> 8] << 1 | sp_tab[(b) & 0xFF] << 2 | sp_tab[(b) >> 8] << 3)
 
-/* (docs/58) The raster splits, as rt_bg2.c's bands(): band k from line bl[k] (bl[nb] = 224) with the scroll bx[k] and,
+/* (docs/58) The raster splits, as rt_bg2.c's bands() (up to 5 bands here): band k from line bl[k] (bl[nb] = 224) with the scroll bx[k] and,
    at its first line, by[k] - a split's BYR counts from the line after its write. The stage's score bar is such a
    band: drawn with the picture's one scroll (docs/42: the title has none) it was the city going on, no bar */
-int bg32_bands(const V32 *v, uint16_t bl[4], uint16_t bx[3], uint16_t by[3])
+int bg32_bands(const V32 *v, uint16_t bl[6], uint16_t bx[5], uint16_t by[5])
 {
     int nb = 1; bl[0] = 0; bx[0] = v->BXR; by[0] = v->BYR;
-    for (int i = 0; i < v->spl_n && nb < 3; i++) {
+    for (int i = 0; i < v->spl_n && nb < 5; i++) {            /* (every split the picture has - the plane keeps to 3 bands) */
         const unsigned l = v->spl[i].line;
         if (l == 0 || l >= 224 || l <= bl[nb - 1]) continue;
         bl[nb] = (uint16_t)l; bx[nb] = v->spl[i].bxr; by[nb] = (uint16_t)((v->spl[i].byr + 1) & 0x1FF); nb++;
@@ -97,7 +97,7 @@ void bg32_masks(const V32 *v, uint16_t used[16])
     sp_make();
     const int mw = map_w(v), mh = map_h(v);
     for (int p = 0; p < 16; p++) used[p] = 0;
-    uint16_t bl[4], bx[3], by[3]; const int nb = bg32_bands(v, bl, bx, by);
+    uint16_t bl[6], bx[5], by[5]; const int nb = bg32_bands(v, bl, bx, by);
     for (int k = 0; k < nb; k++) for (int ty = 0, nt = ((by[k] & 7) + (bl[k + 1] - bl[k]) + 7) >> 3; ty < nt; ty++) for (int tx = 0; tx < 33; tx++) {
         const int my = ((by[k] >> 3) + ty) & (mh - 1), mx = ((bx[k] >> 3) + tx) & (mw - 1);
         const uint16_t e = v->vram[my * mw + mx]; const unsigned tile = e & 0xFFF; uint16_t m = 1;
@@ -236,7 +236,7 @@ void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
 {
     const int mw = map_w(v), mh = map_h(v);
     const int tc = y0 != 0;                                   /* (the upper part's table, the lower part's) */
-    uint16_t bl[4], bx[3], by[3]; const int nb = bg32_bands(v, bl, bx, by);
+    uint16_t bl[6], bx[5], by[5]; const int nb = bg32_bands(v, bl, bx, by);
     for (int kb = 0; kb < nb; kb++) {
     const int ya = y0 > bl[kb] ? y0 : bl[kb], yb = y1 < bl[kb + 1] ? y1 : bl[kb + 1];
     const unsigned bxr = bx[kb], byr = (unsigned)by[kb] - bl[kb];      /* (line y shows row byr + y) */

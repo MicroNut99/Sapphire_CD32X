@@ -28,7 +28,9 @@ module cellstore (
     input  logic        reg_we,
     input  logic [7:0]  reg_r,
     input  logic [7:0]  reg_v,
-    // the SH2's register reads: 0xc7 the group's frozen bits, 0xc9 the boundary the lock came at
+    // the SH2's register reads: 0xc7 the group's frozen bits, 0xc9 the boundary the lock came at - its low 15 bits
+    // (docs/59: it was 16, and 0xffff is "not locked yet": after 65,535 frames, 18 minutes of play, the SH2 waited
+    // for a boundary that never came and drew no picture again)
     input  logic [7:0]  rd_r,
     output logic [15:0] rd_q,
     output logic        busy,
@@ -150,7 +152,7 @@ module cellstore (
                 4'h2: faddr <= ent[15:0];
                 4'h5: begin
                     bounds <= bounds + 1;
-                    if (armed) begin armed <= 0; locked <= 1; locked_at <= 16'(bounds + 1); clr <= 0; after_clear <= IDLE; st <= CLEAR; end
+                    if (armed) begin armed <= 0; locked <= 1; locked_at <= {1'b0, 15'(bounds + 1)}; clr <= 0; after_clear <= IDLE; st <= CLEAR; end
                 end
                 4'h1: begin
                     faddr <= faddr + 1;

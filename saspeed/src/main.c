@@ -96,6 +96,11 @@ static void vsplit_send(void);
 static Bg2 bg2;
 static volatile uint32_t wdt_vbl; static uint32_t lists_now;
 uint32_t bg32_direct;                                         /* (DIAG: pictures swapped by the SH2 itself, docs/58) */
+/* (DIAG, docs/59) a picture's way in refreshes, counted from the moment it is asked for: [0] to draw_hook's start, [1] to
+   its list sent (or queued for the blank, or the SH2's own swap asked), [2] to its showing; pic_gap: the game frames
+   since the picture before. Read from an SDRAM dump (work/vars.py, work/pichist.py) */
+uint32_t pic_at[3][8], pic_gap[8]; static volatile uint32_t pic_rel_tick;
+#define PIC_AT(n) do { const uint32_t d_ = gTicks - pic_rel_tick; pic_at[n][d_ > 7 ? 7 : d_]++; } while (0)
 static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
 #define vs_job SH(vs_job_v)
 #define lst_ready SH(lst_ready_v)
@@ -629,7 +634,7 @@ static void pace_vbi(void)
         PAL_DIRTY = 0;
     }
     if (bg2_pairs) bg2_commit();                              /* (op 1 only for pairs: the kept runs are the 68000's) */
-    pal_go = -1;
+    pal_go = -1; PIC_AT(2);
 }
 #else
 static void pace_vbi(void)
@@ -959,14 +964,22 @@ static void draw_hook(V32 *v)
            window's tiles' colour masks, which the FPGA keeps (docs/31), a long a tile. (The secondary SH2's crash at the
            title with this rule was rt_bg2.c's colours(): 64-entry arrays overrun in a fade - mended there) */
         static int fit_n; static uint16_t bg32_used[16]; int fits = 0;
-        if (bg2.col_ok && !bg2.late) { if (fit_n < 4) fit_n++; } else if (!bg2.col_ok) fit_n = 0;   /* (docs/58: and the plane whole) */
-        int want = bg32_wanted(v);
-        if (want) {
+        /* (docs/59) The plane's state counts only when its list was made for the picture before (ran_prev). `stale`:
+           the plane has missed lists (no list is made under the layer while the colours can't pack, docs/58) and is
+           not shown before a list has left nothing over. Without it the plane came back as it was left - in ares, at
+           stage 1's game frame 9,476, the stage's opening with its score of 0, striped where the new lists had got
+           to: "4 palettes or fewer" switched at once, and fit_n counted pictures that had no list */
+        static int ran_prev = 1, stale;
+        if (!ran_prev) fit_n = 0;
+        else if (bg2.col_ok && !bg2.late) { if (fit_n < 4) fit_n++; stale = 0; } else if (!bg2.col_ok) fit_n = 0;
+        const int wanted = bg32_wanted(v);
+        int want = wanted, cols_ = 0;
+        if (wanted || stale) {
             const int w_ = (v->MWR >> 4) & 3, mw = w_ == 0 ? 32 : w_ == 1 ? 64 : 128, mh = (v->MWR & 0x40) ? 64 : 32;
 #ifdef BG2_FPGA_TILES
             uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
             memset(used, 0, sizeof bg32_used); memset(seen, 0, sizeof seen);
-            uint16_t bl_[4], bx_[3], by_[3]; const int nb_ = bg32_bands(v, bl_, bx_, by_);   /* (docs/58: each band's window - the score bar's too) */
+            uint16_t bl_[6], bx_[5], by_[5]; const int nb_ = bg32_bands(v, bl_, bx_, by_);   /* (docs/58: each band's window - the score bar's too) */
             for (int kb = 0; kb < nb_; kb++) for (int ty = 0, nt = ((by_[kb] & 7) + (bl_[kb + 1] - bl_[kb]) + 7) >> 3; ty < nt; ty++) for (int tx = 0; tx < 33; tx++) {
                 const uint16_t e = v->vram[(((by_[kb] >> 3) + ty) & (mh - 1)) * mw + (((bx_[kb] >> 3) + tx) & (mw - 1))];
                 used[e >> 12] |= (uint16_t)bg2_fpga_tile(e & 0x7FF);
@@ -978,9 +991,12 @@ static void draw_hook(V32 *v)
             const int cols = 61;                              /* (no tile masks to count with: docs/42's rule) */
             (void)mw; (void)mh;
 #endif
-            bg32_cols = cols;
-            want = cols > 60 || ((fit_n < 4) && BG32_EXACT);
+            bg32_cols = cols; cols_ = cols;
+            want = wanted ? (cols > 60 || ((fit_n < 4) && BG32_EXACT)) : 0;
         }
+        const int plane_next = !want;                         /* (the rules say the plane) */
+        if (plane_next && stale) want = 1;                    /* (... not whole yet: the layer over it once more, its list made) */
+        (void)cols_;
 #ifdef BG32_SEC
         /* (docs/58) Under the 32X layer the plane's list is made only when its colours can pack (pack_fits: the count
            above, a millisecond): made every picture while the pack fails it took the secondary 34 ms a picture at stage
@@ -993,10 +1009,11 @@ static void draw_hook(V32 *v)
                                                                  SAPM_SKIP start, whose colours pack) */
         want = 1; SEC_NOBG = 1; (void)fits;
 #else
-        {   static int vain, off, ran;
+        {   static int vain, off;
             if (off) off--;
-            if (ran && fits && !bg2.col_ok) { if (++vain > 8) { off = 64; vain = 0; } } else if (ran) vain = 0;
-            ran = !(want && !(fits && !off)); SEC_NOBG = !ran; }
+            if (ran_prev && fits && !bg2.col_ok) { if (++vain > 8) { off = 64; vain = 0; } } else if (ran_prev) vain = 0;
+            const int run = plane_next || (fits && !off);
+            SEC_NOBG = !run; ran_prev = run; if (!run) stale = 1; }
 #endif
 #endif
         const int tb = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1;
@@ -1523,10 +1540,13 @@ static void fifo_play(V32 *v, long frames)
 #else
 #define OPT_HOLD 1
 #endif
-              if (!released && OPT_HOLD && pic_free() && k - drawn_k >= 2 && (behind <= FIFO_LAG || k - drawn_k >= 12)) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu; }
+              if (!released && OPT_HOLD && pic_free() && k - drawn_k >= 2 && (behind <= FIFO_LAG || k - drawn_k >= 12)) { CS_WR(0xc8, 0); released = 1; want = 0xFFFFFFFFu;
+                  pic_rel_tick = gTicks; { const long g_ = k - drawn_k; pic_gap[g_ > 7 ? 7 : g_]++; } }
               CS_WR(0xca, (k + 1) & 0xFF);                       /* (the boundaries this CPU has passed: the store's pace) */
               if (released && want == 0xFFFFFFFFu) { const uint16_t l = CS_RD(0xc9); if (l != 0xFFFF) want = l; }
-              if (released && (uint32_t)(k + 1) == want) { cs_purge(); draw_hook(v); fifo_pics++; released = 0; drawn_k = k; }
+              /* (docs/59: the store's count is 15 bits - 0xFFFF is "not locked yet". Compared whole, no picture was drawn
+                 after game frame 65,535: the whole game's run in ares stopped showing pictures in stage 4) */
+              if (released && ((uint32_t)(k + 1) & 0x7FFF) == want) { cs_purge(); PIC_AT(0); draw_hook(v); PIC_AT(1); fifo_pics++; released = 0; drawn_k = k; }
 #ifdef SP_MENU
               if (opt_req && !released && pic_free() && MARS_SYS_COMM0 == 0) {   /* (docs/58: nothing under way - the menu) */
                   const uint32_t ta = gTicks; opt_req = 0; opt_menu(); t0 += gTicks - ta; drawn_k = k; }
