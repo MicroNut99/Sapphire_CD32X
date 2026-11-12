@@ -132,17 +132,21 @@ FIFO_CDDA=1`, 40,000 frames):
   loudness a frame correlates only 0.16 (0.16 over 30 frames as well, best lag one frame).
 - In the seconds with sound, docs/48's first run had a spectra correlation median of 0.88.
 
-**The stand-in against Mednafen** (`playL` from power-on, VRAM at the first display line):
-- Equal at frames 600, 2,000 and 5,000.
-- Then 24-466 words apart from frame 8,150 to 17,000, and 3,449 at 20,000.
+**The stand-in against Mednafen** (`playL` from power-on, VRAM at the first display line, every 50 frames from 5,000
+to 8,150):
+- Equal at most points.
+- At some it is a few words to about 750 words apart: 6,250-6,500, 7,100-7,150 and 8,150.
+- After each it is **equal again**. That is not a drift (a game out of step does not come back): it is VRAM caught
+  at a different moment within a frame, during uploads.
 
-So the stand-in drifts from the reference somewhere after frame 5,000, and the sound's poor correlation may be that
-same drift. Finding where it starts (frame by frame, between 5,000 and 8,150) comes before any sound tuning. The open
-finding of docs/40 (the interpreter alone drifts from the blocks) is the first suspect.
+So the game is in step with the reference, and the sound's low loudness correlation is the sound model's: the
+stand-in's PSG and ADPCM mix (`pce_sound.c`, gains 0.12 and 0.5, docs/44) against Mednafen's. The next step there is
+the PSG and the ADPCM measured apart against Mednafen's (`psg.sv` and `adpcm.sv` are already equal to Mednafen's
+channel states, docs/47, so the C model can take their levels).
 
 ## Next
 
-1. Where the stand-in leaves Mednafen between frames 5,000 and 8,150; then the sound again.
+1. The stand-in's sound against Mednafen's, the PSG and the ADPCM apart (the levels from psg.sv / adpcm.sv's rules).
 2. Check `map_sapphire.sv` against DraculaX's finding on pages 4-6 and windows 6-7, then fix the layout.
 3. The pack's reader on the target: in the SH2 build, the drive's sectors from the cart. In the FPGA build, an LZ4
    reader in the CD unit.
