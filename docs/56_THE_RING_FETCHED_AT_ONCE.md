@@ -50,7 +50,11 @@ Mednafen's PSG, in the game's time:
 
 - **Nothing on a console.** New there with this change: the 1M bank swap twice a pass, and how long a round trip
   takes with the 68000 on a list (two are needed where seventeen were).
-- **The game runs at about half its speed in these ares runs** (0.52 game frames a sixtieth): the stand-in makes a
-  frame only when the SH2 asks, and the SH2 does not keep up from power-on. The sound follows the game's time, so it
-  is slow with it. docs/55's `ARES_HUC_PACE=1` (the game at its own rate) broke the pictures: the next thing to look at.
+- **The game is slow in stage 1 in these ares runs.** Game frames a second, from the times each frame's writes
+  entered the ring: 49-65 through the System Card, the intro and the title (game frames 0-8,000); **13-20 at stage 1's
+  start (8,000-11,000)**; 30-33 and 15-17 after, with one stretch of catching up. The stand-in makes a frame only
+  when the SH2 asks, and in stage 1 the SH2 does not keep up (docs/48 had the same: 0.33 of the speed in the slow
+  parts). The sound follows the game's time, so it is slow with it. This is the picture path's speed, the port's own
+  target, and the next thing to work on; docs/55's `ARES_HUC_PACE=1` (the game at its own rate whatever the SH2
+  does) broke the pictures and is where to start.
 - A burst of writes still reaches the chip at once: a frame's worth, or several when a pass is slow.
