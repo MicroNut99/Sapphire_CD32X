@@ -77,13 +77,3 @@ find.
 - **The PSG:** `psg_c.c`'s levels / 65,536, gain 1.0. Its RMS is about 3x the reference's PSG alone, so the best gain
   is 0.2-0.3, and the mix's gain is still to be set by ear on the console.
 - **The ADPCM:** gain 0.5. Its RMS is 786 against the reference's 526.
-EOF
-python3 - <<'E'
-p='CLAUDE_PICKUP.md'; s=open(p).read()
-a="     `HUC_CARD`). The owner: the CD for music only; diagnostics that never touch the screen (DraculaX docs/172-173).\n"
-s=s.replace(a,a+"""  45. **docs/50, the sound apart:** `REF_ONLY=psg|adpcm` (m3_stageref), `PSND_ONLY=` (stand-in), `tools/m3_sndcmp.py`;
-     ADPCM from the playback's own nibbles (`io_adpcm_hook`, io_run at each frame's end): 0.47; the PSG clock for clock
-     (`tools/m3rt/psg_c.c`, = Mednafen, `PSGC=1 run_eqpsg.sh`); the reference's writes through it: 0.91
-     (`m3_psglog.py`, `psg_render.c`). Open: the stand-in's PSG writes differ from frame 8,500 (the driver reads something).
-""",1)
-open(p,'w').write(s)

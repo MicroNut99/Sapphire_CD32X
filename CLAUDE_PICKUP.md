@@ -157,6 +157,10 @@ Read `CLAUDE.md` first.
      stand-in; stage 1 from the pack equal to the disc (`tools/m3_hucrun.py`, 710 sectors). `tools/m3_tiles.py`: 121,628
      tiles shown (3.7 MB). States need `PACK_CUE` (the drive) and the card in a file (`sp/ps1d.bin` + `.card`,
      `HUC_CARD`). The owner: the CD for music only; diagnostics that never touch the screen (DraculaX docs/172-173).
+  45. **docs/50, the sound apart:** `REF_ONLY=psg|adpcm` (m3_stageref), `PSND_ONLY=` (stand-in), `tools/m3_sndcmp.py`;
+     ADPCM from the playback's own nibbles (`io_adpcm_hook`, io_run at each frame's end): 0.47; the PSG clock for clock
+     (`tools/m3rt/psg_c.c`, = Mednafen, `PSGC=1 run_eqpsg.sh`); the reference's writes through it: 0.91
+     (`m3_psglog.py`, `psg_render.c`). Open: the stand-in's PSG writes differ from frame 8,500 (the driver reads something).
 
 ## 2. Where things live
 
