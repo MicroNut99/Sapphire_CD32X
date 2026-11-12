@@ -8,7 +8,7 @@ R0=/home/claude/sapphire_cd32x; cp $R0/saspeed/src/* $B/src/; cp $R0/saspeed/Mak
 cp $R0/saspeed/game_files.h $BC/stack/subcpu/game_files.h
 make -C $B clean > /dev/null 2>&1
 if [ -n "$TPSG_BC" ]; then   # (docs/54: the stack's TPSG block, from a BootCamp checkout that has it - its branch tpsg)
-  cp $TPSG_BC/stack/subcpu/main.c $TPSG_BC/stack/subcpu/Makefile $BC/stack/subcpu/; cp $TPSG_BC/stack/GENPLANE_BLOCKS.md5 $BC/stack/; cp $TPSG_BC/tools/check_boot.py $BC/tools/; rm -rf $BC/tpsg; cp -r $TPSG_BC/tpsg $BC/tpsg
+  cp $TPSG_BC/stack/subcpu/main.c $TPSG_BC/stack/subcpu/hw_md.s $TPSG_BC/stack/subcpu/Makefile $BC/stack/subcpu/; cp $TPSG_BC/stack/GENPLANE_BLOCKS.md5 $BC/stack/; cp $TPSG_BC/tools/check_boot.py $BC/tools/; cp $TPSG_BC/build.sh $BC/; rm -rf $BC/tpsg; cp -r $TPSG_BC/tpsg $BC/tpsg
 fi
 rm -f $B/cd/*; mkdir -p $BC/music; cp -P $W/music_cd32x/Track*.wav $BC/music/
 (cd $BC && env TPSG_DIR=$BC/tpsg GEN=$W/sel_t12b ACE=1 EDCD=1 CART=16 M1PAGE=1 M1WORDS=1 SDRAM_BANKS=0x69,0x85 CARTCODE="io_model scsi_model ac_model" MARKS=1 KEYS=$W/rip/none.keys SEED=$W/rip/none.seed SPR=1 CELLS=$W/rip/none.cells MARKSIN=$W/rip/code.marks PACE=1 BG=1 GENPLANE=1 VSPLIT=1 FBVDP=1 SEC=2 VS_SEC=1 VSSWAP=1 FPGA_CELLS=1 FPGA_TILES=1 FIFO=/tmp/dummy.fifo FIFO_LIVE=1 SPLAY=1 KEEP=1 SAPK=1 PACKED=1 EDCD_PACKED=1 EDCD_W0=8 $EXTRA GAME=saspeed DISC_NAME=SASPEED bash build.sh > /tmp/blp_$T.log 2>&1) || { echo "build failed: $(grep -o 'error:.*\|\*\*\*.*\|overflowed.*' /tmp/blp_$T.log | head -2)"; exit 1; }

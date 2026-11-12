@@ -7,7 +7,9 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
-**Latest (12 Nov 2026, [docs/55](docs/55_THE_MACHINE_AS_THE_STAND_IN_AND_THE_EFFECTS_IN_TIME.md)):** the cart's stand-in in ares
+**Latest (12 Nov 2026, [docs/56](docs/56_THE_RING_FETCHED_AT_ONCE.md)):** the sound effects no longer drop out: the Sub-CPU
+fetches the PSG ring's new writes in one copy (an existing 68000 routine, no listener change). In ares over 15,464
+game frames the PCM chip follows Mednafen's PSG at 0.95. **[docs/55](docs/55_THE_MACHINE_AS_THE_STAND_IN_AND_THE_EFFECTS_IN_TIME.md):** the cart's stand-in in ares
 is now the machine itself (no translated code): its PSG writes equal Mednafen's one for one, and the sound effects on
 the PCM chip follow the game (0.96 against the exact PSG into stage 1; a 3 s silence later is open). Command 103 is in
 the BootCamp's stack. **[docs/54](docs/54_THE_PSG_ON_THE_SEGA_CDS_PCM_CHIP.md):** the sound effects - the PC Engine's PSG played

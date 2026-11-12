@@ -189,6 +189,10 @@ Read `CLAUDE.md` first.
      **Open, next:** the chip silent ~3 s from game frame 11,500: the reader falls over 1,024 writes behind while it keeps reading the
      count (each read a round trip through a busy 68000). Needs a listener change (a bulk copy of the ring to Word RAM, or a push at the
      vertical blank): **asked of the owner, not done.** Then the pictures with `ARES_HUC_PACE=1`.
+  51. **docs/56:** done without a listener change - TPSG-2 fetches the ring's new writes in one go with the 68000's existing routine
+     25 `copy_words` into Word RAM (BootCamp main `a5f9743`, ledger §36). ares, 15,464 game frames: 0.95 against Mednafen's PSG, no
+     drop-outs. `m3_live_pack.sh` copies `hw_md.s` and `build.sh` from `TPSG_BC` too. **Next:** why the game runs at 0.52 of its speed
+     in the live build from power-on, and the pictures with `ARES_HUC_PACE=1`.
 
 ## 2. Where things live
 
