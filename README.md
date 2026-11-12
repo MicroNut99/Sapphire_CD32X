@@ -8,10 +8,10 @@ the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafe
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
 **Latest (12 Nov 2026, [docs/58](docs/58_OPTIONS_MENU_STAGE_SELECT_AND_SPEED.md)):** an options menu on START - a stage
-select (a new game from stage 1-5), lives, infinite lives, autofire, music and effects volume, exact colours, credits -
+select (a new game from stage 1-5), lives, infinite lives, autofire, music and effects volume, credits -
 tried with the pad in ares; the crash at the game's start mended (a 64-entry array overrun in the plane's colour pack);
 and stage 1 at the game's speed: from power-on in ares 59.9 game frames a second throughout and 25-28 pictures a
-second (stage 1's start: 24.6, from 2.2), the sound effects 0.977 against Mednafen's PSG. The cart's ports for the menu
+second (stage 1's start: 27.0, from 2.2), the sound effects 0.977 against Mednafen's PSG. The cart's ports for the menu
 exist in ares's model only; nothing has run on a console. **[docs/57](docs/57_STAGE_1_AT_THE_GAMES_SPEED.md):** the pad
 from COMM4, the picture's rule, and a speed measure that was wrong (a test start's colours are not the game's).
 **[docs/56](docs/56_THE_RING_FETCHED_AT_ONCE.md):** the sound effects no longer drop out: the Sub-CPU

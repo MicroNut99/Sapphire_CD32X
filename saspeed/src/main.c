@@ -649,7 +649,6 @@ uint32_t bg2_fpga_tile(unsigned t);
 static uint16_t bg32_fpga_key(unsigned t) { return (uint16_t)(bg2_fpga_tile(t) >> 16); }
 #endif
 #if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
-static int opt_exact;                                         /* (docs/58: the menu's EXACT COLOURS, below) */
 #endif
 #endif
 static const uint8_t c5[8] = { 0, 4, 9, 13, 18, 22, 27, 31 };   /* (tools/m1b_motion.py c32word: v * 255 / 7, top 5 bits) */
@@ -947,7 +946,7 @@ static void draw_hook(V32 *v)
         static uint8_t had[2];
 #if defined(BG2_DRAW) && !defined(BG32_ALWAYS)
 #if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
-#define BG32_EXACT opt_exact                              /* (docs/58: the menu's EXACT COLOURS) */
+#define BG32_EXACT 1
 #else
 #define BG32_EXACT 1
 #endif
@@ -967,12 +966,13 @@ static void draw_hook(V32 *v)
 #ifdef BG2_FPGA_TILES
             uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
             memset(used, 0, sizeof bg32_used); memset(seen, 0, sizeof seen);
-            for (int ty = 0; ty < 29; ty++) for (int tx = 0; tx < 33; tx++) {
-                const uint16_t e = v->vram[(((v->BYR >> 3) + ty) & (mh - 1)) * mw + (((v->BXR >> 3) + tx) & (mw - 1))];
+            uint16_t bl_[4], bx_[3], by_[3]; const int nb_ = bg32_bands(v, bl_, bx_, by_);   /* (docs/58: each band's window - the score bar's too) */
+            for (int kb = 0; kb < nb_; kb++) for (int ty = 0, nt = ((by_[kb] & 7) + (bl_[kb + 1] - bl_[kb]) + 7) >> 3; ty < nt; ty++) for (int tx = 0; tx < 33; tx++) {
+                const uint16_t e = v->vram[(((by_[kb] >> 3) + ty) & (mh - 1)) * mw + (((bx_[kb] >> 3) + tx) & (mw - 1))];
                 used[e >> 12] |= (uint16_t)bg2_fpga_tile(e & 0x7FF);
             }
-            for (int p_ = 0; p_ < 16; p_++) for (int i = 1; i < 16; i++) if (used[p_] >> i & 1) {
-                const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) seen[c] = (uint8_t)++cols; }   /* (its number, for pack_fits) */
+            for (int p_ = 0; p_ < 16; p_++) { int i = 1; for (unsigned u = used[p_] >> 1; u; u >>= 1, i++) if (u & 1) {
+                const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) seen[c] = (uint8_t)++cols; } }   /* (its number, for pack_fits) */
             fits = cols <= 60 && pack_fits(v, used, seen);
 #else
             const int cols = 61;                              /* (no tile masks to count with: docs/42's rule) */
@@ -1261,7 +1261,7 @@ static void fifo_cdda(int loop, unsigned trk)
                      OFF: always the plane (the nearest fit, never slow)
      CREDITS
    The menu is the 32X layer, opaque, in entries of the palette nothing else writes (index 0 of sprite palettes 2-5). */
-static int opt_lives = 3, opt_inf, opt_auto, opt_mus = 8, opt_fx = 8, opt_exact = 1, opt_req;
+static int opt_lives = 3, opt_inf, opt_auto, opt_mus = 8, opt_fx = 8, opt_req;
 #define O_TXT 0x20
 #define O_HI 0x30
 #define O_DIM 0x40
@@ -1318,8 +1318,10 @@ static char *o_num(char *d, int v) { if (v >= 10) *d++ = (char)('0' + v / 10); *
 static void opt_menu(void)
 {
     volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
-    static const char *const rows[9] = { "RESUME", "STAGE", "LIVES", "INFINITE LIVES", "AUTOFIRE", "MUSIC VOLUME", "EFFECTS VOLUME", "EXACT COLOURS", "CREDITS" };
-    enum { R_RESUME, R_STAGE, R_LIVES, R_INF, R_AUTO, R_MUS, R_FX, R_EXACT, R_CRED, R_N };
+    static const char *const rows[8] = { "RESUME", "STAGE", "LIVES", "INFINITE LIVES", "AUTOFIRE", "MUSIC VOLUME", "EFFECTS VOLUME", "CREDITS" };
+    enum { R_RESUME, R_STAGE, R_LIVES, R_INF, R_AUTO, R_MUS, R_FX, R_CRED, R_N };
+    /* (an EXACT COLOURS row was here: off, the Genesis plane even where its 4 palettes can't hold the picture. In ares
+       the score bar's colours went first; with the 32X layer as fast as the plane - docs/58 - it bought nothing) */
     static int opt_stage = 1; int warp = 0;
     static const char *const cred[] = { "GINGA FUKEI DENSETSU", "SAPPHIRE", "(C) HUDSON SOFT 1995", "", "THE CD32X PORT:", "THE GAME'S OWN PROGRAM,", "ON THE CART'S OWN CPU",
         "EFFECTS: THE SEGA CD'S PCM CHIP", "MUSIC: CD AUDIO", "CD32X BOOT STACK", "REFERENCE: MEDNAFEN", 0 };
@@ -1343,11 +1345,9 @@ static void opt_menu(void)
                 else if (i == R_AUTO) val = opt_auto ? "ON" : "OFF";
                 else if (i == R_MUS) { o_num(t, opt_mus); val = t; }
                 else if (i == R_FX) { o_num(t, opt_fx); val = t; }
-                else if (i == R_EXACT) val = opt_exact ? "ON" : "OFF";
                 if (val) { o_text(208, y, "<", O_DIM); o_text(224, y, val, c); o_text(256, y, ">", O_DIM); }
             }
             if (row == R_STAGE) o_mid(180, "A/START: A NEW GAME FROM THIS STAGE", O_DIM);
-            if (row == R_EXACT) o_mid(180, opt_exact ? "EVERY COLOUR RIGHT" : "THE PLANE ALONE: SOME COLOURS MISSING", O_DIM);
             o_mid(196, "UP/DOWN PICK  LEFT/RIGHT CHANGE", O_DIM); o_mid(206, "A/START: DO IT   B: BACK", O_DIM);
         } else {
             for (int i = 0; cred[i]; i++) o_mid(28 + 13 * i, cred[i], O_TXT);
@@ -1377,7 +1377,6 @@ static void opt_menu(void)
         if (row == R_AUTO) opt_auto = !opt_auto;
         if (row == R_MUS) { opt_mus += ch; if (opt_mus < 0) opt_mus = 0; if (opt_mus > 8) opt_mus = 8; opt_cmd103(3, (uint32_t)opt_mus * 0x80); }   /* (heard at once) */
         if (row == R_FX) { opt_fx += ch; if (opt_fx < 0) opt_fx = 0; if (opt_fx > 8) opt_fx = 8; }
-        if (row == R_EXACT) opt_exact = !opt_exact;
     }
     if (!warp && (lives_touched || opt_inf)) opt_lives_set();
     for (int b = 0; b < 2; b++) {                             /* both buffers as the game keeps them: the picture clear, the borders opaque */
@@ -1397,6 +1396,10 @@ static void opt_menu(void)
     pace_last = gTicks;
 }
 #endif
+static const uint8_t bit8_[8] = { 1, 2, 4, 8, 16, 32, 64, 128 };
+__attribute__((optimize("O2")))                              /* (docs/58: the build is -Os, which calls the library for shifts
+                                                                 like e >> 28 too: the master was in it for a quarter of the
+                                                                 intro's time) */
 static void fifo_play(V32 *v, long frames)
 {
 #ifdef FIFO_LIVE
@@ -1419,7 +1422,8 @@ static void fifo_play(V32 *v, long frames)
         switch (t) {
         case 1: if (addr < 0x8000) { v->vram[addr] = (uint16_t)d; rt_marks.v[addr >> 4] = rt_marks.tag;
 #ifdef SPR_FPGA_CELLS
-                      cs_dirty[addr >> 9] |= (uint8_t)(1u << (addr >> 6 & 7));
+                      cs_dirty[addr >> 9] |= bit8_[addr >> 6 & 7];   /* (docs/58: a table - the SH2 shifts by a variable through a
+                                                                 library call, and this is every VRAM word the game writes) */
 #endif
                   } addr = (addr + 1) & 0xFFFF; break;
         case 2: addr = d; break;

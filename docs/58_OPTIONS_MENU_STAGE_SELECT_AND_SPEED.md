@@ -9,9 +9,9 @@ recording; `EXTRA="BG32=1 PWM_SOUND=1 TPSG=1 PADVB=1 SP_MENU=1"`):
 | ares frames | What plays | Game frames a second | Pictures a second: before / now |
 |---|---|---|---|
 | 3,000-6,000 | the intro | 59.9 | 27.6 / 27.9 |
-| 6,000-9,000 | the title, the briefing | 59.9 | 21.5 / 25.0 |
-| 9,000-12,000 | stage 1's start | 30.4, then 97 catching up / **59.9** | **2.2 / 24.6** |
-| 12,000-15,000 | stage 1 | 27.1 / **59.9** | 2.2 / 26.6 |
+| 6,000-9,000 | the title, the briefing | 59.9 | 21.5 / 25.2 |
+| 9,000-12,000 | stage 1's start | 30.4, then 97 catching up / **59.9** | **2.2 / 27.0** |
+| 12,000-15,000 | stage 1 | 27.1 / **59.9** | 2.2 / 26.3 |
 
 - **No crash.** Before, the secondary SH2 returned to address 1 at the game's start (ares frame 7,290) in every run.
 - **The sound effects against Mednafen's PSG** over those 14,255 game frames (`tower_ares_cmp.py`, the PCM chip alone):
@@ -35,7 +35,6 @@ CPU makes a frame only when asked), the effects are silenced, the music plays on
 | AUTOFIRE | button B (II) let go every other pair of frames while held | the pad's mask |
 | MUSIC VOLUME 0-8 | heard at once | the stack's command 103, COMM2 = 3 (TPSG-3): the BIOS's `FDRSET` |
 | EFFECTS VOLUME 0-8 | on leaving the menu | command 103, COMM2 = 2: the PCM channels' ENV |
-| EXACT COLOURS | OFF: the Genesis plane even where its 4 palettes can't hold the picture | the picture's rule, §4 |
 | CREDITS | a page | |
 
 **The cart's ports** (registers of the `CS_WR` space; in ares the stand-in board, `fpga/ares/0014`; **the FPGA's
@@ -53,6 +52,10 @@ to 0: the CD fader 0x4000 down to 0 in the menu's steps. LIVES: the poke arrives
 
 Two faults found on the way: the menu's own colours never arrived (the last picture's commit had left the 32X's VDP
 with the 68000: `bg2_take()` first), and a new picture was let go just before the menu's check (`OPT_HOLD`).
+
+An EXACT COLOURS row (off: the Genesis plane even where its 4 palettes can't hold the picture) was written and taken
+out again: in ares, off, the score bar's colours were the first to go, and with the 32X layer as fast as the plane
+(§4) it bought nothing.
 
 ## 2. The stage select: how the game loads a stage
 
@@ -121,16 +124,29 @@ In the order found (`work/spd.sh` from a skip start with `RTX=-DBG32_FORCE`: the
   band while the band still held its pointer.
 - `FIFO_DEBT` (8): the game never runs faster than its rate; what it fell behind beyond 8 frames is forgiven.
 - The borders are the opaque black both buffers always have: not written again each picture.
+- **The score bar.** The 32X-layer background was drawn with the picture's one scroll (docs/42: the title has no
+  raster split), so in stage 1 the bar at the bottom - a split with its own scroll - was the city going on. Now each
+  band with its scroll, as `rt_bg2.c`'s `bands()` (`bg32_bands`; its tiles counted for the colours too). On the PC:
+  a split at line 200 / 117 / 5 against the reference drawn with each band's scroll, 1,640 pictures the same
+  (`SPLIT=<line>`).
 
-From power-on stage 1's start is 24.6 pictures a second, not the forced test's 29: its pictures change between the
+From power-on stage 1's start is 27.0 pictures a second, not the forced test's 29: its pictures change between the
 plane and the layer, and a plane picture goes through the 68000's list (two or three refreshes).
+
+- **The shift library.** The build is `-Os`, and gcc's SH2 code at `-Os` calls a library routine even for a constant
+  shift like `e >> 28`; a shift by a variable always does (the SH2 has no such instruction). `fifo_play` - every
+  entry of the cart's FIFO - and `rt_bg32.c` are now built `-O2`, and the per-entry `1 << n` are tables. No
+  measurable change in the pictures a second (within a picture either way).
+- **A caution on the samples.** `ARES_PC=1` prints both SH2s' program counters once a second - every 60th refresh,
+  the same point of a two-refresh picture each time. What takes most of the time shows (`bg32_draw`: 89 of 100);
+  a share like "a quarter in the shift library" does not follow from it. The steps above were kept or dropped by
+  the pictures a second, not by the samples.
 
 ## Open
 
 - **Nothing on a console.** The stack's TPSG-3, the SH2's own swap, both SH2s drawing one buffer at once.
 - **The FPGA's RTL** for the poke port, the hold, and the stage select (§1, §2). Quartus not run.
-- 25-28 pictures a second, not 30: a plane picture's list through the 68000. EXACT COLOURS OFF leaves holes of the
-  backdrop where the pack fails (the menu's line says so), not the nearest colour.
+- 25-28 pictures a second, not a steady 30: a plane picture's list through the 68000.
 - A `SAPM_SKIP` start's black-and-white colours (docs/57): not looked into.
 - After a stage select the first seconds are the System Card's and the title's pictures, RUN pressed by the engine:
   nothing says "loading".

@@ -197,12 +197,12 @@ Read `CLAUDE.md` first.
      32X-layer background only where the plane's pack fails. **A `SAPM_SKIP` start's pictures are black and white - such a
      start measures the SH2's work on a picture, never which path a picture takes.** `work/spd.sh <tag> <skip> <frames> [env]`.
   53. **docs/58:** the options menu (`SP_MENU=1`: START; STAGE 1-5, LIVES, INFINITE LIVES, AUTOFIRE, MUSIC / EFFECTS VOLUME,
-     EXACT COLOURS, CREDITS), the stack's TPSG-3 (BootCamp main `f1ccdd8`, ledger §36), the cart's poke port (0xcf-0xd1) and
+     CREDITS), the stack's TPSG-3 (BootCamp main `f1ccdd8`, ledger §36), the cart's poke port (0xcf-0xd1) and
      stage select (0xd3 lives, 0xd2 stage) - **in ares's stand-in only (`fpga/ares/0014`, ares branch `sapphire-ac-engine`
      `10815be`); the FPGA's RTL for them is not written.** The secondary SH2's crash at the game's
      start: `rt_bg2.c colours()` (the template's bug: DraculaX's and Gate of Thunder's copies have it). The 32X-layer
      background ~20 times faster (`rt_bg32.c`: `bg32_prep` / `bg32_rows`, kept tiles, both SH2s, the SH2's own swap).
-     **From power-on in ares: 59.9 game frames a second throughout, 25-28 pictures a second, stage 1's start 24.6 (was 2.2);
+     **From power-on in ares: 59.9 game frames a second throughout, 25-28 pictures a second, stage 1's start 27.0 (was 2.2);
      the effects 0.977 against Mednafen's PSG.** Work folder scripts: `bld.sh [make vars]` (the live build into `bc5`),
      `full.sh <tag> <frames> [env]` (from power-on: screenshots, SDRAM dumps, the PCM chip) + `speed.py <tag>`,
      `warp.sh <tag> "<frame:buttons ...>" "<shot frames>"` (the pad alone, no recording), `spd.sh` with

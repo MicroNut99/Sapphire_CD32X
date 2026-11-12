@@ -25,6 +25,10 @@
  */
 #include <string.h>
 #include "rt_bg32.h"
+#ifdef __sh__
+#pragma GCC optimize ("O2")                              /* (docs/58: the build is -Os, which calls the library even for
+                                                            constant shifts like w >> 24: this file is a picture's time) */
+#endif
 
 int bg32_black = 1;                                      /* (the entry it gave black: the caller's borders) */
 
@@ -34,6 +38,7 @@ static uint16_t c32(unsigned c) { return (uint16_t)(c5[c & 7] << 10 | c5[(c >> 6
 static int map_w(const V32 *v) { const int w = (v->MWR >> 4) & 3; return w == 0 ? 32 : w == 1 ? 64 : 128; }
 static int map_h(const V32 *v) { return (v->MWR & 0x40) ? 64 : 32; }
 
+static const uint16_t bit16[16] = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
 int bg32_wanted(const V32 *v)
 {
     if (!(v->t.CR & 0x80)) return 0;                          /* (no background shown) */
@@ -41,7 +46,7 @@ int bg32_wanted(const V32 *v)
     uint16_t pals = 0;
     for (int ty = 0; ty < 29; ty++) for (int tx = 0; tx < 33; tx++) {
         const int my = ((v->BYR >> 3) + ty) & (mh - 1), mx = ((v->BXR >> 3) + tx) & (mw - 1);
-        pals |= (uint16_t)(1u << (v->vram[my * mw + mx] >> 12));
+        pals |= bit16[v->vram[my * mw + mx] >> 12];           /* (a table: no variable shift on the SH2) */
     }
     int n = 0; while (pals) { n += pals & 1; pals >>= 1; }
     return n > 4;
@@ -73,13 +78,28 @@ static void sp_make(void)
 }
 #define ROW_NIB(a, b) (sp_tab[(a) & 0xFF] | sp_tab[(a) >> 8] << 1 | sp_tab[(b) & 0xFF] << 2 | sp_tab[(b) >> 8] << 3)
 
+/* (docs/58) The raster splits, as rt_bg2.c's bands(): band k from line bl[k] (bl[nb] = 224) with the scroll bx[k] and,
+   at its first line, by[k] - a split's BYR counts from the line after its write. The stage's score bar is such a
+   band: drawn with the picture's one scroll (docs/42: the title has none) it was the city going on, no bar */
+int bg32_bands(const V32 *v, uint16_t bl[4], uint16_t bx[3], uint16_t by[3])
+{
+    int nb = 1; bl[0] = 0; bx[0] = v->BXR; by[0] = v->BYR;
+    for (int i = 0; i < v->spl_n && nb < 3; i++) {
+        const unsigned l = v->spl[i].line;
+        if (l == 0 || l >= 224 || l <= bl[nb - 1]) continue;
+        bl[nb] = (uint16_t)l; bx[nb] = v->spl[i].bxr; by[nb] = (uint16_t)((v->spl[i].byr + 1) & 0x1FF); nb++;
+    }
+    bl[nb] = 224;
+    return nb;
+}
 void bg32_masks(const V32 *v, uint16_t used[16])
 {
     sp_make();
     const int mw = map_w(v), mh = map_h(v);
     for (int p = 0; p < 16; p++) used[p] = 0;
-    for (int ty = 0; ty < 29; ty++) for (int tx = 0; tx < 33; tx++) {
-        const int my = ((v->BYR >> 3) + ty) & (mh - 1), mx = ((v->BXR >> 3) + tx) & (mw - 1);
+    uint16_t bl[4], bx[3], by[3]; const int nb = bg32_bands(v, bl, bx, by);
+    for (int k = 0; k < nb; k++) for (int ty = 0, nt = ((by[k] & 7) + (bl[k + 1] - bl[k]) + 7) >> 3; ty < nt; ty++) for (int tx = 0; tx < 33; tx++) {
+        const int my = ((by[k] >> 3) + ty) & (mh - 1), mx = ((bx[k] >> 3) + tx) & (mw - 1);
         const uint16_t e = v->vram[my * mw + mx]; const unsigned tile = e & 0xFFF; uint16_t m = 1;
         if (tile < 0x800) for (int r = 0; r < 8; r++) {
             uint32_t w = ROW_NIB(v->vram[tile * 16 + r], v->vram[tile * 16 + 8 + r]);
@@ -131,7 +151,7 @@ int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t
     for (int p = -1; p < 16; p++) {                           /* (-1: the backdrop, the colour of every index 0) */
         if (p >= 0 && !(used_idx[p] & 0xFFFE)) continue;
         for (int c = p < 0 ? 0 : 1; c < (p < 0 ? 1 : 16); c++) {
-            if (p >= 0 && !(used_idx[p] >> c & 1)) { lut[p][c] = lut[0][0]; continue; }
+            if (p >= 0 && !(used_idx[p] & bit16[c])) { lut[p][c] = lut[0][0]; continue; }
             const unsigned col = v->color[p < 0 ? 0 : p * 16 + c] & 0x1FF;
             uint16_t ix; ENTRY_FOR(col, ix);
             if (p < 0) { for (int q = 0; q < 16; q++) lut[q][0] = (uint8_t)ix; } else lut[p][c] = (uint8_t)ix;
@@ -212,16 +232,17 @@ static inline __attribute__((always_inline)) void band(const V32 *v, uint8_t *fb
         }
     }
 }
-#ifdef __sh__
-__attribute__((optimize("O2")))                          /* (the build is -Os: this loop is the picture's time) */
-#endif
 void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
 {
     const int mw = map_w(v), mh = map_h(v);
-    const unsigned o = v->BXR & 7; const int m0 = (int)(o >> 2), mx0 = (v->BXR >> 3) & (mw - 1);
     const int tc = y0 != 0;                                   /* (the upper part's table, the lower part's) */
-    for (int y = y0; y < y1; ) {
-        const int yy = (v->BYR + y) & (mh * 8 - 1), r0 = yy & 7, nr = 8 - r0 < y1 - y ? 8 - r0 : y1 - y;
+    uint16_t bl[4], bx[3], by[3]; const int nb = bg32_bands(v, bl, bx, by);
+    for (int kb = 0; kb < nb; kb++) {
+    const int ya = y0 > bl[kb] ? y0 : bl[kb], yb = y1 < bl[kb + 1] ? y1 : bl[kb + 1];
+    const unsigned bxr = bx[kb], byr = (unsigned)by[kb] - bl[kb];      /* (line y shows row byr + y) */
+    const unsigned o = bxr & 7; const int m0 = (int)(o >> 2), mx0 = (bxr >> 3) & (mw - 1);
+    for (int y = ya; y < yb; ) {
+        const int yy = (int)((byr + (unsigned)y) & (unsigned)(mh * 8 - 1)), r0 = yy & 7, nr = 8 - r0 < yb - y ? 8 - r0 : yb - y;
         const uint16_t *bat = v->vram + (yy >> 3) * mw;
         switch (o & 3) {
         case 0: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 0, m0, tc); break;
@@ -230,6 +251,7 @@ void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
         default: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 24, m0, tc); break;
         }
         y += nr;
+    }
     }
 }
 

@@ -25,6 +25,15 @@ int main(int argc, char **argv)
             { static uint8_t f3[224 * 320]; uint16_t *c3 = c2, u3[16]; uint8_t *o3 = o2;   /* the two halves, the same map */
               bg32_masks(&v, u3); bg32_prep(&v, c3, o3, u3); bg32_rows(&v, f3 + 32, 320, 0, 112); bg32_rows(&v, f3 + 32, 320, 112, 224);
               for (int y = 0; y < 224; y++) for (int x = 0; x < 256; x++) diff += c1[f1[32 + y * 320 + x]] != c3[f3[32 + y * 320 + x]]; }
+            if (getenv("SPLIT")) {   /* a raster split at line L with another scroll: lines below L against the reference drawn with that scroll */
+                const int L = atoi(getenv("SPLIT")); static uint8_t f4[224 * 320], f5[224 * 320]; uint16_t u4[16]; uint16_t *c5 = c1; uint8_t *o5 = o1;   /* (the reference's one map) */
+                V32 *w = &v; const uint16_t bx0 = w->BXR, by0 = w->BYR, bx2 = (uint16_t)(bx0 + 43), by2 = (uint16_t)((by0 + 301) & 0x1FF);
+                w->spl_n = 1; w->spl[0].line = (uint16_t)L; w->spl[0].bxr = bx2; w->spl[0].byr = by2; w->spl[0].cr = w->t.CR;
+                bg32_masks(w, u4); bg32_prep(w, c2, o2, u4); bg32_rows(w, f4 + 32, 320, 0, 112); bg32_rows(w, f4 + 32, 320, 112, 224);
+                w->spl_n = 0; w->BXR = bx2; w->BYR = (uint16_t)(by2 + 1 - L); old_draw(w, f5 + 32, 320, c5, o5); w->BXR = bx0; w->BYR = by0;
+                for (int y = 0; y < 224; y++) for (int x = 0; x < 256; x++)
+                    diff += y < L ? c1[f1[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]] : c5[f5[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]];
+            }
             long spill = 0; for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) if (x < 32 || x >= 288) spill += f2[y * 320 + x] != 0;
             n++; if (diff || spill || k1 != k2) { bad++; if (bad < 12) printf("%s +%d: %ld pixels differ, %ld spilt, ok %d/%d\n", argv[a], sx, diff, spill, k1, k2); }
         }
