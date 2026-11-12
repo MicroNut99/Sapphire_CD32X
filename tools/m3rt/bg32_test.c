@@ -34,6 +34,11 @@ int main(int argc, char **argv)
                 for (int y = 0; y < 224; y++) for (int x = 0; x < 256; x++)
                     diff += y < L ? c1[f1[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]] : c5[f5[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]];
             }
+            if (getenv("SAVE") && sx == 0) {   /* SAVE=<prefix>: the new drawing as a picture, <prefix><n>.ppm (to look at) */
+                char nm[256]; snprintf(nm, sizeof nm, "%s%d.ppm", getenv("SAVE"), a); FILE *o = fopen(nm, "wb");
+                if (o) { fprintf(o, "P6 256 224 255\n"); for (int y = 0; y < 224; y++) for (int x = 0; x < 256; x++) { const uint16_t c = c2[f2[32 + y * 320 + x]];
+                    fputc((c & 31) * 255 / 31, o); fputc((c >> 5 & 31) * 255 / 31, o); fputc((c >> 10 & 31) * 255 / 31, o); } fclose(o); }
+            }
             long spill = 0; for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) if (x < 32 || x >= 288) spill += f2[y * 320 + x] != 0;
             n++; if (diff || spill || k1 != k2) { bad++; if (bad < 12) printf("%s +%d: %ld pixels differ, %ld spilt, ok %d/%d\n", argv[a], sx, diff, spill, k1, k2); }
         }

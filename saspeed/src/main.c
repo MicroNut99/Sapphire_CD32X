@@ -631,6 +631,7 @@ static void pace_vbi(void)
         volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
         const volatile uint16_t *pend = (const volatile uint16_t *)((uintptr_t)cram_pend | 0x20000000);
         for (int i = 1; i < 256; i++) if ((i & 15) && pend[i] != cram_shadow[i]) cram[i] = cram_shadow[i] = pend[i];
+        if (pend[0] != cram_shadow[0]) cram[0] = cram_shadow[0] = pend[0];   /* (docs/59: the backdrop) */
         PAL_DIRTY = 0;
     }
     if (bg2_pairs) bg2_commit();                              /* (op 1 only for pairs: the kept runs are the 68000's) */
@@ -670,6 +671,13 @@ static void pic_extras(const V32 *v, uint32_t num)
             cram_pend[i] = ((volatile uint16_t *)((uintptr_t)bg32_cram | 0x20000000))[i];
 #endif
         pd |= cram_pend[i] != cram_shadow[i];
+    }
+    {   /* (docs/59) Entry 0 - every frame buffer pixel nothing was drawn on. Where the Genesis has no pixel either the
+           32X shows it, whatever its "behind the Genesis" bit: it was left black, and stage 2 opens on a sky that is the
+           PC Engine's colour 0 (0x106, blue) - black on the plane. Now the PC Engine's backdrop */
+        const unsigned c = v->color[0];
+        cram_pend[0] = (uint16_t)(0x8000 | c5[c & 7] << 10 | c5[(c >> 6) & 7] << 5 | c5[(c >> 3) & 7]);
+        pd |= cram_pend[0] != cram_shadow[0];
     }
     pal_dirty = pd;
     /* (docs/32: only the blocks that differ from what this buffer shows - its number two pictures ago - and every

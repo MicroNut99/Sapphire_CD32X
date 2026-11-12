@@ -60,8 +60,9 @@ static void *load(const char *p, long *n)
 /* SPLIT_LOG=<from>,<to> (docs/59): each frame's scroll at the display's first line and at each raster match (the line
    after it, as the stand-in's pictures take them) */
 static long sl_from = -1, sl_to;
-static void sl_line0(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) printf("split frame %ld line 0: BXR %u BYR %u CR %04X MWR %02X\n", f, v->BXR, v->BYR, v->CR, v->MWR); }
-static void sl_split(Vdc *v, int what) { const long f = sapm_frame(); if (what == 1 && f >= sl_from && f < sl_to) printf("split frame %ld line %d: BXR %u BYR %u CR %04X (at the match)\n", f, v->rcr_count + 1, v->BXR, v->BYR, v->CR); }
+static void sl_line0(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) printf("split frame %ld line 0: BXR %u BYR %u CR %04X MWR %02X colour 0 %03X colour 256 %03X\n", f, v->BXR, v->BYR, v->CR, v->MWR, sapm_colors()[0] & 0x1FF, sapm_colors()[256] & 0x1FF); }
+static void sl_split(Vdc *v, int what) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) { if (what == 1) printf("split frame %ld line %d: BXR %u BYR %u CR %04X (at the match)\n", f, v->rcr_count + 1, v->BXR, v->BYR, v->CR);
+        else if (what == 0) printf("split frame %ld   CR write: %04X\n", f, v->CR); } }
 static void sl_scroll(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) printf("split frame %ld   scroll write: BXR %u BYR %u\n", f, v->BXR, v->BYR); }
 int main(int argc, char **argv)
 {

@@ -4,7 +4,8 @@
 power-on; from frame <from> to <to> it keeps each frame's picture at half size (pics.u8: frames x h/2 x w/2 x 3,
 the frame's top-left 2x2 pixel) and the sound (snd.s16: 44.1 kHz stereo, as the core gives it). All in the work
 folder: game data. REF_NOCDDA=1: the core's CD audio volume 0 (the PSG and ADPCM alone); REF_NOPICS=1: the sound
-only."""
+only. REF_AT=<frame>,<frame>,...: only the frames within 8 of each listed one are kept (the others stay zero in a
+sparse pics.npy) - docs/59: a whole game's screenshots, one every 1,500 frames, against the reference."""
 import os, sys, ctypes as C, numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pcehost
@@ -24,10 +25,11 @@ def batch(p, n):
     return n
 cb = BATCH_T(batch); h.lib.retro_set_audio_sample_batch(cb)
 pics = None; sizes = set()
+AT = np.array([int(x) for x in os.environ['REF_AT'].split(',')]) if os.environ.get('REF_AT') else None
 for f, m in enumerate(d['masks'][:f1].tolist()):
     keep[0] = f >= f0
     h.held = {b for b in range(16) if m >> b & 1}; h._step()
-    if f >= f0 and not os.environ.get('REF_NOPICS'):
+    if f >= f0 and not os.environ.get('REF_NOPICS') and (AT is None or np.abs(AT - f).min() <= 8):
         fr = h.frame; sizes.add(fr.shape)
         if pics is None:
             H, Wd = fr.shape[0] // 2, fr.shape[1] // 2
