@@ -89,6 +89,7 @@ int huchost_init(const char *state, const char *trk)
     if (getenv("HUC_MASKS")) { long n; rec_masks = slurp(getenv("HUC_MASKS"), &n); rec_n = n / 2; }
     if (getenv("HUC_POKES")) { long n; rec_pokes = slurp(getenv("HUC_POKES"), &n); rec_np = n / 12; }
     if (rec_masks) fprintf(stderr, "huchost: the recording's pad (%ld frames), %ld pokes\n", rec_n, rec_np);
+    if (!getenv("PSND_OLDADPCM")) io_adpcm_hook = psnd_nibble;   /* (docs/50: the ADPCM as the playback decodes it) */
     rt_draw_hook = draw;
     io_psg_hook = psnd_write;
     return 1;
@@ -126,6 +127,9 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
     nents = 0;
     const unsigned a0 = rt.hw.read_addr; const int n0 = rt.hw.nibble, p0 = rt.hw.playing;
     rt_run(&rt, rt.frame + 1, 0);
+    static int no_ior = -1; if (no_ior < 0) no_ior = getenv("HUC_NO_IORUN") != 0;
+    if (!no_ior) io_run(&rt.hw, rt.vdc.t.base + rt.now);   /* (docs/50: the drive and the ADPCM to the frame's end: its
+                                                                 nibbles in their frame, not caught up at the next access) */
     cdda_events();
     static unsigned ad_len; if (!p0 && rt.hw.playing) ad_len = rt.hw.length;   /* (the play's length as it started) */
     /* (docs/44) the frame's sound: the PSG as written, the ADPCM the playback passed over */

@@ -118,6 +118,8 @@ int64_t io_next_event(const Hw *io)
     return n;
 }
 
+void (*io_adpcm_hook)(int nib);   /* (docs/50: each nibble the playback decodes, in order; -1 = the decoder reset) */
+static uint8_t adpcm_byte;        /* (the byte the playback fetched last: Mednafen's ReadBuffer for the decoder) */
 static void adpcm_run(Hw *io, int64_t ch)
 {
     io->bigdiv -= ch << 16;
@@ -127,7 +129,7 @@ static void adpcm_run(Hw *io, int64_t ch)
         else if (step > 0) io->bigdiv += (-io->bigdiv / step + 1) * step;
     }
     while (io->bigdiv <= 0) {                         /* a tick: a byte fetched every second one while playing */
-        if (io->fast && io->playing) {                /* (fast: the ticks whose fetches change nothing seen, in one go) */
+        if (io->fast && io->playing && !io_adpcm_hook) {   /* (fast: the ticks whose fetches change nothing seen, in one go) */
             const int64_t P = io->bigdivacc * (16 - io->freq);
             const int32_t Fm = adpcm_plain_fetches(io);
             if (P > 0 && Fm > 0) {
@@ -153,9 +155,11 @@ static void adpcm_run(Hw *io, int64_t ch)
                 io->end = 1;
                 if (io->last_cmd & 0x40) io->playing = 0;
             }
+            if (io->ram) adpcm_byte = io->ram[io->read_addr];
             io->read_addr++;
             if (io->length && !(io->last_cmd & 0x10)) io->length--;
         }
+        if (io->playing && io_adpcm_hook) io_adpcm_hook((adpcm_byte >> (io->nibble ^ 4)) & 15);
         if (io->playing) io->nibble ^= 4;
     }
     if (io->write_pending > 0 && (io->write_pending -= (int32_t)ch) <= 0) {
@@ -407,12 +411,14 @@ int io_write(Hw *io, unsigned off, uint8_t v)
             if (v & 0x80) {                                                 /* ADPCM reset */
                 io->addr = io->read_addr = io->write_addr = io->length = 0; io->last_cmd = 0;
                 io->playing = io->half = io->end = 0; io->nibble = 0;
+                if (io_adpcm_hook) io_adpcm_hook(-1);
                 adpcm_irq(io); return 1;
             }
             if (io->playing && !(v & 0x20)) io->playing = 0;
             if (!io->playing && (v & 0x20)) {                               /* play: the clock restarts */
                 io->bigdiv = io->bigdivacc * (16 - io->freq);
                 io->playing = 1; io->half = 0; io->nibble = 0;
+                if (io_adpcm_hook) io_adpcm_hook(-1);
             }
             if (v & 0x10) { io->length = io->addr; io->end = 0; }           /* the length latched */
             if (!(io->last_cmd & 0x08) && (v & 0x08)) io->read_addr = (v & 4) ? io->addr : (uint16_t)(io->addr - 1);

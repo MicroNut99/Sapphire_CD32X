@@ -9,7 +9,9 @@
  */
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 #include "pce_sound.h"
+#include "psg_c.h"
 
 #define CLK 3579545.0
 
@@ -19,8 +21,10 @@ static Ch ch[6]; static uint8_t sel, mainvol;
 /* (the writes are kept with their place in the frame - master clocks to its end - and played in order) */
 extern int32_t rt_io_until;
 static struct { int32_t until; uint8_t r, v; } ev[8192]; static int nev;
+long psnd_writes;                                       /* (DIAG, docs/50: the PSG writes so far) */
 void psnd_write(unsigned r, uint8_t v)
 {
+    psnd_writes++;
     if (nev < 8192) { ev[nev].until = rt_io_until; ev[nev].r = (uint8_t)r; ev[nev].v = v; nev++; }
 }
 static void psnd_apply(unsigned r, uint8_t v)
@@ -60,6 +64,15 @@ static int adpcm_nib(unsigned n)
     return ad_sig;
 }
 
+/* (docs/50) the nibbles the drive model's playback decodes, in order (io_model.c's io_adpcm_hook): the ADPCM exactly as
+   played, not from where the play started */
+static int16_t nb_buf[8192]; static int nb_n, nb_mode;
+void psnd_nibble(int n)
+{
+    nb_mode = 1;
+    if (n < 0) { ad_sig = 0; ad_step = 0; return; }
+    if (nb_n < 8192) nb_buf[nb_n++] = (int16_t)adpcm_nib((unsigned)n);
+}
 int psnd_frame(const uint8_t *adram, unsigned start, unsigned length, unsigned freq, int playing, int16_t *out, int rate, double fps)
 {
     static double acc; acc += rate / fps; const int ns = (int)acc; acc -= ns;
@@ -67,7 +80,8 @@ int psnd_frame(const uint8_t *adram, unsigned start, unsigned length, unsigned f
        second), while the drive model says it plays - the model's own read address moves in jumps */
     static int ad_on; static uint32_t ad_pos, ad_left; static double ad_acc;
     int na = 0;
-    if (adram && playing) {
+    if (nb_mode) { memcpy(ad_buf, nb_buf, sizeof(int16_t) * (size_t)(na = nb_n < 4096 ? nb_n : 4096)); psnd_nibbles += nb_n; nb_n = 0; }
+    else if (adram && playing) {
         if (!ad_on) { ad_on = 1; ad_pos = (start & 0xFFFF) * 2; ad_left = (length ? length : 0x10000) * 2u; ad_sig = 0; ad_step = 0; ad_acc = 0; }
         ad_acc += 32087.5 / (16 - (freq & 15)) / fps; int k = (int)ad_acc; ad_acc -= k;
         if (k > 4096) k = 4096;
@@ -79,8 +93,35 @@ int psnd_frame(const uint8_t *adram, unsigned start, unsigned length, unsigned f
         }
     }
     else { ad_on = 0; ad_sig = ad_sig * 7 / 8; }
+    if (nb_mode && !na) ad_sig = ad_sig * 7 / 8;
     const double mv_l = att(((15 - (mainvol >> 4)) * 3)), mv_r = att(((15 - (mainvol & 15)) * 3));
+    static int old_psg = -1; if (old_psg < 0) old_psg = getenv("PSND_OLDPSG") != 0;
+    static double gp = -1, ga;
+    if (gp < 0) { const char *x = getenv("PSND_ONLY"); gp = x && x[0] == 'a' ? 0 : 1; ga = x && x[0] == 'p' ? 0 : 0.5; }   /* (docs/50: one part alone) */
     int e = 0; const double flen = 21477272.0 / fps;
+    if (!old_psg) {
+        /* (docs/50) the PSG clock for clock (psg_c.c: psg.sv, equal to Mednafen's), each write at its clock in the
+           frame, each output sample the mean of the levels over its clocks */
+        static PsgC pc; static int pc_on; if (!pc_on) { psg_c_power(&pc); pc_on = 1; }
+        const double clocks = flen / 3.0; long done = 0;
+        for (int i = 0; i < ns; i++) {
+            const long to = (long)((i + 1) * clocks / ns); int64_t sum = 0; long cnt = 0;
+            while (done < to) {
+                while (e < nev && (flen - ev[e].until) / 3.0 <= done) { psg_c_write(&pc, ev[e].r, ev[e].v); e++; }
+                psg_c_clock(&pc); int32_t l, r; psg_c_out(&pc, &l, &r); sum += l + r; cnt++; done++;
+            }
+            const double ps = cnt ? (double)sum / cnt / 65536.0 : 0;     /* (both sides' sum: about 0.16 a channel at full volume) */
+            double a = 0;
+            if (na) a = ad_buf[(int)((long)i * na / ns)] / 2048.0;
+            double o = ps * gp + a * ga;
+            if (o > 1) o = 1; if (o < -1) o = -1;
+            out[i] = (int16_t)(o * 32000);
+        }
+        while (e < nev) { psg_c_write(&pc, ev[e].r, ev[e].v); e++; }
+        nev = 0;
+        return ns;
+    }
+    e = 0;
     for (int i = 0; i < ns; i++) {
         while (e < nev && (1.0 - ev[e].until / flen) * ns <= i) { psnd_apply(ev[e].r, ev[e].v); e++; }
         double s = 0;
@@ -106,7 +147,7 @@ int psnd_frame(const uint8_t *adram, unsigned start, unsigned length, unsigned f
         }
         double a = 0;
         if (na) a = ad_buf[(int)((long)i * na / ns)] / 2048.0;
-        double o = s * 0.12 + a * 0.5;                    /* (the PSG at the reference core's level, docs/44) */
+        double o = s * (gp ? 0.12 : 0) + a * ga;                    /* (the PSG at the reference core's level, docs/44) */
         if (o > 1) o = 1; if (o < -1) o = -1;
         out[i] = (int16_t)(o * 32000);
     }

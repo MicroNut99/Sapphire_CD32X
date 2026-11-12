@@ -9,6 +9,8 @@ import os, sys, ctypes as C, numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pcehost
 if os.environ.get('REF_NOCDDA'): pcehost.OPTIONS[b'pce_cddavolume'] = b'0'   # (the effects alone: no CD audio)
+if os.environ.get('REF_ONLY') == 'psg': pcehost.OPTIONS[b'pce_adpcmvolume'] = b'0'        # (docs/50: one part alone)
+if os.environ.get('REF_ONLY') == 'adpcm': pcehost.OPTIONS[b'pce_cdpsgvolume'] = b'0'
 from m0_replay import open_host
 from pcehost import BATCH_T
 W = os.environ.get('WORK', '/home/claude/work')
