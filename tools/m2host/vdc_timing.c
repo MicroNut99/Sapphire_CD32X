@@ -57,9 +57,10 @@ static void inc_rcr(Vdc *v)
     if (--v->vphase_ctr <= 0) {
         v->vphase = (v->vphase + 1) % 4;
         switch (v->vphase) {
-        case V_VDS: v->vphase_ctr = (int32_t)v->vds_c + 2; break;
+        case V_VDS: v->vphase_ctr = (int32_t)v->vds_c + 2; if (vdc_split_hook) vdc_split_hook(v, -1); break;
         case V_VDW:
             v->vphase_ctr = (int32_t)v->vdw_c + 1; v->rcr_count = 0;
+            if (vdc_line0_hook) vdc_line0_hook(v);            /* (Sapphire docs/55: the display's first line - an observer) */
             v->burst_mode = !(v->CR & 0xC0);
             v->need_vb_test = 1; v->need_sat_test = 1;
             if (!v->burst_mode) {                             /* the display starts: a copy or a DMA still running stops */
@@ -67,15 +68,16 @@ static void inc_rcr(Vdc *v)
                 if (v->dma_running) { v->dma_running = 0; v->dma_cut++; vdc_commit(v); }
             }
             break;
-        case V_VCR: v->vphase_ctr = (int32_t)v->vcr_c; break;
+        case V_VCR: v->vphase_ctr = (int32_t)v->vcr_c; if (vdc_split_hook) vdc_split_hook(v, -1); break;   /* (the display's end) */
         case V_VSW:
+            if (vdc_split_hook) vdc_split_hook(v, -1);
             v->vphase_ctr = (int32_t)v->vsw_c + 1; v->mwr_c = v->MWR;
             v->vds_c = (v->VSR >> 8) & 0xFF; v->vsw_c = v->VSR & 0x1F; v->vdw_c = v->VDR & 0x1FF; v->vcr_c = v->VCR & 0xFF;
             break;
         }
     }
     if (v->vphase == V_VDW && !v->burst_mode) fetch_sprites(v);
-    if ((int)v->rcr_count == (int)v->RCR - 0x40 && (v->CR & 4)) raise(v, 0x04);
+    if ((int)v->rcr_count == (int)v->RCR - 0x40 && (v->CR & 4)) { raise(v, 0x04); if (vdc_split_hook) vdc_split_hook(v, 1); }   /* (docs/55: a raster match) */
 }
 
 static void hds_start(Vdc *v)

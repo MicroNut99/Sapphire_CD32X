@@ -329,6 +329,8 @@ uint8_t *sapm_cd_ram(void) { return cd_ram; }
 uint8_t *sapm_super_ram(void) { return super_ram; }
 uint8_t *sapm_bram(void) { return bram; }
 uint8_t *sapm_card(void) { return ac_ram; }
+struct Vdc *sapm_vdc(void) { return &vdc; }                  /* (docs/55: the models themselves, for a host that makes pictures and sound) */
+struct Hw *sapm_hw(void) { return &hw; }
 uint8_t *sapm_adpcm_ram(void) { return adpcm_ram; }
 const uint16_t *sapm_lines(void) { return &snap_lines[0][0]; }
 uint16_t *sapm_vram(void) { return vdc.vram; }

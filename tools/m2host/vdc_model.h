@@ -48,5 +48,7 @@ void vt_run(Vdc *v, int64_t t);                     /* run the chips to time t *
 int32_t vt_next_event(Vdc *v, int64_t cd_next);     /* master clocks to the VCE's next event (Mednafen CalcNextEvent) */
 int vt_irq_at(const Vdc *v, int64_t t);             /* was the VDC's IRQ line high at time t */
 void vt_dot_clock(Vdc *v, uint8_t vce_cr);          /* a VCE control write */
+extern void (*vdc_line0_hook)(struct Vdc *v);              /* Sapphire docs/55: the display's first line (NULL: none) */
+extern void (*vdc_split_hook)(struct Vdc *v, int what);    /* docs/55: 1 a raster match, -1 the display's end, 0 a CR write */
 extern void (*vdc_scroll_hook)(struct Vdc *v);              /* docs/105: called after each BXR / BYR write (NULL: none) */
 extern void (*vdc_vram_hook)(unsigned addr);              /* docs/101: called with each VRAM word written (NULL: none) */

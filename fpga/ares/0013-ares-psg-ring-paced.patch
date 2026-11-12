@@ -1,0 +1,153 @@
+From 7a691b62a4e8a01b1b129052a4d54e3d11ce38b6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 02:34:17 -0800
+Subject: [PATCH] md/everdrive-pro: Sapphire's stand-in lets each frame's PSG
+ writes into the ring one frame a vertical blank; DIAG ARES_PCM_REGLOG,
+ ARES_PSGRING_LOG, ARES_HUC_PACE (docs/55)
+
+The stand-in makes frames when the SH2 asks, several at once; the cart's game runs at its own rate. A frame's PSG
+writes now wait for their vertical blank (ARES_HUC_PSGRING=2: at once, as before). ARES_HUC_PACE=1 makes the frames
+themselves one a blank - the sound is then right but the picture path is not: left as an experiment.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NuNYgMfRuDG9Mw67wd4uwV
+---
+ ares/md/cartridge/board/everdrive-pro.cpp    | 25 ++++++++++++++
+ ares/md/cartridge/board/sapphire-huchost.hpp | 34 +++++++++++++++++---
+ ares/md/mcd/pcm.cpp                          |  2 ++
+ 3 files changed, 56 insertions(+), 5 deletions(-)
+
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index e60a158..810d1fe 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -217,6 +217,26 @@ struct EverDrivePro : Interface {
+   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+     if(cells.on) {
+       n22 local = address;
++      if(huc.on && huc.psgFn && !huc.psgNow) huc.psgRelease(vdp.vcounter(), [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });   //(docs/55: a frame's PSG writes a vertical blank)
++      if(huc.on && huc.pace) {   //(Sapphire docs/55) the stand-in's game at its own rate: one frame for each vertical blank passed, while the SH2 allows
++        const u32 vc = vdp.vcounter();
++        if(vc < huc.lastVc && huc.credit < 2) huc.credit++;
++        huc.lastVc = vc;
++        if(huc.credit && cells.live_ && huc.pictures < huc.want) {
++          huc.credit--;
++          huc.produce(huc.pictures + 1, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
++          cells.liveTotal = huc.produced;
++        }
++      }
++      if(huc.psgFn && local >= 0x07f000 && local < 0x07f900) {   //DIAG (Sapphire docs/55, ARES_PSGRING_LOG): how far behind the ring's reader is
++        static int on = -1; if(on < 0) on = getenv("ARES_PSGRING_LOG") != nullptr;
++        if(on) { static u32 reads, counts, worst, over, readerAbs; reads++;
++          if(local >= 0x07f100) { u32 idx = (local - 0x07f100) >> 1, abs = huc.psgCount - ((huc.psgCount - idx) & 1023); if(abs < huc.psgCount && abs + 1 > readerAbs) readerAbs = abs + 1; }
++          else if(local == 0x07f002) { counts++; u32 back = huc.psgCount - readerAbs; if(back > worst) worst = back;
++            if(back > 1024) { over++; fprintf(stderr, "psg ring: the reader %u writes behind at write %u (more than the ring holds)\n", back, huc.psgCount); readerAbs = huc.psgCount - 1024; } }
++          if(reads % 40000 == 0) fprintf(stderr, "psg ring: %u reads of the count, %u writes so far; the reader's most behind %u; over the ring %u times\n", counts, huc.psgCount, worst, over);
++        }
++      }
+       if(local >= SapphireCells::LiveAt && local < SapphireCells::End) return cells.readStore(local);
+       if(local >= 0x1c0000 && local < 0x200000) {
+         u32 off = local - 0x1c0000, r = off >> 1 & 0xff;
+@@ -225,8 +245,13 @@ struct EverDrivePro : Interface {
+           if(cells.live_ && huc.write(r, v)) return data;   //(the pad only after the unlock: a start-up scan of the window wrote it 0-255)
+           if(huc.on && cells.live_ && r == 0xca) {   //(docs/46: only after the unlock - the start-up scan wrote 0xca 0-255, and the pictures it made went into the ring before the disc's loads; the pictures the SH2 will want: written before the store reads them)
+             u32 at = cells.sh2At + (u8)(v - cells.sh2At);
++            if(huc.pace) {   //(docs/55: the frames ahead are made one a vertical blank, below; what the SH2 reads now must be there)
++              huc.want = at + huc.lead;
++              if(huc.pictures < at) { huc.burst += at - huc.pictures; huc.produce(at, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); }); cells.liveTotal = huc.produced; }
++            } else {
+             huc.produce(at + huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
+             cells.liveTotal = huc.produced;
++            }
+           }
+           const bool wasLive = cells.live_;
+           cells.write(r, v, [&](u32 l) -> u16 { return ram[offset(l) >> 1]; });
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+index 2dfdf42..ef37fe9 100644
+--- a/ares/md/cartridge/board/sapphire-huchost.hpp
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -19,6 +19,24 @@ struct SapphireHuc {
+   int (*audioFn)(const s16**) = nullptr;
+   int (*psgFn)(const u16**) = nullptr;   //(docs/54: the frame's PSG register writes)
+   u32 psgCount = 0;
++  u16 psgW[65536]; u16 psgN[1024]; u32 psgWw = 0, psgWr = 0, psgFw = 0, psgFr = 0;   //(docs/55: frames' PSG writes waiting for their vertical blank)
++  bool psgNow = false; u32 psgVc = 0, psgHeld = 0;
++  template<typename Put> auto psgRelease(u32 vcounter, Put put) -> void {
++    if(vcounter >= psgVc) { psgVc = vcounter; return; }   //(not a new frame of the console's)
++    psgVc = vcounter;
++    u32 waiting = psgFw - psgFr;
++    int n = waiting > 24 ? 2 : 1;                           //(far behind: two a blank, to come back)
++    if(waiting > psgHeld) psgHeld = waiting;
++    while(n-- && psgFr != psgFw) {
++      for(u32 k = psgN[psgFr & 1023]; k; k--) { put(0x07f100 + (psgCount & 1023) * 2, psgW[psgWr++ & 65535]); psgCount++; }
++      psgFr++;
++      if(auto w = getenv("ARES_PCM_RAW")) { static FILE* f; if(!f) { string nn = {w, ".at"}; f = fopen(nn, "wb"); } if(f) { u32 k = (u32)aresPcmRawSamples; fwrite(&k, 4, 1, f); } }   //DIAG
++      put(0x07f000, 0x5450); put(0x07f002, (u16)psgCount);
++    }
++  }
++  //(Sapphire docs/55, ARES_HUC_PACE=1) the game at its own rate: a frame made a vertical blank at most, up to what the SH2 allows
++  //(want) - not all of them at once when the SH2 asks, which no cart would do and which chops the sound
++  bool pace = false; u32 want = 0, credit = 0, lastVc = 0, burst = 0;   //(burst: frames that had to be made at once for the SH2)
+   const u16* (*vramFn)() = nullptr;   //(DIAG: ARES_HUC_VCHECK)
+   u16 vramAt[64][0x8000]; u32 vramPic[64];   //(the game's VRAM at the last 64 pictures, by picture)
+   u32 samples = 0;            //(docs/44: PWM samples written to the ring at cart 0x3F0000, 32,768 of them; register 0xcc)
+@@ -35,9 +53,11 @@ struct SapphireHuc {
+     audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
+     psgFn = (int (*)(const u16**))dlsym(h, "huchost_psg"); psgCount = 0;
+     if(!getenv("ARES_HUC_PSGRING")) psgFn = nullptr;
++    psgNow = getenv("ARES_HUC_PSGRING") && getenv("ARES_HUC_PSGRING")[0] == '2'; psgWw = psgWr = psgFw = psgFr = 0; psgVc = 0;
+     vramFn = (const u16* (*)())dlsym(h, "huchost_vram");
+     if(!init || !frameFn || !init(getenv("ARES_HUC_STATE"), getenv("ARES_HUC_TRACK"))) { fprintf(stderr, "huchost: not started\n"); return; }
+     if(auto e = getenv("ARES_HUC_LEAD")) lead = atoi(e);
++    pace = getenv("ARES_HUC_PACE") != nullptr; want = 0; credit = 0;
+     on = true;
+     fprintf(stderr, "huchost: on\n");
+   }
+@@ -45,15 +65,18 @@ struct SapphireHuc {
+   template<typename Put> auto produce(u32 want, Put put) -> void {
+     while(on && pictures < want) {
+       const u32* e = nullptr; int n = frameFn(pad, &e);
+-      if(auto w = getenv("ARES_PCM_RAW")) {   //DIAG (docs/54): the PCM capture's sample count at each game frame made (<file>.at, u32)
++      if(auto w = getenv("ARES_PCM_RAW"); w && (!psgFn || psgNow)) {   //DIAG (docs/54): the PCM capture's sample count at each game frame made (<file>.at, u32) - or, with the writes let in a frame a blank, at each frame let in (psgRelease)
+         static FILE* f; if(!f) { string nn = {w, ".at"}; f = fopen(nn, "wb"); }
+         if(f) { u32 k = (u32)aresPcmRawSamples; fwrite(&k, 4, 1, f); }
+       }
+-      if(psgFn) {   //(Sapphire docs/54, the BootCamp's TPSG) the PSG's register writes into the ring the 68000 reads for the Sub-CPU:
+-        //cart 0x07F000 (window 0) = 0x5450, + 2 the count of writes so far, from + 0x100 1,024 words (register << 8 | value)
++      if(psgFn) {   //(Sapphire docs/54, the BootCamp's TPSG) the PSG's register writes for the ring the 68000 reads for the Sub-CPU:
++        //cart 0x07F000 (window 0) = 0x5450, + 2 the count of writes so far, from + 0x100 1,024 words (register << 8 | value).
++        //(docs/55) The cart's game runs at its own rate, so its writes reach the ring a frame's at a time, a frame apart. This
++        //stand-in makes frames when the SH2 asks, several at once: each frame's writes are kept here and let into the ring one
++        //frame a vertical blank (psgRelease, from the board's reads) - ARES_HUC_PSGRING=2: at once, as made
+         const u16* w = nullptr; int nw = psgFn(&w);
+-        for(int i = 0; i < nw; i++) { put(0x07f100 + (psgCount & 1023) * 2, w[i]); psgCount++; }
+-        put(0x07f000, 0x5450); put(0x07f002, (u16)psgCount);
++        if(psgNow) { for(int i = 0; i < nw; i++) { put(0x07f100 + (psgCount & 1023) * 2, w[i]); psgCount++; } put(0x07f000, 0x5450); put(0x07f002, (u16)psgCount); }
++        else if(psgFw - psgFr < 1000) { for(int i = 0; i < nw; i++) psgW[psgWw++ & 65535] = w[i]; psgN[psgFw++ & 1023] = (u16)nw; }
+       }
+       if(audioFn) {   //(docs/44) the frame's sound as the PWM's pulse widths, 1..cycle-1 about the middle
+         const s16* a = nullptr; int na = audioFn(&a);
+@@ -72,6 +95,7 @@ struct SapphireHuc {
+         put(l, (u16)((x & 0xff) << 8 | (x >> 8 & 0xff)));          //(little-endian, as the files the PC wrote)
+         put(l + 2, (u16)((x >> 16 & 0xff) << 8 | (x >> 24 & 0xff)));
+         produced++;
++        if(pace && (x >> 28) == 5 && (pictures + 1) % 3000 == 0) fprintf(stderr, "huchost: %u game frames made, %u of them at once for the SH2\n", pictures + 1, burst);
+         if(produced % Ring == 0 && getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: ring wrapped at picture %u\n", pictures);
+         if((x >> 28) == 5) { if(vramFn && getenv("ARES_HUC_VCHECK")) { memory::copy(vramAt[pictures & 63], vramFn(), 0x10000); vramPic[pictures & 63] = pictures; } pictures++; if(getenv("ARES_HUC_LOG") && pictures % 300 == 0) fprintf(stderr, "huchost: %u pictures, %llu entries, pad %04x\n", pictures, (unsigned long long)produced, (unsigned)pad); }
+       }
+diff --git a/ares/md/mcd/pcm.cpp b/ares/md/mcd/pcm.cpp
+index eb1f13e..2f673d0 100644
+--- a/ares/md/mcd/pcm.cpp
++++ b/ares/md/mcd/pcm.cpp
+@@ -66,6 +66,8 @@ auto MCD::PCM::read(n13 address, n8 data) -> n8 {
+ }
+ 
+ auto MCD::PCM::write(n13 address, n8 data) -> void {
++  { static int on = -1; static FILE* f; if(on < 0) { auto e = getenv("ARES_PCM_REGLOG"); on = e != nullptr; if(on) f = fopen(e, "wb"); }   //DIAG (Sapphire docs/55): every write to the chip - u32 the capture's sample count, u16 address, u8 data, u8 the channel selected
++    if(on && f && address < 0x1000) { u32 t = (u32)aresPcmRawSamples; u16 a = address; u8 d = data, c = io.channel; fwrite(&t, 4, 1, f); fwrite(&a, 2, 1, f); fwrite(&d, 1, 1, f); fwrite(&c, 1, 1, f); } }
+   if(address >= 0x1000 && address <= 0x1fff) {
+     ram[io.bank << 12 | (n12)address] = data;
+     return;
+-- 
+2.43.0
+

@@ -11,8 +11,14 @@ e = C.POINTER(C.c_uint32)(); s = C.POINTER(C.c_int16)(); h = hashlib.md5(); he =
 import os
 wo = os.environ.get('HUC_WAVOUT')                  # (docs/49) the sound, raw s16 22,044 Hz, and <file>.n: a u16 count a frame
 wf = open(wo, 'wb') if wo else None; wn = open(wo + '.n', 'wb') if wo else None
+pl = os.environ.get('HUC_PSGLOG')                 # (docs/54) the stand-in's PSG writes, a frame's at its start: u32 PSG clock, u8 register, u8 value
+pf = open(pl, 'wb') if pl else None; pw = C.POINTER(C.c_uint16)()
+import struct
 for f in range(n):
     k = L.huchost_frame(0, C.byref(e)); ne += k
+    if pf:
+        m = L.huchost_psg(C.byref(pw))
+        for i in range(m): pf.write(struct.pack('<IBB', f * 119665 + i, pw[i] >> 8, pw[i] & 255))
     if k: h.update(C.string_at(e, 4 * k)); he.update(C.string_at(e, 4 * k))
     a = L.huchost_audio(C.byref(s))
     if a: h.update(C.string_at(s, 2 * a))

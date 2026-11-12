@@ -7,7 +7,10 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
-**Latest (12 Nov 2026, [docs/54](docs/54_THE_PSG_ON_THE_SEGA_CDS_PCM_CHIP.md)):** the sound effects - the PC Engine's PSG played
+**Latest (12 Nov 2026, [docs/55](docs/55_THE_MACHINE_AS_THE_STAND_IN_AND_THE_EFFECTS_IN_TIME.md)):** the cart's stand-in in ares
+is now the machine itself (no translated code): its PSG writes equal Mednafen's one for one, and the sound effects on
+the PCM chip follow the game (0.96 against the exact PSG into stage 1; a 3 s silence later is open). Command 103 is in
+the BootCamp's stack. **[docs/54](docs/54_THE_PSG_ON_THE_SEGA_CDS_PCM_CHIP.md):** the sound effects - the PC Engine's PSG played
 by the Sega CD's PCM chip, a channel for a channel; the cart only logs the PSG's writes and the SH2s do nothing for it
 (ares; the stack's command 103 is on a branch). [docs/53](docs/53_THE_PACK_FOR_THE_CARTS_CPU_AND_THE_MACHINE.md): the pack read by the
 cart's own CPU side (RTL), and the machine from power-on as a library, 74,656 of 75,000 frames equal to Mednafen.

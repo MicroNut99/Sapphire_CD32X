@@ -8,7 +8,7 @@
 #include <string.h>
 #include "tpsg.h"
 #include "rf5c_model.h"
-static Rf5c chip; static long nreg, nram, nkey;
+static Rf5c chip; static long nreg, nram, nkey, clipped; static int32_t peak;
 static void reg(void *u, int ch, int r, uint8_t v) { (void)u; Rf5cCh *h = &chip.ch[ch]; nreg++;
     switch (r) { case 0: h->env = v; break; case 1: h->pan = v; break; case 2: h->step = (uint16_t)((h->step & 0xFF00) | v); break;
     case 3: h->step = (uint16_t)((h->step & 0xFF) | v << 8); break; case 4: h->loopst = (uint16_t)((h->loopst & 0xFF00) | v); break;
@@ -33,10 +33,12 @@ int main(int argc, char **argv)
             if (upd) { const int k = (int)((pos + 1 - phase) * upd) - upd + 1; if (k > done) { done = k; go = 1; } }
             if (go) tpsg_update(&t, &out);
             int32_t l, r; rf5c_sample(&chip, &l, &r);
+            { const int32_t al = l < 0 ? -l : l, ar = r < 0 ? -r : r; if (al > peak) peak = al; if (ar > peak) peak = ar; if (al >= 32704 || ar >= 32704) clipped++; }
             const int16_t v = (int16_t)((l + r) / 2); fwrite(&v, 2, 1, o);
         }
         const uint16_t k = (uint16_t)ns; fwrite(&k, 2, 1, on);
     }
     fprintf(stderr, "%ld frames: %ld register writes, %ld key changes, %ld wave RAM bytes to the chip (%.1f register writes a frame)\n", nf, nreg, nkey, nram, (double)nreg / nf);
+    fprintf(stderr, "the chip's loudest sample %d of 32,767 (%.0f %%); samples at its limit %ld\n", peak, peak / 327.67, clipped);
     return 0;
 }

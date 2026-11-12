@@ -182,6 +182,13 @@ Read `CLAUDE.md` first.
      EXTRA="BG32=1 PWM_SOUND=1 TPSG=1" PSND_ONLY=adpcm ARES_HUC_PSGRING=1 ARES_PCM_RAW=<file> WAV=<file> tools/m3_live_pack.sh
      /abs/sp/pon.bin /abs/tr/pon <tag> <frames>` with `HUC_MASKS` / `HUC_POKES`. Next: the ADPCM's nibbles the same way; the
      0.68 in ares; `sapm` in ares (docs/53) so the game's time is its own.
+  50. **docs/55:** command 103 is on the BootCamp's main (`36a227d`; ledger §36 on docs main). **The stand-in is now the machine:**
+     `tools/m3_sapmhost.sh work/m2mach_gen work/sapmhost.so`; run with `HOSTSO=/abs/sapmhost.so SAPM_SYSCARD=work/sys/syscard3.pce
+     SAPM_TAB=work/disc/sap_tab.bin` + item 49's line (state and window arguments are not used). ares DIAG: `ARES_PCM_REGLOG=<file>`,
+     `ARES_PSGRING_LOG=1`; `tools/tower/tower_ares_cmp.py <pcm raw> /tmp/psg_exact.s16 <window>` (`psg_render` of `psg_ref.log`).
+     **Open, next:** the chip silent ~3 s from game frame 11,500: the reader falls over 1,024 writes behind while it keeps reading the
+     count (each read a round trip through a busy 68000). Needs a listener change (a bulk copy of the ring to Word RAM, or a push at the
+     vertical blank): **asked of the owner, not done.** Then the pictures with `ARES_HUC_PACE=1`.
 
 ## 2. Where things live
 

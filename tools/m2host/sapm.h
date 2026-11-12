@@ -49,6 +49,8 @@ void sapm_md5(uint8_t md[16]);               /* tools/m0_replay.py frame_hash's 
    VRAM (64 K words), the sprite table (256), the colours (512); the VDC's registers */
 uint8_t *sapm_card(void);                     /* Sapphire: the Arcade Card's 2 MB */
 uint8_t *sapm_adpcm_ram(void);
+struct Vdc; struct Hw;
+struct Vdc *sapm_vdc(void); struct Hw *sapm_hw(void);   /* Sapphire docs/55: the video chips' and the I/O page's models */
 uint8_t *sapm_base_ram(void); uint8_t *sapm_cd_ram(void); uint8_t *sapm_super_ram(void); uint8_t *sapm_bram(void);
 uint16_t *sapm_vram(void); uint16_t *sapm_sat(void); uint16_t *sapm_colors(void);
 void sapm_regs(uint16_t *bxr, uint16_t *byr, uint16_t *mwr, uint16_t *cr);

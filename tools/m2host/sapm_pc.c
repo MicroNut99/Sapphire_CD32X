@@ -13,6 +13,9 @@
 static long scroll_from = -1;
 static void scroll_log(Vdc *v) { if (scroll_from >= 0 && sapm_frame() >= scroll_from) printf("scroll frame %ld line %d BXR %d BYR %d\n", sapm_frame(), (int)v->rcr_count - 64, v->BXR, v->BYR); }
 
+#include "io_model.h"
+static FILE *psg_f;
+static void psg_log(unsigned r, uint8_t v) { const uint32_t t = (uint32_t)(sapm_now() / 3); const uint8_t b[2] = { (uint8_t)r, v }; fwrite(&t, 4, 1, psg_f); fwrite(b, 1, 2, psg_f); }
 static int32_t tab[SAPM_TAB_WORDS];
 static const uint16_t *masks; static long nmasks;
 static long late, late_n; static int32_t ready = -1;           /* FEED_LATE: the sector given so far */
@@ -53,6 +56,7 @@ int main(int argc, char **argv)
     const long frames = argc > 5 ? atol(argv[5]) : nm;
     if (!sapm_power(rom, br, tab, sector, NULL)) return 1;
     sapm_on_frame(at_frame, NULL); masks = m; nmasks = nm;
+    if (getenv("PSG_LOG")) { psg_f = fopen(getenv("PSG_LOG"), "wb"); io_psg_hook = psg_log; }   /* Sapphire docs/54: the PSG's writes, as tools/m3_psglog.py's form */
     if (getenv("SCROLL_LOG")) { scroll_from = atol(getenv("SCROLL_LOG")); vdc_scroll_hook = scroll_log; }   /* docs/105: the scroll's writes, a line each */
     if (getenv("FEED_LATE")) {   /* docs/101: each sector given only after the machine has waited for it FEED_LATE times */
         late = atol(getenv("FEED_LATE")); sapm_feed(have);

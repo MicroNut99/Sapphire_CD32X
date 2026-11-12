@@ -3,7 +3,10 @@
 /* a side's level for a volume index (0 loudest, 1.5 dB a step, 31 silent), 0-255: 10^(-1.5 i / 20) */
 static const uint8_t GAIN[32] = { 255, 215, 181, 152, 128, 108, 91, 76, 64, 54, 45, 38, 32, 27, 23, 19, 16, 14, 11, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 2, 1, 0 };
 static const uint8_t SCALE[16] = { 0x00, 0x03, 0x05, 0x07, 0x09, 0x0B, 0x0D, 0x0F, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1D, 0x1F };
-#define ENV_TOP 96                                     /* a channel's loudest ENV: six of them stay inside the chip's 16 bits */
+#ifndef ENV_TOP
+#define ENV_TOP 96                                     /* a channel's loudest ENV: Sapphire's loudest moment then reaches 79 % of the chip's
+                                                          16 bits (tower_render over 20,897 frames); at 160, 5,581 samples sit at its limit */
+#endif
 
 void tpsg_power(Tpsg *t)
 {
