@@ -60,6 +60,10 @@ LIVES ($C00C) and score ($C070) are CD RAM, behind the core's cache (a poke must
 
 The only trap lines: section 2 of docs/60's two (the 68000's FM write at the start; the backup RAM's note).
 
-**Not on a console.** Open: the core's ports (section 3); whether the EverDrive's OS writes `bram.srm` for this launcher
-(its header needs the `RA` entry: `EDCD_SAVE=1`, BootCamp `edboot/make_edcd.py` - to check in the built launcher); the
-menu's font draws 0 like 8 (as Gate of Thunder's STATUS page found).
+**The launcher's header:** it had no save RAM entry, so the EverDrive's OS would not have kept `bram.srm` at all.
+`tools/m3_live_pack.sh` now builds it `EDCD_SAVE=1`: 0x1B0 = `RA F8 20 00200001 0023FFFF`, the entry the BootCamp
+measured on the console (its manual §1.1, 25 Oct 2026). Rebuilt; r5 (r2 again on it): boots, settings and HIGH SCORE
+restored.
+
+**Not on a console.** Open: the core's ports (section 3); the menu's font draws 0 like 8 (as Gate of Thunder's STATUS
+page found).
