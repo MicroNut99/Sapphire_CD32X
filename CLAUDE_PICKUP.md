@@ -256,6 +256,9 @@ Read `CLAUDE.md` first.
      a clock - and must be made small, as the cell store; the parts with a Quartus figure are already 8,857 of 15,408
      logic elements). The other way, the owner's to choose: Gate of Thunder's console-proven core + the Arcade Card
      engine.
+  56. **docs/61 (the owner: "Add an options menu like the one in MetalSlug"):** the menu opens on START held half a
+     second, a short START is RUN (A too); Metal Slug's title line, `>` cursor and foot. The game's own credits count
+     was not found in RAM (no row for it).
 
 ## 2. Where things live
 

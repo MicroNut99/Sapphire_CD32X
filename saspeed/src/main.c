@@ -1453,9 +1453,10 @@ static void opt_menu(void)
     for (;;) {
         o_fill(0, 0, 320, 224, O_BOX); spr_last_clear((MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1);
         if (page == 0) {
-            o_mid(24, "SAPPHIRE  CD32X", O_TXT); o_mid(40, "OPTIONS", O_DIM);
+            o_mid(24, "SAPPHIRE CD32X - PAUSED", O_TXT);
             for (int i = 0; i < R_N; i++) {
-                const uint8_t c = i == row ? O_HI : O_TXT; char t[8]; const char *val = 0; const int y = 58 + 13 * i;
+                const uint8_t c = i == row ? O_HI : O_TXT; char t[8]; const char *val = 0; const int y = 50 + 13 * i;
+                if (i == row) o_text(48, y, ">", O_HI);       /* (Metal Slug's cursor) */
                 o_text(64, y, rows[i], c);
                 if (i == R_STAGE) { o_num(t, opt_stage); val = t; }
                 else if (i == R_LIVES) { o_num(t, opt_lives); val = t; }
@@ -1465,8 +1466,9 @@ static void opt_menu(void)
                 else if (i == R_FX) { o_num(t, opt_fx); val = t; }
                 if (val) { o_text(208, y, "<", O_DIM); o_text(224, y, val, c); o_text(256, y, ">", O_DIM); }
             }
-            if (row == R_STAGE) o_mid(180, "A/START: A NEW GAME FROM THIS STAGE", O_DIM);
-            o_mid(196, "UP/DOWN PICK  LEFT/RIGHT CHANGE", O_DIM); o_mid(206, "A/START: DO IT   B: BACK", O_DIM);
+            if (row == R_STAGE) o_mid(160, "STAGE: SELECT LEVEL. PRESS A TO START", O_DIM);
+            o_mid(176, "UP/DOWN PICK  LEFT/RIGHT CHANGE", O_DIM); o_mid(186, "A/START: DO IT   B: BACK", O_DIM);
+            o_mid(206, "PORTED BY MICRONUT99", O_HI);
         } else {
             for (int i = 0; cred[i]; i++) o_mid(28 + 13 * i, cred[i], O_TXT);
             o_mid(196, "PORTED BY MICRONUT99", O_HI);
@@ -1587,7 +1589,13 @@ static void fifo_play(V32 *v, long frames)
                 cdr_busy = 0;
 #endif
 #ifdef SP_MENU
-                { static uint16_t st_was; if ((rawp & SEGA_CTRL_START) && !(st_was & SEGA_CTRL_START)) opt_req = 1; st_was = rawp; }
+                /* (docs/61, the owner: "an options menu like the one in MetalSlug") START as Metal Slug CD32X has it: held
+                   half a second it opens the menu; let go before that it is the game's own button - RUN, for 8 frames
+                   (the title's start, the game's pause, player 2 joining). A is RUN as before */
+                {   static int st_hold, st_run;
+                    if (rawp & SEGA_CTRL_START) { if (++st_hold == 30) opt_req = 1; }
+                    else { if (st_hold > 0 && st_hold < 30) st_run = 8; st_hold = 0; }
+                    if (st_run) { st_run--; m |= 1u << 3; } }
                 if (opt_auto && (k & 2)) m &= ~1u;                /* (autofire: II let go every other pair of frames) */
                 if (opt_inf && (k & 31) == 0) opt_lives_set();
 #else
