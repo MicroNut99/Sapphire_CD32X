@@ -26,6 +26,7 @@ def batch(p, n):
 cb = BATCH_T(batch); h.lib.retro_set_audio_sample_batch(cb)
 pics = None; sizes = set()
 AT = np.array([int(x) for x in os.environ['REF_AT'].split(',')]) if os.environ.get('REF_AT') else None
+if AT is not None: open(out + '/at.txt', 'w').write(os.environ['REF_AT'] + '\n')   # (docs/59: for m3_sparsecmp.py - a kept frame that is all zero is a black picture)
 for f, m in enumerate(d['masks'][:f1].tolist()):
     keep[0] = f >= f0
     h.held = {b for b in range(16) if m >> b & 1}; h._step()

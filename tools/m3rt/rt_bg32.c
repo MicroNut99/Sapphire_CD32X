@@ -31,6 +31,9 @@
 #endif
 
 int bg32_black = 1;                                      /* (the entry it gave black: the caller's borders) */
+#ifdef BG32_STAT
+uint32_t bg32_stat[8];                                   /* ([0] tiles made, [1] of them into the overflow, [2] the tile's words changed, [3] its palette's entries changed, [4] another tile had the slot, [5] palettes' tables made) */
+#endif
 
 static const uint8_t c5[8] = { 0, 4, 9, 13, 18, 22, 27, 31 };
 static uint16_t c32(unsigned c) { return (uint16_t)(c5[c & 7] << 10 | c5[(c >> 6) & 7] << 5 | c5[(c >> 3) & 7]); }
@@ -212,6 +215,9 @@ int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t
             int same = 1; for (int c = 0; c < 16; c++) if (t[c] != (uint16_t)(l[0] << 8 | l[c])) { same = 0; break; }
             if (same && t[0x10] == (uint16_t)(l[1] << 8 | l[0])) continue;   /* (the table as it was: its tiles' pixels stand) */
             lver[p]++;
+#ifdef BG32_STAT
+            bg32_stat[5]++;
+#endif
             for (int n = 0; n < 256; n++) t[n] = (uint16_t)(l[n >> 4] << 8 | l[n & 15]); }
     }
     {   /* (docs/59) a band with the background off and the sprites on, or a burst frame: colour 256's entry */
@@ -243,6 +249,10 @@ static const uint32_t *tile_px(const V32 *v, int h, unsigned tile, unsigned pal)
     TileC *c = &tcache[h][(tile ^ pal << 5) & (TC_N - 1)]; const uint16_t key = key_of(v, tile), bd = tc_band[h];
     if (c->ok && c->tile == tile && c->pal == pal && c->key == key && c->ver == lver[pal]) { if (c->band != bd) c->band = bd; return c->px; }
     const int held = c->ok && c->band == bd;                  /* (another tile of this band has the slot) */
+#ifdef BG32_STAT                                              /* (DIAG, docs/59: why a tile's pixels were made again) */
+    bg32_stat[0]++; if (held) bg32_stat[1]++;
+    if (c->ok && c->tile == tile && c->pal == pal) { if (c->key != key) bg32_stat[2]++; else bg32_stat[3]++; } else if (c->ok) bg32_stat[4]++;
+#endif
     uint32_t *const px = held ? tc_over[h][tc_nover[h]++] : c->px, *o = px;
     const uint16_t *tp = v->vram + tile * 16, *t2 = lut2[pal];
     for (int r = 0; r < 8; r++) { const uint32_t w = ROW_NIB(tp[r], tp[r + 8]);

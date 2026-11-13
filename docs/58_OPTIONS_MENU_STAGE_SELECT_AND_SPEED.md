@@ -146,10 +146,11 @@ plane and the layer, and a plane picture goes through the 68000's list (two or t
 
 - **Nothing on a console.** The stack's TPSG-3, the SH2's own swap, both SH2s drawing one buffer at once.
 - **The FPGA's RTL** for the poke port, the hold, and the stage select (§1, §2). Quartus not run.
-- 25-28 pictures a second, not a steady 30: a plane picture's list through the 68000.
-- A `SAPM_SKIP` start's black-and-white colours (docs/57): not looked into.
+- 25-28 pictures a second, not a steady 30: a plane picture's list through the 68000. (docs/59: the background on
+  the 32X layer throughout - 26.0-30.0.)
+- A `SAPM_SKIP` start's black-and-white colours (docs/57): not looked into. (docs/59: found and mended.)
 - After a stage select the first seconds are the System Card's and the title's pictures, RUN pressed by the engine:
   nothing says "loading".
-- The pictures of the new rule against the PC's reference, frame for frame: only looked at.
+- The pictures of the new rule against the PC's reference, frame for frame: only looked at. (docs/59: done, at 265 places.)
 - From before: the 344 frames of the machine against Mednafen; `ARES_HUC_PACE`'s pictures; tones below 112 Hz; the
   ADPCM ring's writer and the PSG write logger in RTL; the packed SH2-alone build (docs/52) to stage 1.

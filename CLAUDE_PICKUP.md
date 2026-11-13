@@ -194,8 +194,8 @@ Read `CLAUDE.md` first.
      drop-outs. `m3_live_pack.sh` copies `hw_md.s` and `build.sh` from `TPSG_BC` too. **Next:** the game's speed in stage 1 in the live
      build (13-33 game frames a second in ares; 60 through the title), starting from the pictures with `ARES_HUC_PACE=1`.
   52. **docs/57 (read its first paragraph: its first headline was wrong):** `PADVB=1` (the pad from COMM4), `FIFO_LAG`; the
-     32X-layer background only where the plane's pack fails. **A `SAPM_SKIP` start's pictures are black and white - such a
-     start measures the SH2's work on a picture, never which path a picture takes.** `work/spd.sh <tag> <skip> <frames> [env]`.
+     32X-layer background only where the plane's pack fails. (A `SAPM_SKIP` start's pictures were black and white then:
+     mended in docs/59, item 54.) `work/spd.sh <tag> <skip> <frames> [env]`.
   53. **docs/58:** the options menu (`SP_MENU=1`: START; STAGE 1-5, LIVES, INFINITE LIVES, AUTOFIRE, MUSIC / EFFECTS VOLUME,
      CREDITS), the stack's TPSG-3 (BootCamp main `f1ccdd8`, ledger §36), the cart's poke port (0xcf-0xd1) and
      stage select (0xd3 lives, 0xd2 stage) - **in ares's stand-in only (`fpga/ares/0014`, ares branch `sapphire-ac-engine`
@@ -212,6 +212,27 @@ Read `CLAUDE.md` first.
      ares DIAG: `ARES_WATCH=<lo>,<hi>` (+ `ARES_PC=1`), `--stats`.
      **Next:** the console; the RTL for the menu's ports and the stage select (docs/58 §1-2); the plane pictures' two-or-three
      refreshes (the 68000's list) for a steady 30; a `SAPM_SKIP` start's colours; the pictures against the PC's, frame for frame.
+  54. **docs/59:** the whole recording played in ares and compared with Mednafen's pictures (`work/full.sh` / `full2.sh`,
+     `tools/m3_stageref.py` with `REF_AT=`, `tools/m3_sparsecmp.py`; the place's constant: ares frame - 721 = game frame, from
+     power-on only). Eight faults mended: no picture after game frame 65,535 (the cell store's 15-bit count: `cellstore.sv`,
+     ares `fpga/ares/0015`, `main.c`); the plane shown as it was left; more raster matches than four places; the backdrop
+     (32X entry 0 = colour 0); the plane's traffic; **a `SAPM_SKIP` start is now the game's state** (item 52's warning is
+     over: the skip runs at the first frame asked for; a skipped run's game frame is printed by `spd.sh`, it is not
+     "ares - 721"); lines scrolled one by one (`V32` `xs` / `xsl`: every match; `rt_bg32.c` `b32_first` / `b32_next`);
+     lines with the background off (colour 256 / colour 0 / burst, Mednafen's rule). **The background is on the 32X layer
+     throughout** (`RTX=-DBG32_NOPREFER`: docs/57-58's rules with the plane). **From power-on in ares (G4, `4f4aff7`): 59.9
+     game frames a second, 26.0-30.0 pictures a second by stretch (29.3 the median), 94 % of the pictures two frames after
+     the one before; 244 of 265 screenshots within 5 % of Mednafen's picture, the worst 17 % - effects the game alternates
+     frame by frame, seen at one phase.** Work folder: `bench.sh <tag> <tree> <pack> "<game frames ...>"` (a build at places
+     of the game, from skipped starts), `spd.sh` (`SHOTS="<frames>"`, `STATS=--stats`), `full2.sh` (a screenshot every 250),
+     `pichist.py`, `stat.py` (`RTX=-DBG32_STAT`), `cmpsheet.py <ref> <run> <png> <ares frames>` (`F0=`), `sparsecmp.py`;
+     `BCT=<tree> PK=<pack tag>` choose the build (`bc5` / `lpk` the default; `bc6` / `lp6` a second tree), `HOSTSO=` /
+     `ARES_HUCHOST=` the stand-in (`work/sapmhost.so`, built by `tools/m3_sapmhost.sh work/m2mach_gen <out.so>`: **never
+     rebuild it in place while a run has it loaded** - build under another name). References: `work/ref_250` (265 places),
+     `ref_intro`, `ref_all`, `ref_s1b`. PC tests: `LINES=<line>` / `SPLIT=<line> tools/m3_bg32test.sh work/m2mach_gen
+     <dumps>`; the stand-in's entries through a plain player: `tools/m3_synthtest.py <sapmhost.so> <skip> <frames>`.
+     **Next:** the console; the RTL for the menu's ports and the stage select; fewer cart reads a sprite cell (stage 4's
+     boss: 23 pictures a second, docs/59 §4); `fifo_v32.c` and `rt_pc.c`'s players do not keep `xs` yet.
 
 ## 2. Where things live
 

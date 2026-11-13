@@ -10,6 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m1_aresdiff import ppm
 ref, ad, F0 = sys.argv[1], sys.argv[2], int(sys.argv[3]); OFF = int(sys.argv[4]) if len(sys.argv) > 4 else 721
 P = np.load(ref + '/pics.npy', mmap_mode='r')
+# (docs/59) the frames the reference kept (m3_stageref.py writes at.txt): a kept frame that is all zero is a black
+# picture - the display off between two screens - not a missing one. Without the list a zero frame is skipped
+KEPT = None
+if os.path.exists(ref + '/at.txt'):
+    KEPT = np.zeros(P.shape[0], bool)
+    for a_ in [int(x) for x in open(ref + '/at.txt').read().replace(',', ' ').split()]:
+        KEPT[max(0, a_ - 8 - F0):max(0, a_ + 9 - F0)] = True
 rows = []
 for f in sorted(glob.glob(ad + '/s*.ppm')):
     a = int(re.findall(r's(\d+)\.ppm', f)[0]); c = a - OFF - F0
@@ -23,7 +30,7 @@ for f in sorted(glob.glob(ad + '/s*.ppm')):
             for k in range(c - 8, c + 9):
                 for dy in range(0, 5):
                     r = np.asarray(P[k, dy:dy + 112, :128]).astype(np.int16)
-                    if r.shape[0] != 112 or not r.any(): continue
+                    if r.shape[0] != 112 or not (r.any() or (KEPT is not None and KEPT[k])): continue
                     w = (np.abs(r - half) > 40).any(2).mean()
                     if best is None or w < best[0]: best = (float(w), k + F0)
     if best: rows.append((a, best[1], best[0]))

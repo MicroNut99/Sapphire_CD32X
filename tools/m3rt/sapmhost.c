@@ -168,11 +168,12 @@ int huchost_init(const char *state, const char *trk)
     sapm_on_frame(at_frame, 0);
     sapm_pad(rec_masks && rec_n ? rec_masks[0] : 0);
     /* (docs/57: a test's start - SAPM_SKIP frames run first, with no picture or sound made of them: a place in the
-       game reached in under a minute. docs/59: run at the first frame asked for, not here. ares powers the board
-       twice, and the machine powered again after 19,000 frames was not the machine from power-on - its picture had
-       419 of 512 colours and 12,000 VRAM words apart from the PC machine's at that frame, which is what docs/57 saw
-       as "black-and-white" and what its 29.4 pictures a second measured. sapm_power() after a run: not looked into;
-       the stage select resets the CPU its own way (huchost_warp)) */
+       game reached in under a minute. docs/59: run at the first frame asked for, with the picture's hook off, not
+       here. ares powers the board twice, and at the second power-up the first one's hooks were still in: the skipped
+       frames' entries were made and thrown away, so the player never got the state they left - it started from
+       zeros and saw only the changes after. That is docs/57's "black-and-white" start and what its 29.4 pictures a
+       second measured. (The machine powered again is the machine from power-on: 9,000 frames, sapm_power(), then
+       12,000 frames have the VRAM, base RAM and CD RAM of a fresh run at every 500th frame) */
     skip_n = getenv("SAPM_SKIP") ? atol(getenv("SAPM_SKIP")) : 0;
     vdc_line0_hook = line0; vdc_split_hook = split; vdc_scroll_hook = scroll;
     io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
