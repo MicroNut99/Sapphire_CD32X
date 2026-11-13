@@ -170,7 +170,10 @@ with it `rt_bg32.c` counts why tiles were made, `work/stat.py`), in refreshes a 
 - **The count** walked the window three times (the palettes for the rules, the tiles' masks, the pack's test):
   with the layer the default only the masks are read - 0.29 to 0.19 of a refresh, and the build this table is
   from is the faster for it: 29.5, 30.0, 29.2 and 25.9 pictures a second at game frames 8,584, 12,284, 30,284 and
-  63,283, where §3's column has 28.7, 29.4, 30.0 and 23.4.
+  63,283, where §3's column has 28.7, 29.4, 30.0 and 23.4. Then the FPGA's long for a tile read as the one word
+  wanted (the mask for the count, the hash for the kept tiles: one bus cycle, not two) and a run of one map entry
+  counted once: the count 0.15, the master's half 0.74 and 1.17, **29.2 and 26.5 pictures a second** at the table's
+  two places.
 - **Tried and taken out:** the FPGA's long for a tile (its hash and colour mask: a cart read, asked twice a picture
   for each tile) kept in SDRAM under the tile's write tag. The FPGA was then asked once in 300 pictures, and the
   pictures were slower - 26.3 a second for 28.0 at 16,284, the master's half 0.83 for 0.72. The likely reason, not
@@ -180,6 +183,22 @@ with it `rt_bg32.c` counts why tiles were made, `work/stat.py`), in refreshes a 
   background is out) gave nothing either: 22.9 and 25.4 at game frames 63,283 and 16,284, against 23.4 and 26.5.
   At stage 4's boss (a blue sphere of sprites over half the screen) a picture reads 26,000-41,000 cart words -
   the sprites' cells from the FPGA's store (`--stats`).
+
+**The layer as a kept, scrolled surface - what it would take** (thought through, not started):
+
+1. The surface: 232 lines of 512 bytes in each frame buffer (119 KB of its 128), the line table pointing each
+   screen line into it; a horizontal step of two pixels is the pointer's, the odd pixel the 32X's shift bit. A
+   line's 320 bytes cannot wrap, so the surface is redrawn whole when the pointer has run its 256 pixels (once in
+   some seconds), or every tile is drawn twice, 256 apart.
+2. The borders: the picture is 256 wide in 320, and beside it the surface's own bytes would show. Either they are
+   blacked each picture and those eight tile columns drawn again the next (a quarter of the width), or the Genesis
+   plane covers them with opaque tiles and the 32X goes behind it there.
+3. What a buffer holds: for each tile place a word of what was drawn there (the tile's hash, its palette's
+   version), compared each picture - 4 KB a buffer - and the places the last sprites covered marked from the
+   sprites' own list (`spr_last`), to be drawn again.
+4. The bands: the score bar is another part of the map with its own scroll - its own 21 lines of the buffer; a
+   frame whose lines scroll one by one is line table entries alone, where the rows count on, and drawn as now
+   where they do not.
 
 ## 5. What the comparison still shows
 

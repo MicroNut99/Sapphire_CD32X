@@ -147,7 +147,10 @@ int bg32_must(const V32 *v)
                 const int my_ = ((b_.by >> 3) + ty_) & (mh_ - 1), c0_ = (b_.bx >> 3) & (mw_ - 1); \
                 if (seen_[my_] == (uint8_t)(c0_ + 1)) continue; \
                 seen_[my_] = (uint8_t)(c0_ + 1); \
-                for (int tx_ = 0; tx_ < 33; tx_++) { const uint16_t e = (v)->vram[my_ * mw_ + ((c0_ + tx_) & (mw_ - 1))]; BODY } } \
+                unsigned le_ = 0x10000u;                      /* (a run of one entry - an empty sky - once) */ \
+                for (int tx_ = 0; tx_ < 33; tx_++) { const uint16_t e = (v)->vram[my_ * mw_ + ((c0_ + tx_) & (mw_ - 1))]; \
+                    if (e == le_) continue; \
+                    le_ = e; BODY } } \
         } while (b32_next(&b_)); } while (0)
 void bg32_masks(const V32 *v, uint16_t used[16])
 {
@@ -317,8 +320,11 @@ void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
             const uint16_t *bat = v->vram + (yy >> 3) * mw;
             if (bat != pbat || mx0 != pmx) {
                 pbat = bat; pmx = mx0; tc_band[tc]++; tc_nover[tc] = 0;
+                unsigned le = 0x10000u;                       /* (docs/59: a run of one entry - space, a sky - looked up once) */
                 for (int k = 0, mx = mx0; k < 33; k++, mx = (mx + 1) & (mw - 1)) {
                     const uint16_t e = bat[mx]; const unsigned tile = e & 0xFFF;
+                    if (e == le) { pp[k] = pp[k - 1]; continue; }
+                    le = e;
                     pp[k] = tile < 0x800 ? tile_px(v, tc, tile, e >> 12) : zrow;
                 }
             }

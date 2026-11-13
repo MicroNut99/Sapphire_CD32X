@@ -657,8 +657,9 @@ uint32_t bg2_fpga_tile(unsigned t);
    once in 300 pictures, and the pictures were slower: 26.3 a second for 28.0 at game frame 16,284, 22.0 for 25.0 at
    72,284, the master's half of the background 0.83 refresh for 0.72. A 16 KB table read at random throws the lines
    out of the 4 KB cache that the band's loop lives in; the cart read goes past the cache and costs less than that */
-static uint16_t bg32_fpga_key(unsigned t) { return (uint16_t)(bg2_fpga_tile(t) >> 16); }
-static uint16_t bg32_fpga_mask(unsigned t) { return (uint16_t)bg2_fpga_tile(t); }   /* (docs/59: its colour mask, for bg32_masks_by) */
+/* (docs/59) ... each its own word of the long: one bus cycle, not two (the hash the first word, the mask the second) */
+static uint16_t bg32_fpga_key(unsigned t) { return *(volatile uint16_t *)(0x22000000u + 0x1B8000u + (t & 2047) * 4u); }
+static uint16_t bg32_fpga_mask(unsigned t) { return *(volatile uint16_t *)(0x22000000u + 0x1B8000u + (t & 2047) * 4u + 2u); }   /* (its colour mask, for bg32_masks_by) */
 #endif
 #if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
 #endif
