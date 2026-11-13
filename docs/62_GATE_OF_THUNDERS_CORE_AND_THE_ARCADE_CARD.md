@@ -95,6 +95,23 @@ The mapper drives that chip itself (`mout.bram`). **So the backup RAM moves to t
 the OS does the rest**: no port, no command, nothing for the program. To check on the console: that chip driven by
 the engine (GoT's and Dracula X's console findings are about `sram`'s pins; the same controller will drive it).
 
+**The owner's rules for saving (13 Nov), and how this design meets them:**
+
+| Rule | Here |
+|---|---|
+| The game never writes files; it writes the battery RAM and the EverDrive's software keeps it as `MEGA/gamedata/<launcher name>/bram.srm` | the engine's backup RAM *is* that chip's first 2 KB |
+| Nothing reaches the card without the header's `RA` entry | the launcher is built with the BootCamp's `EDCD_SAVE=1`; to check in the built file at 0x1B0 |
+| No invented bank-31 layout: OpenLara's (the save area in the first 64 KB, 4 KB pieces; slots at 0x10000) | the backup RAM is the save area's piece 0 (offset 0, 2 KB of its 4 KB); nothing else of the bank is used |
+| Nothing kept in PSRAM across boots; banks 28-30 the EverDrive's; page 7 only bank 31 | as before (the card's 2 MB and the System Card are loaded at every start) |
+| A blank or garbage save must read as "no save" | the System Card's own check of the backup RAM's header (docs/60: the game boots the same on an unwritten one); to see on the console with a fresh `bram.srm` |
+| Every build its own launcher name | the kit's launcher gets its own EDCD tag |
+| Test: save, power off, power on; then the file's date on the card | the console check for this step |
+
+One difference from the other ports, for the owner to know: they reach bank 31 with the stack's save commands (the
+68000 copying 4 KB pieces). Here the core holds the chip once the engine starts, so no command is used and the 68000
+must not map bank 31 while the game runs. If the commands are wanted instead, it is a port in the core and a copy in
+the program.
+
 ## 6. Open
 
 Everything from step 2 on. On the console: nothing of Sapphire has run. ares' picture rate is not the console's
