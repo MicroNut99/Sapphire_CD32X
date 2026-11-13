@@ -107,6 +107,17 @@ the engine (GoT's and Dracula X's console findings are about `sram`'s pins; the 
 | Every build its own launcher name | the kit's launcher gets its own EDCD tag |
 | Test: save, power off, power on; then the file's date on the card | the console check for this step |
 
+**Measured (13 Nov): Sapphire itself never saves.** The PC machine with every access to bank $F7 logged, the whole
+recorded game (power-on, the System Card, the title, all five stages, 75,000 frames): **no read and no write of the
+backup RAM at all**. The data track has no call of the System Card's `bm_read` ($E04E) or `bm_write` ($E051), by `JSR` or
+`JMP`; one `JSR $E048` and one `JSR $E057` sit in sectors 4,847 and 5,536, away from any code found so far (most likely
+data bytes). For comparison: `cd_read` 7 calls, `ad_play` 13, `ad_stop` 11. So the battery RAM chip will hold the System
+Card's own backup RAM (its BACKUP RAM screen), and nothing of the game's. What else could be kept (the options menu's
+settings, a high score) is the owner's call, and needs a port the SH2 can write (section 3b's core has none for it).
+
+**The owner (13 Nov), on the direct route below:** "if it works on real hardware then it will get documented and moved
+into ARES as an error trap" - so it stays, as a trial on the console.
+
 One difference from the other ports, for the owner to know: they reach bank 31 with the stack's save commands (the
 68000 copying 4 KB pieces). Here the core holds the chip once the engine starts, so no command is used and the 68000
 must not map bank 31 while the game runs. If the commands are wanted instead, it is a port in the core and a copy in
