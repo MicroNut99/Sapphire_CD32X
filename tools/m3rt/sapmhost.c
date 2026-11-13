@@ -70,8 +70,10 @@ static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 <
 static V32 pic;                                              /* (fifo_synth's view: the fields it reads are filled) */
 static struct { uint16_t line, bxr, byr, cr; } sp[4]; static int sp_n, sp_cur = -1;
 static uint16_t vsnap[32768];
+static long skip_n; static int skipping;                     /* (SAPM_SKIP: no entries made of the frames skipped) */
 static void line0(Vdc *v)
 {
+    if (skipping) return;
     for (int i = 0; i < sp_n; i++) { pic.spl[i].line = sp[i].line; pic.spl[i].bxr = sp[i].bxr; pic.spl[i].byr = sp[i].byr; pic.spl[i].cr = sp[i].cr; }
     pic.spl_n = (int8_t)sp_n; sp_n = 0; sp_cur = -1;
     memcpy(pic.vram, v->vram, sizeof pic.vram); memcpy(pic.sat, v->sat, sizeof pic.sat); memcpy(pic.color, v->color, sizeof pic.color);
@@ -156,12 +158,13 @@ int huchost_init(const char *state, const char *trk)
     if (getenv("HUC_POKES")) { long m; rec_pokes = slurp(getenv("HUC_POKES"), &m); rec_np = m / 12; }
     sapm_on_frame(at_frame, 0);
     sapm_pad(rec_masks && rec_n ? rec_masks[0] : 0);
-    if (getenv("SAPM_SKIP")) {                                /* (docs/57: a test's start - that many frames run here first, with no
-                                                                 picture or sound made of them: a stage reached in seconds. The PSG's
-                                                                 chip then lacks what was written before: for speed tests, not sound) */
-        const long n = atol(getenv("SAPM_SKIP")); sapm_run_frames(n);
-        fprintf(stderr, "sapmhost: %ld frames run before the first picture\n", n);
-    }
+    /* (docs/57: a test's start - SAPM_SKIP frames run first, with no picture or sound made of them: a place in the
+       game reached in under a minute. docs/59: run at the first frame asked for, not here. ares powers the board
+       twice, and the machine powered again after 19,000 frames was not the machine from power-on - its picture had
+       419 of 512 colours and 12,000 VRAM words apart from the PC machine's at that frame, which is what docs/57 saw
+       as "black-and-white" and what its 29.4 pictures a second measured. sapm_power() after a run: not looked into;
+       the stage select resets the CPU its own way (huchost_warp)) */
+    skip_n = getenv("SAPM_SKIP") ? atol(getenv("SAPM_SKIP")) : 0;
     vdc_line0_hook = line0; vdc_split_hook = split; vdc_scroll_hook = scroll;
     io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
     fprintf(stderr, "sapmhost: the machine from power-on (the System Card, the disc's table%s)\n", rec_masks ? ", a recording's pad" : "");
@@ -171,6 +174,9 @@ int huchost_init(const char *state, const char *trk)
 int huchost_frame(uint16_t pad, const uint32_t **entries)
 {
     live_pad = pad; nents = 0;
+    if (skip_n) { skipping = 1; io_psg_hook = 0; io_adpcm_hook = 0;      /* (the PSG's chip then lacks what was written before: for speed and picture tests, not sound) */
+        sapm_run_frames(skip_n); skipping = 0; nents = 0; npsg = 0; sp_n = 0; sp_cur = -1; io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
+        fprintf(stderr, "sapmhost: %ld frames run before the first picture\n", skip_n); skip_n = 0; }
     Hw *hw = sapm_hw(); const int p0 = hw->playing;
     frame_t0 = sapm_now();
     sapm_run_frames(1);

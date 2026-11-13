@@ -17,9 +17,15 @@
 int fifo_synth(FifoShadow *s, const V32 *v, uint32_t *out, int max)
 {
     int n = 0;
-    if (!s->started) {                                        /* (the player starts from nothing known: everything) */
-        memset(s->vram, 0xFF, sizeof s->vram); for (int i = 0; i < 512; i++) s->color[i] = 0xFFFF;
-        memset(s->sat, 0xFF, sizeof s->sat); s->dvssr = 0xFFFF; s->started = 1; s->cur = 0;
+    if (!s->started) {                                        /* (the player starts from nothing known: everything -
+                                                                 docs/59: every word, also one that is 0xFFFF. The
+                                                                 shadow was all 0xFFFF, so those were never sent: 509
+                                                                 VRAM words after a SAPM_SKIP start, where the player
+                                                                 had 0) */
+        for (unsigned a = 0; a < 0x8000; a++) s->vram[a] = (uint16_t)~v->vram[a];
+        for (int i = 0; i < 512; i++) s->color[i] = (uint16_t)~v->color[i];
+        for (int i = 0; i < 256; i++) s->sat[i] = (uint16_t)~v->sat[i];
+        s->dvssr = 0xFFFF; s->started = 1; s->cur = 0xFFFFFFFFu;
     }
     E(6, 0, 0);                                               /* (no split open: the registers below are the current ones) */
     for (int i = 0; i < 512; i++) if (v->color[i] != s->color[i]) { E(4, i, v->color[i]); s->color[i] = v->color[i]; }

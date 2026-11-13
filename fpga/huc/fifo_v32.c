@@ -65,7 +65,8 @@ int main(int argc, char **argv)
             if (getenv("FV_DUMP") && atol(getenv("FV_DUMP")) == pic - 1) { FILE *g = fopen("/tmp/ff_vram.bin", "wb"); fwrite(vram, 2, 32768, g); fclose(g); }
             break;
         case 6: sp_cur = -1; break;
-        case 7: if (sp_n < 4) { const int k = sp_n++; sp[k].line = (uint16_t)d; sp[k].bxr = BXR; sp[k].byr = BYR; sp[k].cr = CR; sp[k].wrote = 0; sp_cur = k; } break;
+        case 7: { const int k = sp_n < 4 ? sp_n++ : 3;   /* (docs/59: more matches than places - the last keeps the last place, as saspeed's fifo_play) */
+                  sp[k].line = (uint16_t)d; sp[k].bxr = BXR; sp[k].byr = BYR; sp[k].cr = CR; sp[k].wrote = 0; sp_cur = k; } break;
         case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(sat, &vram[d], len * 2);
                     for (int i = 0; i < 64; i++) { const int y = (sat[i * 4] & 0x3FF) - 64, xx = (sat[i * 4 + 1] & 0x3FF) - 32;
                         if (y > -64 && y < 224 && xx > -32 && xx < 256) pal_used[sat[i * 4 + 3] & 15]++; } } break;

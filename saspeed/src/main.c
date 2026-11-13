@@ -99,7 +99,7 @@ uint32_t bg32_direct;                                         /* (DIAG: pictures
 /* (DIAG, docs/59) a picture's way in refreshes, counted from the moment it is asked for: [0] to draw_hook's start, [1] to
    its list sent (or queued for the blank, or the SH2's own swap asked), [2] to its showing; pic_gap: the game frames
    since the picture before. Read from an SDRAM dump (work/vars.py, work/pichist.py) */
-uint32_t pic_at[3][8], pic_gap[8]; static volatile uint32_t pic_rel_tick;
+uint32_t pic_at[3][8], pic_gap[8], bg32_traffic; static volatile uint32_t pic_rel_tick;
 #define PIC_AT(n) do { const uint32_t d_ = gTicks - pic_rel_tick; pic_at[n][d_ > 7 ? 7 : d_]++; } while (0)
 static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
 #define vs_job SH(vs_job_v)
@@ -980,9 +980,23 @@ static void draw_hook(V32 *v)
         static int ran_prev = 1, stale;
         if (!ran_prev) fit_n = 0;
         else if (bg2.col_ok && !bg2.late) { if (fit_n < 4) fit_n++; stale = 0; } else if (!bg2.col_ok) fit_n = 0;
+        /* (docs/59) The plane's traffic. A background drawn anew into its tiles every frame - stage 1's boss burns in
+           a fire of 4-pixel squares, the whole screen's tiles - has 4 palettes or fewer, so the rules say the plane;
+           but its list is more than the 68000 sends in a blank: the plane was late picture after picture (holes
+           where the fire should be, a picture every 4-6 refreshes). TRAFFIC_LATE pictures late in a row: the layer
+           for TRAFFIC_OFF pictures with no list, then the list again under the layer until it leaves nothing over */
+#define TRAFFIC_LATE 5
+#define TRAFFIC_OFF 90
+        static int late_n, toff;
+        if (ran_prev && bg2.late) { if (++late_n >= TRAFFIC_LATE) { toff = TRAFFIC_OFF; stale = 1; late_n = 0; bg32_traffic++; } } else if (ran_prev) late_n = 0;
         const int wanted = bg32_wanted(v);
         int want = wanted, cols_ = 0;
-        if (wanted || stale) {
+#ifdef BG32_PREFER                                            /* (docs/59, RTX=-DBG32_PREFER: every shown background on the 32X layer, the plane never) */
+        const int pref = (v->t.CR & 0x80) != 0;
+#else
+        const int pref = 0;
+#endif
+        if (wanted || stale || pref) {
             const int w_ = (v->MWR >> 4) & 3, mw = w_ == 0 ? 32 : w_ == 1 ? 64 : 128, mh = (v->MWR & 0x40) ? 64 : 32;
 #ifdef BG2_FPGA_TILES
             uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
@@ -1020,7 +1034,9 @@ static void draw_hook(V32 *v)
         {   static int vain, off;
             if (off) off--;
             if (ran_prev && fits && !bg2.col_ok) { if (++vain > 8) { off = 64; vain = 0; } } else if (ran_prev) vain = 0;
-            const int run = plane_next || (fits && !off);
+            int run = plane_next || (fits && !off);
+            if (toff) { toff--; run = 0; want = 1; }          /* (docs/59: the traffic's rest) */
+            if (pref) { run = 0; want = 1; }
             SEC_NOBG = !run; ran_prev = run; if (!run) stale = 1; }
 #endif
 #endif
@@ -1571,8 +1587,11 @@ static void fifo_play(V32 *v, long frames)
         case 0xB: fifo_cdda((int)(x & 1), d); break;          /* (docs/41: FIFO_CDDA=1 - open: the title's pictures stop
                                                                  after it, and no sound comes in ares yet) */
 #endif
-        case 7: if (v->sp_n < 4) { const int j = v->sp_n++; v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
-                                   v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
+        case 7: { const int j = v->sp_n < 4 ? v->sp_n++ : 3;   /* (docs/59: a frame with more matches than the four places - the
+                                                                 last match keeps the last place, as the stand-in's split():
+                                                                 the cart's FIFO has every match, the stand-in's only four) */
+                  v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
+                  v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
         case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(v->sat, &v->vram[d], len * 2); } break;
         default: break;
         }
