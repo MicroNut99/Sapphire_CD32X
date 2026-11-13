@@ -236,6 +236,23 @@ Read `CLAUDE.md` first.
      **Next:** the console; the RTL for the menu's ports and the stage select; the layer as a kept, scrolled surface
      (the 32X's line table: docs/59 §4 has what it takes) for a steady 30; a bigger kept-tile table (36 KB of SDRAM are
      free); `fifo_v32.c` and `rt_pc.c`'s players do not keep `xs` yet.
+  55. **docs/60 (13 Nov, the owner: "Make sure to use the new ARES. It has PCE CD errors traps that could help"):**
+     **ares_android v1.9, `a2e14e8`** - Sapphire's branch `sapphire-ac-engine` merged onto it (local, never pushed);
+     `fpga/ares/sapphire-on-ares-v1.9-a2e14e8.patch` applies to it as it is (`fpga/ares/README.md`). The AI's build:
+     `/home/claude/ares_build2/ares-headless` (the work scripts take `ARESBIN=`). **Run every test with
+     `ARES_32X_TRAP=1`** (an `[32X TRAP] ... SH2 ...` line is a stop on the console) - the live build from power-on, the
+     menu, a stage select and the whole recording print one line (the 68000's FM at the start) and no `[sapphire TRAP]`
+     but the backup RAM's note. Sapphire's stand-in has its row in the cores' trap table (`everdrive-pro.cpp` `spTrap`:
+     chip 1 after the start, SELECT, the CPU below $2000 via `huchost_pc`; `SAPM_BRAM_GARBAGE=1` / `SAPM_BRAM=<file>` in
+     `sapmhost.c`: the game boots the same with the cart's unwritten backup RAM). **SELECT is never given** (X / Y / Z /
+     MODE are nothing: Dracula X docs/132). The split line between the SH2s' parts of the background moves (`bg32_m`) and
+     both count the colours: **the whole game in ares v1.9 (G7, `3f712a0`): 28.4-30.0 pictures a second by stretch (29.9
+     the median), 99.1 % of the pictures two frames after the one before, 246 of 265 screenshots within 5 % of Mednafen's.**
+     Read before any console work: ares_android `README-FPGA-FINDINGS.md` section 6, Gate of Thunder's
+     `CONSOLE_FINDINGS.md`, Dracula X docs/175 and 177-178 - **ares's picture rate is not the console's** (Gate of Thunder:
+     55 in ares, ~15 there). **The first thing to measure next: whether the cart core fits** (docs/60 section 8:
+     `fpga/huc/yosys_count.sh`; `huc_sys.sv`'s colours are 4,608 flip-flops and must become a block RAM; the parts with a
+     Quartus figure are already 8,857 of 15,408 logic elements).
 
 ## 2. Where things live
 

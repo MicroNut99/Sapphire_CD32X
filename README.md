@@ -7,7 +7,15 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
-**Latest (12 Nov 2026, [docs/59](docs/59_THE_WHOLE_GAME_AGAINST_MEDNAFEN.md)):** the whole recording played in ares
+**Latest (13 Nov 2026, [docs/60](docs/60_THE_NEW_ARES_AND_ITS_TRAPS.md)):** on the owner's new ares (v1.9, with the
+error traps Dracula X and Gate of Thunder built from their console runs). The live build from power-on, through the
+options menu, a stage select and the whole recording, with `ARES_32X_TRAP=1`: no access the console would stop on.
+Sapphire's stand-in has its own row in the trap table; SELECT is never given (as both cores); the two SH2s share the
+background by a line that moves and count its colours together - **28.4-30.0 pictures a second by stretch (29.9 the
+median), 99.1 % of the pictures two frames after the one before**. ares's picture rate is not the console's (Gate of
+Thunder: 55 there, about 15 on the console), and **the cart core this build needs is not built: whether it fits the
+EverDrive's FPGA is the next thing to measure** (docs/60 section 8). **[docs/59](docs/59_THE_WHOLE_GAME_AGAINST_MEDNAFEN.md)
+(12 Nov):** the whole recording played in ares
 (74,277 game frames, into stage 5) and its screenshots compared with Mednafen's pictures. Eight faults found and
 mended - the pictures stopped after game frame 65,535; the plane came back as it was left; frames whose lines scroll
 one by one (662 of them); the backdrop's colour; the boss's fire; lines with the background off - and the background
