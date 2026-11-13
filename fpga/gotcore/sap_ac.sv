@@ -24,6 +24,7 @@ module sap_ac #(parameter FULL = 0, parameter REGRD = 1) (
 	output reg  [7:0]  q,           // a register's value (not a data register's)
 	output reg         unimpl
 );
+	/* verilator no_inline_module */   // (the bench sets its registers from a window's start)
 	reg [23:0] base [0:3];
 	reg [15:0] offs [0:3];
 	reg [15:0] incr [0:3];

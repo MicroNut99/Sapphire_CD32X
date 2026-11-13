@@ -371,6 +371,14 @@ static void frame_md5(long k)                                 /* the state as Sa
     EVP_DigestUpdate(x, vdc.vram, sizeof vdc.vram); EVP_DigestUpdate(x, vdc.sat, sizeof vdc.sat); EVP_DigestUpdate(x, vdc.color, sizeof vdc.color);
     EVP_DigestFinal_ex(x, md, &len); EVP_MD_CTX_free(x);
     printf("frame %ld md5 ", k); for (int i = 0; i < 16; i++) printf("%02x", md[i]); printf("\n");
+    if (getenv("RUN_NOSTACK")) {   /* (docs/64, as Gate of Thunder's docs/21: the same without the stack page - an interrupt's return address there) */
+        static uint8_t ns[8192]; memcpy(ns, base_ram, 8192); memset(ns + 0x100, 0, 0x100);
+        EVP_MD_CTX *y = EVP_MD_CTX_new(); EVP_DigestInit_ex(y, EVP_md5(), 0);
+        EVP_DigestUpdate(y, ns, 8192); EVP_DigestUpdate(y, cd_ram, 65536); EVP_DigestUpdate(y, super_ram, 196608); EVP_DigestUpdate(y, ac.ram, 0x200000);
+        EVP_DigestUpdate(y, vdc.vram, sizeof vdc.vram); EVP_DigestUpdate(y, vdc.sat, sizeof vdc.sat); EVP_DigestUpdate(y, vdc.color, sizeof vdc.color);
+        EVP_DigestFinal_ex(y, md, &len); EVP_MD_CTX_free(y);
+        printf("frame %ld md5ns ", k); for (int i = 0; i < 16; i++) printf("%02x", md[i]); printf("\n");
+    }
     if (getenv("RUN_STATE") && atol(getenv("RUN_STATE")) == k) {   /* the hidden state after frame k, as text */
         const Scsi *d = &hw.scsi; unsigned ah = 0; for (int i = 0; hw.ram && i < 65536; i++) ah = ah * 31 + hw.ram[i];
         printf("state port2 %u port3 %u port4 %u portB %u addr %u read_addr %u write_addr %u length %u half %d end %d playing %d "
