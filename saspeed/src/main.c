@@ -59,6 +59,22 @@ static volatile uint32_t sec_b32_, sec_b32d_, sec_nobg_; static const V32 *volat
 #define SEC_B32  (*(volatile uint32_t *)((uintptr_t)&sec_b32_ | 0x20000000))
 #define SEC_B32D (*(volatile uint32_t *)((uintptr_t)&sec_b32d_ | 0x20000000))
 #define SEC_BV   (*(const V32 *volatile *)((uintptr_t)&sec_bv_ | 0x20000000))
+/* (docs/60) The split line is not 112 any more: the master's lines are 0..SEC_BM-1, the secondary's the rest, and the
+   line moves to where both are out together (the master waited 0.16 of a refresh for the secondary's half in stage
+   1, and drew for 1.17 with the secondary long done where a boss fills the upper half). And the colours' count is
+   both SH2s' too: the secondary counts its lines' tiles (SEC_CK) while the master counts its own - it idled through
+   0.15 of a refresh a picture */
+static volatile uint32_t sec_bm_, sec_ck_, sec_ckd_; static volatile uint16_t sec_used_[16];
+#define SEC_BM   (*(volatile uint32_t *)((uintptr_t)&sec_bm_ | 0x20000000))
+#define SEC_CK   (*(volatile uint32_t *)((uintptr_t)&sec_ck_ | 0x20000000))
+#define SEC_CKD  (*(volatile uint32_t *)((uintptr_t)&sec_ckd_ | 0x20000000))
+#define SEC_USED ((volatile uint16_t *)((uintptr_t)sec_used_ | 0x20000000))
+#ifdef BG2_FPGA_TILES
+static uint16_t bg32_fpga_mask(unsigned t);
+#endif
+uint32_t bg32_moved;                                          /* (DIAG: the split line's moves) */
+int bg32_m = 112;                                             /* (the master's lines are 0..bg32_m-1; 56-168) */
+#define BM_WAIT 12
 #endif
 #define SEC_JOB  (*(volatile uint32_t *)((uintptr_t)&sec_job_ | 0x20000000))
 #define SEC_DONE (*(volatile uint32_t *)((uintptr_t)&sec_done_ | 0x20000000))
@@ -123,11 +139,20 @@ void secondary(void)
         while ((j = SEC_JOB) == seen) {
 #ifdef BG32_SEC
             static uint32_t seen32; const uint32_t q = SEC_B32;
-            if (q != seen32) {                                /* (docs/58: lines 112-223 of a 32X-layer background) */
+            if (q != seen32) {                                /* (docs/58: the lower lines of a 32X-layer background; docs/60: from SEC_BM) */
                 seen32 = q; SH2_CCR = 0x11;                   /* (the tables and VRAM are the master's: read again) */
-                bg32_rows(SEC_BV, (uint8_t *)&MARS_FRAMEBUFFER + 0x200 + 32, 320, 112, 224);
+                bg32_rows(SEC_BV, (uint8_t *)&MARS_FRAMEBUFFER + 0x200 + 32, 320, (int)SEC_BM, 224);
                 SEC_B32D = q;
             }
+#ifdef BG2_FPGA_TILES
+            {   static uint32_t seenck; const uint32_t qc = SEC_CK;
+                if (qc != seenck) {                           /* (docs/60: the colours its lines' tiles use) */
+                    seenck = qc; SH2_CCR = 0x11;              /* (VRAM is the master's: read again) */
+                    uint16_t u[16]; bg32_masks_rng(SEC_BV, u, bg32_fpga_mask, (int)SEC_BM, 224);
+                    for (int i = 0; i < 16; i++) SEC_USED[i] = u[i];
+                    SEC_CKD = qc;
+                } }
+#endif
 #endif
             for (int i = 0; i < 200; i++) __asm__ volatile("");
         }
@@ -735,13 +760,16 @@ extern const uint8_t dx_chain_blob[], dx_chain_sec[], dx_chain_end[];
 static uint8_t *play_ram;                                     /* (the game's base RAM: main) */
 static uint16_t pad_was;
 static int play_lives = 3, play_open = 1;                     /* (open: the menu at the first picture, at power-on) */
-static uint32_t pad_mask(uint16_t p)                          /* B: II (attack), C: I (jump), A: RUN, X Y Z MODE: SELECT */
+static uint32_t pad_mask(uint16_t p)                          /* B: II, C: I, A: RUN; SELECT never (docs/60) */
 {
     uint32_t m = 0;
     if (p & SEGA_CTRL_B) m |= 1u << 0;
     if (p & SEGA_CTRL_C) m |= 1u << 8;
     if (p & SEGA_CTRL_A) m |= 1u << 3;
-    if (p & (SEGA_CTRL_X | SEGA_CTRL_Y | SEGA_CTRL_Z | SEGA_CTRL_MODE)) m |= 1u << 2;
+    /* (docs/60) X, Y, Z and MODE were SELECT: never given now, as Dracula X's and Gate of Thunder's cores (Dracula X
+       docs/132, ares_android README-FPGA-FINDINGS section 6: RUN + SELECT is the PC Engine's reset pair, and the
+       stack's six-button read reported those bits on the console). The game has no use for it in play: the recording's
+       75,000 frames never press it */
     if (p & SEGA_CTRL_UP) m |= 1u << 4;
     if (p & SEGA_CTRL_DOWN) m |= 1u << 5;
     if (p & SEGA_CTRL_LEFT) m |= 1u << 6;
@@ -876,14 +904,17 @@ static void vlog_job_wait(void) { while (SEC_DONE != late_job) { } }
 uint32_t ph_t0, ph_t7, ph_t3;
 #endif
 #ifdef SAPPHIRE_PLAY
-/* SPLAY=1 (docs/36): the game played with pad 1 from the state on, endlessly. B: II, C: I, A: RUN, X Y Z MODE: SELECT */
+/* SPLAY=1 (docs/36): the game played with pad 1 from the state on, endlessly. B: II, C: I, A: RUN; SELECT never (docs/60) */
 static uint32_t sp_pad_mask(uint16_t p)
 {
     uint32_t m = 0;
     if (p & SEGA_CTRL_B) m |= 1u << 0;
     if (p & SEGA_CTRL_C) m |= 1u << 8;
     if (p & SEGA_CTRL_A) m |= 1u << 3;
-    if (p & (SEGA_CTRL_X | SEGA_CTRL_Y | SEGA_CTRL_Z | SEGA_CTRL_MODE)) m |= 1u << 2;
+    /* (docs/60) X, Y, Z and MODE were SELECT: never given now, as Dracula X's and Gate of Thunder's cores (Dracula X
+       docs/132, ares_android README-FPGA-FINDINGS section 6: RUN + SELECT is the PC Engine's reset pair, and the
+       stack's six-button read reported those bits on the console). The game has no use for it in play: the recording's
+       75,000 frames never press it */
     if (p & SEGA_CTRL_UP) m |= 1u << 4;
     if (p & SEGA_CTRL_DOWN) m |= 1u << 5;
     if (p & SEGA_CTRL_LEFT) m |= 1u << 6;
@@ -1019,7 +1050,15 @@ static void draw_hook(V32 *v)
         if (wanted || stale) {
 #ifdef BG2_FPGA_TILES
             uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
-            bg32_masks_by(v, used, bg32_fpga_mask);           /* (docs/58: each band's window - the score bar's too; docs/59: every band, a map row once) */
+#if defined(BG32_SEC) && defined(SPR_SEC)
+            {   /* (docs/58: each band's window - the score bar's too; docs/59: every band, a map row once; docs/60: by both SH2s) */
+                static uint32_t nck; SEC_BV = v; SEC_BM = (uint32_t)bg32_m; SEC_CK = ++nck;
+                bg32_masks_rng(v, used, bg32_fpga_mask, 0, bg32_m);
+                while (SEC_CKD != nck) { }
+                for (int i = 0; i < 16; i++) used[i] |= SEC_USED[i]; }
+#else
+            bg32_masks_by(v, used, bg32_fpga_mask);
+#endif
             if (!layer) {
                 memset(seen, 0, sizeof seen);
                 for (int p_ = 0; p_ < 16; p_++) { int i = 1; for (unsigned u = used[p_] >> 1; u; u >>= 1, i++) if (u & 1) {
@@ -1076,11 +1115,25 @@ static void draw_hook(V32 *v)
 #endif
                 if (!bg32_prep(v, bg32_cram, bg32_own, um)) bg32_short++;   /* (DIAG, docs/59: the 256 entries did not hold the picture's colours) */
 #if defined(BG32_SEC) && defined(SPR_SEC)
-                { static uint32_t n32; SEC_BV = v; SEC_B32 = ++n32;
+                { static uint32_t n32; SEC_BV = v; SEC_BM = (uint32_t)bg32_m; SEC_B32 = ++n32;
                   SEC_T(11, ta);
-                  bg32_rows(v, fbp, 320, 0, 112);
+                  bg32_rows(v, fbp, 320, 0, bg32_m);
                   SEC_T(12, ta);
+                  /* (docs/60) the split line goes to where both are out together: down when the master waited more
+                     than BM_WAIT ticks (of 94 a refresh) three pictures running, up when the secondary was out
+                     first three pictures running; then it stays 12 pictures (a band that changes sides has its
+                     33 tiles made again for the other's table). Four lines a step: eight moved the two ends by
+                     more than BM_WAIT together, and the line went up and down every 22 pictures */
+                  const int first = SEC_B32D == n32; const uint32_t tw = wdt_now();
                   while (SEC_B32D != n32) { }
+                  const int w = (int)(wdt_now() - tw);
+                  static int hold, up, dn;
+                  if (hold) hold--;
+                  else {
+                      up = w > BM_WAIT ? up + 1 : 0; dn = first ? dn + 1 : 0;
+                      if (up >= 3 && bg32_m < 168) { bg32_m += 4; hold = 12; up = dn = 0; bg32_moved++; }
+                      else if (dn >= 3 && bg32_m > 56) { bg32_m -= 4; hold = 12; up = dn = 0; bg32_moved++; }
+                  }
                   SEC_T(13, ta); }
 #else
                 bg32_rows(v, fbp, 320, 0, 224);

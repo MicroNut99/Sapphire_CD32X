@@ -42,6 +42,7 @@ long sapm_run_frames(long n);                /* run n more frames (to their ends
 int64_t sapm_run_until(int64_t t);           /* run to the first instruction boundary at or after time t; returns it */
 int64_t sapm_now(void);                      /* the time of the next instruction's start */
 long sapm_frame(void);                       /* frames ended since power-on */
+unsigned sapm_pc(void);                                  /* (docs/60: the CPU's PC now) */
 uint32_t sapm_hash(int with_stack);          /* tools/m3rt rt_hash: RAM, VRAM, sprite table, colours */
 void sapm_md5(uint8_t md[16]);               /* tools/m0_replay.py frame_hash's md5 (needs openssl: SAPM_MD5) */
 

@@ -139,12 +139,15 @@ int bg32_must(const V32 *v)
 /* a band's tiles, each map row's window once (docs/59: 178 one-line bands are mostly the same few rows - visited
    again for every line, the count alone was a refresh): f(e) for each entry e in view. seen[row] = the window's first
    column + 1 it was last walked with */
-#define B32_TILES(v, BODY) do { \
+#define B32_TILES(v, Y0, Y1, BODY) do { \
         const int mw_ = map_w(v), mh_ = map_h(v); uint8_t seen_[64]; memset(seen_, 0, sizeof seen_); \
         B32Band b_; b32_first(&b_, v); \
         do { if (b_.fill) continue; \
-            for (int ty_ = 0, nt_ = ((b_.by & 7) + (b_.l1 - b_.l0) + 7) >> 3; ty_ < nt_; ty_++) { \
-                const int my_ = ((b_.by >> 3) + ty_) & (mh_ - 1), c0_ = (b_.bx >> 3) & (mw_ - 1); \
+            const int ya_ = (Y0) > b_.l0 ? (Y0) : b_.l0, yb_ = (Y1) < b_.l1 ? (Y1) : b_.l1;   /* (docs/60: the lines asked for) */ \
+            if (ya_ >= yb_) continue; \
+            const unsigned r0_ = (unsigned)b_.by + (unsigned)(ya_ - b_.l0); \
+            for (int ty_ = 0, nt_ = (int)((r0_ & 7) + (unsigned)(yb_ - ya_) + 7) >> 3; ty_ < nt_; ty_++) { \
+                const int my_ = (int)((r0_ >> 3) + (unsigned)ty_) & (mh_ - 1), c0_ = (b_.bx >> 3) & (mw_ - 1); \
                 if (seen_[my_] == (uint8_t)(c0_ + 1)) continue; \
                 seen_[my_] = (uint8_t)(c0_ + 1); \
                 unsigned le_ = 0x10000u;                      /* (a run of one entry - an empty sky - once) */ \
@@ -156,7 +159,7 @@ void bg32_masks(const V32 *v, uint16_t used[16])
 {
     sp_make();
     for (int p = 0; p < 16; p++) used[p] = 0;
-    B32_TILES(v, {
+    B32_TILES(v, 0, 224, {
         const unsigned tile = e & 0xFFF; uint16_t m = 1;
         if (tile < 0x800) for (int r = 0; r < 8; r++) {
             uint32_t w = ROW_NIB(v->vram[tile * 16 + r], v->vram[tile * 16 + 8 + r]);
@@ -167,7 +170,12 @@ void bg32_masks(const V32 *v, uint16_t used[16])
 void bg32_masks_by(const V32 *v, uint16_t used[16], uint16_t (*mask)(unsigned tile))   /* (the tiles' colour masks from elsewhere: the cart's FPGA) */
 {
     for (int p = 0; p < 16; p++) used[p] = 0;
-    B32_TILES(v, { used[e >> 12] |= mask(e & 0x7FF); });
+    B32_TILES(v, 0, 224, { used[e >> 12] |= mask(e & 0x7FF); });
+}
+void bg32_masks_rng(const V32 *v, uint16_t used[16], uint16_t (*mask)(unsigned tile), int y0, int y1)   /* (docs/60: of lines y0..y1-1 - a part for each SH2) */
+{
+    for (int p = 0; p < 16; p++) used[p] = 0;
+    B32_TILES(v, y0, y1, { used[e >> 12] |= mask(e & 0x7FF); });
 }
 
 int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t used_idx[16])

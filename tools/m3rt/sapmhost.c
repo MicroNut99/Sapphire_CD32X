@@ -161,7 +161,15 @@ int huchost_init(const char *state, const char *trk)
         sapk_on = pf && sapk_open(&sapk, pf, (uint32_t)pn);
         fprintf(stderr, "sapmhost: track 2 from the cart's pack: %s\n", sapk_on ? "its directory found" : "NO DIRECTORY (the track's file instead)"); }
     ents = malloc(sizeof(uint32_t) * (size_t)maxents); memset(&shadow, 0, sizeof shadow);
-    if (!sapm_power(rom, 0, tab, sector, 0)) return 0;
+    /* (docs/60) SAPM_BRAM_GARBAGE=1: the backup RAM as the cart's sram is at power-on - never written, it read 0x0FFF
+       on the console (Gate of Thunder docs/45; ares_android README-FPGA-FINDINGS section 6, the cores' trap kind 4) -
+       where the default is Mednafen's formatted blank one. SAPM_BRAM=<2,048 bytes>: that file */
+    static uint8_t br0[2048]; const uint8_t *bram = 0;
+    if (getenv("SAPM_BRAM")) { long bn; const uint8_t *bf = slurp(getenv("SAPM_BRAM"), &bn); if (bf && bn >= 2048) { memcpy(br0, bf, 2048); bram = br0; } }
+    if (getenv("SAPM_BRAM_GARBAGE")) { for (int i = 0; i < 2048; i++) br0[i] = i & 1 ? 0x0F : 0xFF; bram = br0;
+        fprintf(stderr, "[sapphire TRAP] backup RAM uninitialised (SAPM_BRAM_GARBAGE), as the cart's sram\n"); }
+    else if (!bram) fprintf(stderr, "[sapphire TRAP] backup RAM: Mednafen's formatted blank one - the cart's is uninitialised sram (SAPM_BRAM_GARBAGE=1 models it)\n");
+    if (!sapm_power(rom, bram, tab, sector, 0)) return 0;
     rom_kept = rom;
     if (getenv("HUC_MASKS")) { long m; rec_masks = slurp(getenv("HUC_MASKS"), &m); rec_n = m / 2; }
     if (getenv("HUC_POKES")) { long m; rec_pokes = slurp(getenv("HUC_POKES"), &m); rec_np = m / 12; }
@@ -228,6 +236,10 @@ int huchost_bgstat(int *colours_out, int *fits)
     *colours_out = total; *fits = ok; return np;
 }
 int huchost_psg(const uint16_t **w) { *w = psgw; const int n = npsg; npsg = 0; return n; }
+/* (docs/60) the CPU's PC now: ares's stand-in board samples it at each frame's end for the cores' shared trap "the
+   CPU in the I/O page" (ares_android README-FPGA-FINDINGS section 6) */
+uint32_t huchost_pc(void) { return sapm_pc(); }
+
 /* docs/58 (the options menu): a byte into the game's RAM through the cart's poke port - below 0x2000 the base RAM, from
    0x2000 the CD RAM (the recordings' pokes' addresses) */
 void huchost_poke(uint32_t a, uint8_t v) { if (a < 0x2000) sapm_base_ram()[a] = v; else if (a - 0x2000 < 0x10000) sapm_cd_ram()[a - 0x2000] = v; }

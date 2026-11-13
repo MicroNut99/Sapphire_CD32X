@@ -306,6 +306,7 @@ long sapm_run_frames(long n) { frames_to = frame + n; until = -1; run(); return 
 int64_t sapm_run_until(int64_t t) { frames_to = 0x7FFFFFFF; until = t; run(); until = -1; return t_ins; }
 int64_t sapm_now(void) { return t_ins; }
 long sapm_frame(void) { return frame; }
+unsigned sapm_pc(void) { return cpu.pc; }                  /* (docs/60: for the stand-in's trap - the CPU in the I/O page) */
 
 static uint32_t fnv(uint32_t h, const uint8_t *p, long n) { while (n--) { h ^= *p++; h *= 16777619u; } return h; }
 static uint32_t fnv16(uint32_t h, const uint16_t *p, long n)

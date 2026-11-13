@@ -1,0 +1,781 @@
+diff --git a/android/native/src/frontend.cpp b/android/native/src/frontend.cpp
+index e08592d..75ef035 100644
+--- a/android/native/src/frontend.cpp
++++ b/android/native/src/frontend.cpp
+@@ -535,6 +535,11 @@ void Session::cpuState(uint32_t out[4]) const {
+   out[3] = ares::MegaDrive::mcd.communication.cfs;
+ }
+ 
++void Session::sh2State(uint32_t out[4]) const {
++  out[0] = ares::MegaDrive::m32x.shm.regs.PC; out[1] = ares::MegaDrive::m32x.shm.regs.PR;
++  out[2] = ares::MegaDrive::m32x.shs.regs.PC; out[3] = ares::MegaDrive::m32x.shs.regs.PR;
++}
++
+ void Session::cddState(uint32_t out[4]) const {
+   out[0] = (uint32_t)ares::MegaDrive::mcd.cdd.io.status;
+   out[1] = (uint32_t)ares::MegaDrive::mcd.cdd.io.track;
+diff --git a/android/native/src/frontend.hpp b/android/native/src/frontend.hpp
+index 02817e0..f4be198 100644
+--- a/android/native/src/frontend.hpp
++++ b/android/native/src/frontend.hpp
+@@ -104,6 +104,7 @@ public:
+   //32X COMM0-COMM14 (index 0-7), as the 68000 sees them: the CD32X boot stacks post their
+   //status in COMM12 (0x4B10 = game running), handy for the log view and the test harness
+   uint16_t comm(uint32_t index) const;
++  void sh2State(uint32_t out[4]) const;  //(DIAG) the master's PC and PR, the slave's
+   void cpuState(uint32_t out[4]) const;  //main 68000 pc, sub 68000 pc, mega CD comm flags main / sub
+   void cddState(uint32_t out[4]) const;  //the mega CD drive: status, track, sector, CD audio attenuator
+   //cd32x-timing: SH2 accesses since boot: cart reads, frame buffer reads, writes, SDRAM reads, writes, 32X swaps
+diff --git a/android/native/src/harness.cpp b/android/native/src/harness.cpp
+index 4f026ea..8969fad 100644
+--- a/android/native/src/harness.cpp
++++ b/android/native/src/harness.cpp
+@@ -251,6 +251,8 @@ int main(int argc, char** argv) {
+         printf("    68k pc=%06X  sub pc=%06X  mcd flags main=%02X sub=%02X\n", c[0] & 0xffffff, c[1] & 0xffffff, c[2], c[3]);
+         uint32_t d[4]; session.cddState(d);
+         printf("    cdd status=%X track=%u sector=%u cda-attenuator=%04X\n", d[0], d[1], d[2], d[3]);
++        uint32_t s2[4]; session.sh2State(s2);   //(Sapphire docs/52) the SH2s' program counters and PR
++        printf("    sh2 master pc=%08X pr=%08X  slave pc=%08X pr=%08X\n", s2[0], s2[1], s2[2], s2[3]);
+       }
+       if(stats) {
+         uint64_t now[6];
+diff --git a/ares/component/processor/sh2/exceptions.cpp b/ares/component/processor/sh2/exceptions.cpp
+index abf476e..a12b8fd 100644
+--- a/ares/component/processor/sh2/exceptions.cpp
++++ b/ares/component/processor/sh2/exceptions.cpp
+@@ -1,3 +1,4 @@
++extern "C" void aresWatchDump() __attribute__((weak));   //DIAG (Sapphire docs/58): md/m32x/bus-internal.cpp, ARES_WATCH
+ auto SH2::exceptionHandler() -> void {
+   if(!exceptions) return;
+   if(inDelaySlot()) { cyclesUntilRecompilerExit = 0; return; }
+@@ -58,6 +59,8 @@ auto SH2::addressErrorDMA() -> void {
+ auto SH2::illegalInstruction() -> void {
+   if(inDelaySlot()) return illegalSlotInstruction();
+   debug(unusual, "[SH2] illegal instruction: 0x", hex(busReadWord(PC - 4), 4L), " @ 0x", hex(PC - 4));
++  if(getenv("ARES_PC")) fprintf(stderr, "[SH2] illegal instruction at %08x: PR %08x  R15 %08x  R0 %08x R1 %08x R2 %08x R3 %08x\n", (u32)(PC - 4), (u32)PR, (u32)R[15], (u32)R[0], (u32)R[1], (u32)R[2], (u32)R[3]);   //DIAG (Sapphire docs/58)
++  if(getenv("ARES_PC") && aresWatchDump) aresWatchDump();   //DIAG: the watched writes (md/m32x/bus-internal.cpp)
+   static constexpr u8 vector = 0x04;
+   push(SR);
+   push(PC - 4);
+diff --git a/ares/md/cartridge/board/arcade-card-engine.hpp b/ares/md/cartridge/board/arcade-card-engine.hpp
+new file mode 100644
+index 0000000..93bec06
+--- /dev/null
++++ b/ares/md/cartridge/board/arcade-card-engine.hpp
+@@ -0,0 +1,159 @@
++//Sapphire CD32X's Arcade Card engine (github.com/MicroNut99/Sapphire_CD32X: docs/10, fpga/ac_engine.sv): the PC
++//Engine's Arcade Card as hardware in the Mega EverDrive PRO's FPGA, beside krikzz's SSF mapper. Not part of
++//krikzz's firmware: only a cart whose mega-pro.rbf is Sapphire's has it. Here on the EverDrive board with
++//ARES_ACE=1 (a branch, not ares_android's main: BootCamp rule, the owner decides).
++//
++//Every access is a 16-bit read of cart 0x1C0000-0x1FFFFF (whatever bank window 3 maps). The address carries the
++//operation (Sapphire tools/m2host/ac_engine.h):
++//  + (r << 1)                        the card's register $1A00 + r: the low byte of the word read back
++//  + 0x20000 + (v << 9) + (r << 1)   v written to it
++//$1A80-$1ABF: region k's place in the 16 MB in 256-byte units, low then high byte (0xffff: not here, reads 0xff);
++//$1AC0 / $1AC1: the shift / rotate counts set raw. The card's RAM is read from the cart's memory through that
++//table, read only (a data port write steps the address). Behaviour: Mednafen's ArcadeCard, line for line.
++
++struct ArcadeCardEngine {
++  struct Port { n24 base; n16 offset, increment; n7 control; } port[4];
++  n32 latch;
++  n4 shiftBits, rotateBits;
++  n16 unit[32];
++  n24 pokeAddress;
++  i32 poked = -1;                //the byte the last access wrote (the board invalidates it), or -1
++  bool armed = false; u8 armSt = 0;   //(Sapphire docs/52) off from its reset until $1AF0, $1AEF, $1AF7 are read with 0xA5
++
++  auto reset() -> void {
++    for(auto& p : port) p = {};
++    latch = 0; shiftBits = 0; rotateBits = 0;
++    for(auto& u : unit) u = 0xffff;
++    pokeAddress = 0; poked = -1; armed = false; armSt = 0;
++  }
++
++  static auto index(const Port& p) -> u32 {
++    u32 i = p.base;
++    if(p.control.bit(1)) { i += p.offset; if(p.control.bit(3)) i += 0xff0000; }
++    return i & 0x1fffff;
++  }
++  static auto step(Port& p) -> void {
++    if(!p.control.bit(0)) return;
++    if(p.control.bit(4)) p.base = p.base + p.increment; else p.offset = p.offset + p.increment;
++  }
++  static auto addOffset(Port& p) -> void {
++    u32 b = p.base;
++    if(p.control.bit(3)) b += 0xff0000;
++    p.base = b + p.offset;
++  }
++
++  //a read of the window at offset off; ram: the cart's 16 MB as words, big-endian
++  template<typename Ram> auto access(u32 off, Ram& ram, u32 words) -> n16 {
++    u32 r = off >> 1 & 0xff;
++    poked = -1;
++    if(!armed) {  //(Sapphire docs/52) the 32X boot ROM's checksum reads the window in order: it must change nothing
++      static const u8 key[3] = {0xf0, 0xef, 0xf7};
++      if(!(off & 0x20000) && (off >> 9 & 0xff) == 0xa5) {
++        if(r == key[armSt]) { if(++armSt == 3) { armed = true; armSt = 0; } }
++        else armSt = r == key[0] ? 1 : 0;
++      } else armSt = 0;
++      return 0xffff;
++    }
++    if(!(off & 0x20000)) {
++      if(r < 0x80) {
++        auto& p = port[r >> 4 & 3];
++        switch(r & 15) {
++        case 0x0: case 0x1: {
++          u32 i = index(p); n8 v = 0xff;
++          if(unit[i >> 16] != 0xffff) {
++            u32 a = ((u32)unit[i >> 16] << 8) + (i & 0xffff);
++            u32 w = (a >> 1) & (words - 1);
++            if(a < 0xf80000) v = (a & 1) ? ram[w].byte(0) : ram[w].byte(1);  //bank 31 (battery RAM): never
++          }
++          step(p);
++          return v;
++        }
++        case 0x2: return p.base.byte(0);
++        case 0x3: return p.base.byte(1);
++        case 0x4: return p.base.byte(2);
++        case 0x5: return p.offset.byte(0);
++        case 0x6: return p.offset.byte(1);
++        case 0x7: return p.increment.byte(0);
++        case 0x8: return p.increment.byte(1);
++        case 0x9: return (n8)p.control;
++        }
++        return 0xff;
++      }
++      if(r >= 0xe0) {
++        switch(r & 0x1f) {
++        case 0x00: case 0x01: case 0x02: case 0x03: return (n8)(latch >> (r & 3) * 8);
++        case 0x04: return (n8)shiftBits;
++        case 0x05: return (n8)rotateBits;
++        case 0x1c: case 0x1d: return 0x00;
++        case 0x1e: return 0x10;
++        case 0x1f: return 0x51;
++        }
++      }
++      return 0xff;
++    }
++    n8 v = off >> 9;
++    if(r < 0x80) {
++      auto& p = port[r >> 4 & 3];
++      switch(r & 15) {
++      case 0x0: case 0x1: {  //(Sapphire docs/38) the card's RAM written into the cart at the byte's place: a stage's load
++        u32 i = index(p);
++        if(unit[i >> 16] != 0xffff) {
++          u32 a = (((u32)unit[i >> 16] << 8) + (i & 0xffff)) & 0xffffff;
++          if(a < 0xf80000 && (a < 0x1c0000 || a >= 0x200000)) {
++            u32 w = (a >> 1) & (words - 1);
++            if(a & 1) ram[w].byte(0) = v; else ram[w].byte(1) = v;
++            poked = a;
++          }
++        }
++        step(p); break;
++      }
++      case 0x2: p.base.byte(0) = v; break;
++      case 0x3: p.base.byte(1) = v; break;
++      case 0x4: p.base.byte(2) = v; break;
++      case 0x5: p.offset.byte(0) = v; if((p.control >> 5 & 3) == 1) addOffset(p); break;
++      case 0x6: p.offset.byte(1) = v; if((p.control >> 5 & 3) == 2) addOffset(p); break;
++      case 0x7: p.increment.byte(0) = v; break;
++      case 0x8: p.increment.byte(1) = v; break;
++      case 0x9: p.control = v & 0x7f; break;
++      case 0xa: if((p.control >> 5 & 3) == 3) addOffset(p); break;
++      }
++    } else if(r < 0xc0) {
++      if(r & 1) unit[r >> 1 & 31].byte(1) = v; else unit[r >> 1 & 31].byte(0) = v;
++    } else if(r == 0xc0) shiftBits = v & 15;
++    else if(r >= 0xc2 && r <= 0xc4) pokeAddress.byte(r - 0xc2) = v;
++    else if(r == 0xc5) {  //the poke (Sapphire docs/11): v into the cart, not bank 31, not this window
++      u32 a = pokeAddress;
++      if(a < 0xf80000 && (a < 0x1c0000 || a >= 0x200000)) {
++        u32 w = (a >> 1) & (words - 1);
++        if(a & 1) ram[w].byte(0) = v; else ram[w].byte(1) = v;
++        poked = a;
++      }
++      pokeAddress = pokeAddress + 1;
++    }
++    else if(r == 0xc1) rotateBits = v & 15;
++    else if(r >= 0xe0) {
++      switch(r & 0x1f) {
++      case 0x00: case 0x01: case 0x02: case 0x03:
++        latch = (latch & ~(0xffu << (r & 3) * 8)) | (u32)v << (r & 3) * 8; break;
++      case 0x04:
++        shiftBits = v & 15;
++        if(shiftBits) latch = shiftBits.bit(3) ? (u32)latch >> (16 - shiftBits) : (u32)latch << shiftBits;
++        break;
++      case 0x05:
++        rotateBits = v & 15;
++        if(rotateBits) {
++          u32 l = latch;
++          if(rotateBits.bit(3)) { u32 sa = 16 - rotateBits; latch = l >> sa | l << (32 - sa); }
++          else { u32 sa = rotateBits; latch = l << sa | ((l >> (32 - sa)) & ((1u << sa) - 1)); }
++        }
++        break;
++      }
++    }
++    return 0xffff;
++  }
++
++  auto serialize(serializer& s) -> void {
++    for(auto& p : port) { s(p.base); s(p.offset); s(p.increment); s(p.control); }
++    s(latch); s(shiftBits); s(rotateBits); s(unit); s(armed); s(armSt);
++  }
++};
+diff --git a/ares/md/cartridge/board/board.cpp b/ares/md/cartridge/board/board.cpp
+index ae39053..7b43eab 100644
+--- a/ares/md/cartridge/board/board.cpp
++++ b/ares/md/cartridge/board/board.cpp
+@@ -15,6 +15,9 @@ static urrfx::Engine* urrFx = nullptr;
+ #include "realtec.cpp"
+ #include "game-genie.cpp"
+ #include "ram-cart.cpp"
++#include "arcade-card-engine.hpp"
++#include "sapphire-cells.hpp"
++#include "sapphire-huchost.hpp"
+ #include "everdrive-pro.cpp"
+ #include "mega-32x.cpp"
+ #include "debugger.cpp"
+diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
+index 086033d..8ae751a 100644
+--- a/ares/md/cartridge/board/everdrive-pro.cpp
++++ b/ares/md/cartridge/board/everdrive-pro.cpp
+@@ -86,6 +86,13 @@ struct EverDrivePro : Interface {
+   static constexpr u64 Window = Thread::Second / 1'000'000;  //1 us: a 68000 bus cycle is 0.5 us
+   static auto near(u64 a, u64 b) -> bool { return (a > b ? a - b : b - a) <= Window; }
+ 
++  //Sapphire CD32X's Arcade Card engine (arcade-card-engine.hpp): on with ARES_ACE=1, as a cart whose
++  //mega-pro.rbf is Sapphire's (krikzz's SSF mapper + the engine in cart 0x1C0000-0x1FFFFF)
++  ArcadeCardEngine ace;
++  boolean aceOn;
++  SapphireCells cells;   //(Sapphire docs/29: ARES_CELLS, a test model of the FPGA's cell store)
++  SapphireHuc huc;       //(Sapphire docs/40: ARES_HUCHOST, the cart CPU's stand-in writing the FIFO live)
++
+   static constexpr u32 SaveBank = 31;
+ 
+   //The cart's FPGA configuration, mega-pro.rbf (7 Nov 2026, Metal Slug CD32X docs/14 and fpga/README_FOR_AI.md):
+@@ -185,15 +192,19 @@ struct EverDrivePro : Interface {
+   //  kind 2: the PC Engine CPU runs in the I/O page (below $2000) after having run above it (gotx: the last 64 PCs)
+   //  kind 3: SELECT asked by the SH2 (the cores never give it: RUN + SELECT is the PC Engine's soft reset)
+   //  kind 4: the backup RAM differs from the cart's (the cart's sram is uninitialised)
+-  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapCores };
++  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapSapphire, TrapCores };
+   inline static u64 trapN[TrapCores][8] = {};
+   static auto coreTrap(u32 core, u32 kind, const string& what) -> void {
+-    static const char* names[TrapCores] = {"dracx", "gotx"};
++    static const char* names[TrapCores] = {"dracx", "gotx", "sapphire"};
+     u64 n = ++trapN[core][kind & 7];
+     if(n == 1) print("[", names[core], " TRAP] ", what, "\n");
+     else if((n & (n - 1)) == 0) print("[", names[core], " TRAP] (x", n, ") ", what, "\n");
+   }
+   auto gxTrap(u32 kind, const string& what) -> void { coreTrap(TrapGotx, kind, what); }
++  //(Sapphire CD32X docs/60) its stand-in for the cart's PC Engine (sapphire-huchost.hpp: no core yet) takes the same
++  //kinds, so a run shows what the core-to-be will not serve: chip 1 after the start (the System Card and track 2 are
++  //the engine's there, as in both cores), SELECT, the CPU below $2000 at a frame's end
++  auto spTrap(u32 kind, const string& what) -> void { coreTrap(TrapSapphire, kind, what); }
+   auto dxTrap(u32 kind, const string& what) -> void { coreTrap(TrapDracx, kind, what); }
+   static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
+ 
+@@ -515,7 +526,83 @@ struct EverDrivePro : Interface {
+   }
+ 
+   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
++    if(cells.on) {
++      if(huc.pcLow) { spTrap(2, {"the PC Engine's CPU at $", hex(huc.pcAt, 4L), " at a frame's end (the I/O page) after having run above $2000"}); huc.pcLow = 0; }
++      n22 local = address;
++      if(huc.on && huc.psgFn && !huc.psgNow) huc.psgRelease(vdp.vcounter(), [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });   //(docs/55: a frame's PSG writes a vertical blank)
++      if(huc.on && huc.pace) {   //(Sapphire docs/55) the stand-in's game at its own rate: one frame for each vertical blank passed, while the SH2 allows
++        const u32 vc = vdp.vcounter();
++        if(vc < huc.lastVc && huc.credit < 2) huc.credit++;
++        huc.lastVc = vc;
++        if(huc.credit && cells.live_ && huc.pictures < huc.want) {
++          huc.credit--;
++          huc.produce(huc.pictures + 1, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
++          cells.liveTotal = huc.produced;
++        }
++      }
++      if(huc.psgFn && local >= 0x07f000 && local < 0x07f900) {   //DIAG (Sapphire docs/55, ARES_PSGRING_LOG): how far behind the ring's reader is
++        static int on = -1; if(on < 0) on = getenv("ARES_PSGRING_LOG") != nullptr;
++        if(on) { static u32 reads, counts, worst, over, readerAbs; reads++;
++          if(local >= 0x07f100) { u32 idx = (local - 0x07f100) >> 1, abs = huc.psgCount - ((huc.psgCount - idx) & 1023); if(abs < huc.psgCount && abs + 1 > readerAbs) readerAbs = abs + 1; }
++          else if(local == 0x07f002) { counts++; u32 back = huc.psgCount - readerAbs; if(back > worst) worst = back;
++            { static u64 last; const u64 nowS = aresPcmRawSamples; if(last && nowS - last > 8138) fprintf(stderr, "psg ring: no read of the count for %.2f s (to capture time %.2f s; %u writes waiting)\n", (nowS - last) / 32552.0, nowS / 32552.0, back); last = nowS; }
++            if(back > 1024) { over++; fprintf(stderr, "psg ring: the reader %u writes behind at write %u (more than the ring holds)\n", back, huc.psgCount); readerAbs = huc.psgCount - 1024; } }
++          if(reads % 40000 == 0) fprintf(stderr, "psg ring: %u reads of the count, %u writes so far; the reader's most behind %u; over the ring %u times\n", counts, huc.psgCount, worst, over);
++        }
++      }
++      if(local >= SapphireCells::LiveAt && local < SapphireCells::End) return cells.readStore(local);
++      if(local >= 0x1c0000 && local < 0x200000) {
++        u32 off = local - 0x1c0000, r = off >> 1 & 0xff;
++        if(off & 0x20000) {
++          u32 v = off >> 9 & 0xff;
++          if(huc.on && cells.live_ && r == 0xcd && (v & 0x04)) {   //(docs/60: as the cores - RUN + SELECT is the PC Engine's reset pair)
++            spTrap(3, "SELECT asked by the SH2: a PC Engine CD core never gives it (RUN + SELECT is the PC Engine's reset)"); v &= 0xfb; }
++          if(cells.live_ && huc.write(r, v)) return data;   //(the pad only after the unlock: a start-up scan of the window wrote it 0-255)
++          if(huc.on && cells.live_ && r == 0xca) {   //(docs/46: only after the unlock - the start-up scan wrote 0xca 0-255, and the pictures it made went into the ring before the disc's loads; the pictures the SH2 will want: written before the store reads them)
++            u32 at = cells.sh2At + (u8)(v - cells.sh2At);
++            if(huc.pace) {   //(docs/55: the frames ahead are made one a vertical blank, below; what the SH2 reads now must be there)
++              huc.want = at + huc.lead;
++              if(huc.pictures < at) { huc.burst += at - huc.pictures; huc.produce(at, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); }); cells.liveTotal = huc.produced; }
++            } else {
++            huc.produce(at + huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
++            cells.liveTotal = huc.produced;
++            }
++          }
++          const bool wasLive = cells.live_;
++          cells.write(r, v, [&](u32 l) -> u16 { return ram[offset(l) >> 1]; });
++          //(Sapphire docs/53: the unlock itself starts the CPU - its first pictures are in the ring before the SH2 reads it.
++          //Until now they came only with the first 0xca, which the SH2 sent after a picture's end found in the ring's old
++          //contents - the EverDrive menu's wipe pattern has some; a packed launcher's 0xFF fill has none: a black screen)
++          if(huc.on && cells.live_ && !wasLive) {
++            huc.produce(huc.lead, [&](u32 l, u16 w) { ram.write(offset(l) >> 1, w); invalidate(offset(l), 2); });
++            cells.liveTotal = huc.produced;
++          }
++        }
++        else if(huc.on && r == 0xcc) return (n16)huc.samples;   //(docs/44: the PWM samples written so far)
++        else if(!cells.live_) {}
++        else if(r == 0xc7) return cells.bits();
++        else if(r == 0xc9) return (n16)cells.lockedAt;
++      }
++    }
++    if(aceOn) {
++      n22 local = address;
++      if(local >= 0x1c0000) if(local < 0x200000) {
++        { static int nl; if(getenv("ARES_ACE_WHO") && nl++ < 8) fprintf(stderr, "ace who: %s (PC %08x) reads %06x (port %05x)\n", cpu.active() ? "68000" : (m32x.shm.active() ? "master" : "secondary"), cpu.active() ? 0u : (u32)(m32x.shm.active() ? m32x.shm.regs.PC : m32x.shs.regs.PC), (u32)address, (u32)(local - 0x1c0000)); }   //DIAG (Sapphire docs/52)
++        n16 d = ace.access(local - 0x1c0000, ram, ram.size());
++        if(ace.poked >= 0) {  //a poke: the windows that show it see the new byte (the SH2s' code included)
++          u32 word = (u32)ace.poked >> 1;
++          { static s64 wa = -2; static int nlog; if(wa == -2) { wa = -1; if(auto e = getenv("ARES_CART_WATCH")) wa = strtoll(e, nullptr, 0); }   //DIAG (Sapphire docs/52)
++            if(wa >= 0 && (s64)(word >> 18) == (wa >> 19) && nlog++ < 20) fprintf(stderr, "cart watch: the card engine poked %06x (port %05x)\n", (u32)ace.poked, (u32)(local - 0x1c0000)); }
++          for(u32 n : range(8)) if(bank[n] == word >> 18) invalidate(n << 19 | (word << 1 & 0x7ffff), 2);
++        }
++        return d;
++      }
++    }
+     u32 word = offset(address) >> 1;
++    if(huc.on && cells.live_ && word >> 18 >= 16 && word >> 18 <= 30) {   //(Sapphire docs/60: chip 1 the engine's once it runs)
++      spTrap(0, {"the console read PSRAM chip 1 (bank ", word >> 18, ", +", hex((word & 0x3ffff) << 1, 5L), ") after the start: the engine's (the System Card, track 2) - read as 0xFFFF"});
++      return 0xffff;
++    }
+     if(gotx) {
+       u32 off = (word & 0x3ffff) << 1; n16 v;
+       if(word >> 18 == GxBank && gxRead(off, v)) return v;
+@@ -553,6 +640,10 @@ struct EverDrivePro : Interface {
+       gxTrap(1, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
+       return;
+     }
++    if(huc.on && cells.live_) {   //(Sapphire docs/60: the same)
++      u32 b = offset(address) >> 19;
++      if(b >= 16 && b <= 30) { spTrap(1, {"the console wrote PSRAM chip 1 (bank ", b, ") after the start: the engine's - write lost"}); return; }
++    }
+     if(dracx && dx.on) {   //(DraculaX docs/171: chip 1 the engine's once started; its windows 6 and 7 still the core's)
+       u32 b = offset(address) >> 19;
+       if(b >= 16 && b <= 30 && b != bank[6] && b != bank[7]) {
+@@ -563,10 +654,24 @@ struct EverDrivePro : Interface {
+     if(!writeEnable || writeProtect) return;
+     u32 word = offset(address) >> 1;
+     if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)
++    { static s64 wa = -2; if(wa == -2) { wa = -1; if(auto e = getenv("ARES_CART_WATCH")) wa = strtoll(e, nullptr, 0); }   //DIAG (Sapphire docs/52)
++      if(wa >= 0 && (s64)word == (wa >> 1)) fprintf(stderr, "cart watch: %06x <- %04x (bus address %06x, upper %d lower %d)\n", (u32)wa, (u32)data, (u32)address, (int)upper, (int)lower); }
+     if(upper) ram[word].byte(1) = data.byte(1);
+     if(lower) ram[word].byte(0) = data.byte(0);
+     u32 local = (n22)address;
+     invalidate(local & ~1u, 2);
++    //DIAG (Sapphire docs/51): ARES_CART_DUMP=<cart offset>:<bytes>:<file> - when the block's last word is written (a
++    //command 101 block ends there), the block is appended to <file> with its count before it (u32): what the
++    //owner's USB script would read with edlink memrd
++    static s64 dOff = -2, dLen; static FILE* dFile;
++    if(dOff == -2) { dOff = -1; if(auto e = getenv("ARES_CART_DUMP")) { long long o, l; char f[512];
++      if(sscanf(e, "%lli:%lli:%511s", &o, &l, f) == 3) { dOff = o; dLen = l; dFile = fopen(f, "wb"); } } }
++    if(dOff >= 0 && dFile && (s64)word * 2 == dOff + dLen - 2) {
++      static u32 nDump; u32 fr = ++nDump;   //(the block's count)
++      fwrite(&fr, 4, 1, dFile);
++      for(s64 k = 0; k < dLen / 2; k++) { u16 w = ram[(dOff >> 1) + k]; u8 b[2] = {(u8)(w >> 8), (u8)w}; fwrite(b, 1, 2, dFile); }
++      fflush(dFile);
++    }
+   }
+ 
+   auto corrupt(u32 word, n16 data) -> void {
+@@ -639,6 +744,11 @@ struct EverDrivePro : Interface {
+   auto power(bool reset) -> void override {
+     dx = {};   //(dracx: the engine at its reset until the start read)
+     gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
++    if(auto e = getenv("ARES_ACE")) aceOn = e[0] == '1';
++    ace.reset();
++    huc.power();
++    cells.power();
++    if(huc.on) { cells.liveFifo(huc.produced); if(getenv("ARES_HUC_VCHECK")) { cells.checkAt = huc.vramAt; cells.checkPic = huc.vramPic; } }
+     for(u32 n : range(8)) bank[n] = n;
+     mode32x = 0;
+     led = 0;
+diff --git a/ares/md/cartridge/board/sapphire-cells.hpp b/ares/md/cartridge/board/sapphire-cells.hpp
+new file mode 100644
+index 0000000..d04b37d
+--- /dev/null
++++ b/ares/md/cartridge/board/sapphire-cells.hpp
+@@ -0,0 +1,121 @@
++//Sapphire CD32X's FPGA cell store (github.com/MicroNut99/Sapphire_CD32X docs/28-29, fpga/huc/cellstore.c), a test
++//model on the EverDrive board for the FIFO playback (ARES_CELLS=<the FIFO's bytes>, ARES_CELLS_VRAM=<vdc_start.bin>,
++//ARES_CELLS_LEAD=<frames, default 1>). The FIFO is the level slot's file (cart 0x200000); the model runs its own
++//cursor on it up to ARES_CELLS_LEAD frame boundaries past the count the SH2 writes (register 0xca), as the FPGA would be.
++//The stores are served at cart 0x170000 (live) and 0x194000 (frozen); the frozen bits through the Arcade Card
++//engine's window: write register 0xc6 = group (16 cells), read register 0xc7 = its bits; write 0xc8 = release;
++//read 0xc9 = the boundary count the lock came at (1: the first boundary in the FIFO), 0xffff: not locked yet; write
++//0xca = the boundaries the SH2 has passed (low 8 bits). None of them answers until the SH2 writes 0xcb = 0xa5 then at
++//once 0xcb = 0x5a (the start: the store goes back to vdc_start), so a plain read across the window does nothing.
++struct SapphireCells {
++  static constexpr u32 Cell = 288, Odd = 128, Mask = 272, LiveAt = 0x170000, FrozenAt = 0x194000, TilesAt = 0x1b8000, End = 0x1ba000;
++  u32 tfrozen[2048]; u8 tisFrozen[2048];   //(docs/31: the tiles' hash << 16 | colour mask, as at the lock, at 0x1b8000)
++  u16 cvram[0x8000], startVram[0x8000];
++  bool armedGate = false, live_ = false;   //(the registers answer only after the unlock: 0xcb = 0xa5, then 0xcb = 0x5a at once)
++  u8 live[512][Cell], frozen[512][Cell];
++  u8 isFrozen[512];
++  bool locked = false, armed = false, on = false;
++  u32 fifoBytes = 0, cursor = 0, lead = 1, group = 0;
++  u32 fifoAddr = 0;          //the model's VRAM address (FIFO type 2)
++  u64 liveTotal = 0; bool liveRing = false;   //(docs/40: the FIFO a ring the stand-in CPU writes - its entries so far)
++  u64 freezes = 0;
++
++  auto row(u32 c, u32 y) -> void {
++    u16* w = cvram + c * 64;
++    u32 p0 = w[y], p1 = w[16 + y], p2 = w[32 + y], p3 = w[48 + y];
++    u8* e = live[c] + 8 * y; u8* o = live[c] + Odd + 9 * y;
++    for(u32 x : range(16)) {
++      u32 b = 15 - x;
++      u32 v = (p0 >> b & 1) | (p1 >> b & 1) << 1 | (p2 >> b & 1) << 2 | (p3 >> b & 1) << 3;
++      if(x & 1) e[x >> 1] = (e[x >> 1] & 0xf0) | v; else e[x >> 1] = (e[x >> 1] & 0x0f) | v << 4;
++    }
++    o[0] = e[0] >> 4;
++    for(u32 k = 1; k < 8; k++) o[k] = (e[k - 1] & 15) << 4 | e[k] >> 4;
++    o[8] = (e[7] & 15) << 4;
++    u32 m = (u32)live[c][Mask] << 8 | live[c][Mask + 1];
++    if(p0 | p1 | p2 | p3) m |= 0x8000 >> y; else m &= ~(0x8000u >> y);
++    live[c][Mask] = m >> 8; live[c][Mask + 1] = m;
++  }
++  auto tinfo(u32 t) -> u32 {   //Sapphire's tools/m3rt/rt_bg2.c tile_hash, tile_mask (fpga/huc/cellstore.c tinfo)
++    u16* w = cvram + t * 16; u32 h = 0x811c9dc5;
++    for(u32 k : range(16)) h = (h ^ w[k]) * 0x01000193;
++    u32 m = 0;
++    for(u32 y : range(8)) { u32 p01 = w[y], p23 = w[8 + y];
++      for(u32 x : range(8)) { u32 sh = 7 - x; m |= 1u << ((p01 >> sh & 1) | (p01 >> (sh + 8) & 1) << 1 | (p23 >> sh & 1) << 2 | (p23 >> (sh + 8) & 1) << 3); } }
++    return (u32)(u16)(h ^ h >> 16) << 16 | (m & ~1u);
++  }
++  auto vram(u32 a, u16 w) -> void {
++    if(a >= 0x8000) return;
++    if(cvram[a] == w) return;
++    u32 c = a >> 6;
++    if(locked && !isFrozen[c]) { memory::copy(frozen[c], live[c], Cell); isFrozen[c] = 1; freezes++; }
++    if(locked && !tisFrozen[a >> 4]) { tfrozen[a >> 4] = tinfo(a >> 4); tisFrozen[a >> 4] = 1; }
++    cvram[a] = w; row(c, a & 15);
++  }
++  u32 boundaries = 0, lockedAt = 0xffff;
++  auto start() -> void {
++    memory::copy(cvram, startVram, sizeof cvram);
++    memory::fill(live, sizeof live);
++    for(u32 c : range(512)) for(u32 y : range(16)) row(c, y);
++    memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); locked = armed = false; cursor = 0; fifoAddr = 0; freezes = 0; sh2At = 0; boundaries = 0; lockedAt = 0xffff;
++  }
++  //a register write (r, v); false: not the store's (the engine's own, or the store still locked out)
++  template<typename Ram> auto write(u32 r, u32 v, Ram ram) -> bool {
++    bool prev = armedGate; armedGate = false;
++    if(r == 0xcb) { if(v == 0xa5) armedGate = true; else if(v == 0x5a && prev) { start(); live_ = true; if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: unlocked\n"); } return true; }
++    if(!live_) return false;
++    if(r == 0xc6) { group = v; return true; }
++    if(r == 0xc8) { release(); return true; }
++    if(r == 0xca) { frame(v, ram); return true; }
++    return false;
++  }
++  const u16 (*checkAt)[0x8000] = nullptr; const u32* checkPic = nullptr;   //(DIAG: ARES_HUC_VCHECK, the stand-in's VRAM by picture)
++  auto boundary() -> void {
++    if(checkAt) { u32 k = boundaries & 63; if(checkPic[k] == boundaries) { u32 bad = 0, first = 0xffff; for(u32 i : range(0x8000)) if(cvram[i] != checkAt[k][i]) { if(!bad) first = i; bad++; }
++      if(bad) { fprintf(stderr, "cells: boundary %u: %u VRAM words apart, first %04x:", boundaries, bad, first); u32 n = 0; for(u32 i : range(0x8000)) if(cvram[i] != checkAt[k][i] && n++ < 6) fprintf(stderr, " %04x=%04x/%04x", i, cvram[i], checkAt[k][i]); fprintf(stderr, "\n"); checkAt = nullptr; } } }
++    boundaries++; if(armed) { armed = false; locked = true; lockedAt = boundaries & 0x7fff;   /*(15 bits, as the RTL: 0xffff is "not locked yet" - Sapphire docs/59)*/ memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: locked at %u\n", boundaries); } }
++  auto release() -> void { if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: release (boundaries %u)\n", boundaries); locked = false; armed = true; lockedAt = 0xffff; memory::fill(isFrozen, sizeof isFrozen); memory::fill(tisFrozen, sizeof tisFrozen); }
++
++  auto power() -> void {
++    on = false;
++    if(auto e = getenv("ARES_CELLS")) fifoBytes = atoi(e); else return;
++    if(auto e = getenv("ARES_CELLS_LEAD")) lead = atoi(e);
++    auto v = getenv("ARES_CELLS_VRAM"); if(!v) return;
++    if(FILE* f = fopen(v, "rb")) {
++      u8 b[0x10000]; if(fread(b, 1, sizeof b, f) == sizeof b) for(u32 i : range(0x8000)) cvram[i] = b[i * 2] | b[i * 2 + 1] << 8;
++      fclose(f);
++    } else return;
++    memory::copy(startVram, cvram, sizeof cvram);
++    if(getenv("ARES_CELLS_LOG")) fprintf(stderr, "cells: on, FIFO %u bytes\n", fifoBytes);
++    start(); live_ = false; armedGate = false; on = true;
++  }
++  //the SH2 wrote register 0xca = the boundaries it has passed (low 8 bits): the model's cursor on to `lead` past them,
++  //as the FPGA, running the CPU, would be ahead
++  u32 sh2At = 0;
++  template<typename Ram> auto frame(u32 k8, Ram ram) -> void {
++    sh2At += (u8)(k8 - sh2At);
++    if(getenv("ARES_CELLS_LOG") && getenv("ARES_CELLS_LOG")[0] == '2') fprintf(stderr, "cells: sh2 at %u\n", sh2At);
++    u64 total = liveRing ? liveTotal : fifoBytes / 4;
++    while(cursor < total && boundaries < sh2At + lead) {
++      u32 e = entry(cursor++, ram); u32 t = e >> 28, d = e & 0xffff;
++      if(t == 2) fifoAddr = d;
++      else if(t == 1) { vram(fifoAddr, d); fifoAddr = (fifoAddr + 1) & 0xffff; }
++      else if(t == 5) boundary();
++    }
++  }
++  template<typename Ram> auto entry(u32 i, const Ram& ram) -> u32 {   //(the file is little-endian, as the PC wrote it)
++    u32 l = 0x200000 + (liveRing ? i % (0x1f0000 / 4) : i) * 4;   //(ram: a functor from the cart's local address to its word, through the banks)
++    u16 a = ram(l), b = ram(l + 2);   //big-endian words of the file's bytes
++    u32 bytes = (u32)a << 16 | b;     //bytes 0..3 of the entry
++    return (bytes >> 24 & 0xff) | (bytes >> 8 & 0xff00) | (bytes << 8 & 0xff0000) | (bytes << 24);
++  }
++  auto readStore(u32 local) -> n16 {   //a 16-bit read of the stores' window
++    if(local >= TilesAt) { u32 t = (local - TilesAt) >> 2; u32 v = tisFrozen[t] ? tfrozen[t] : tinfo(t); return local & 2 ? (n16)v : (n16)(v >> 16); }
++    u32 off = local < FrozenAt ? local - LiveAt : local - FrozenAt;
++    const u8* s = local < FrozenAt ? &live[0][0] : &frozen[0][0];
++    if(off + 1 >= 512 * Cell) return 0;
++    return s[off] << 8 | s[off + 1];
++  }
++  auto liveFifo(u64 total) -> void { liveRing = true; liveTotal = total; }
++  auto bits() -> n16 { n16 v = 0; for(u32 i : range(16)) if(isFrozen[(group * 16 + i) & 511]) v.bit(i) = 1; return v; }
++};
+diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
+new file mode 100644
+index 0000000..ffe958b
+--- /dev/null
++++ b/ares/md/cartridge/board/sapphire-huchost.hpp
+@@ -0,0 +1,127 @@
++//Sapphire CD32X's CPU in the cart, a stand-in (github.com/MicroNut99/Sapphire_CD32X docs/40). The real cart runs the
++//game on its FPGA's HuC6280 and writes the FIFO of the video chips' writes (docs/20-24); ares has no model of that
++//FPGA, so with ARES_HUCHOST=<huchost.so> (tools/m3_huchost.sh: the 32X runtime's own C as a library) the board runs
++//the game itself from ARES_HUC_STATE=<DXS1 state>, its data track's sectors from ARES_HUC_TRACK=<image>, and writes
++//the FIFO into a ring at cart 0x200000-0x3EFFFF (window 1, page 1), a picture at a time, up to ARES_HUC_LEAD (4)
++//pictures past the count the SH2 writes to register 0xca. The cell store model (sapphire-cells.hpp) reads the same
++//ring. The pad: the SH2 writes registers 0xcd (low byte) and 0xce (high byte) of the libretro mask, as it would the
++//FPGA's pad register. Not the hardware: the FPGA is checked in its own simulations (fpga/huc).
++#include <dlfcn.h>
++extern "C" { extern u64 aresPcmRawSamples; }   //DIAG (docs/54: mcd/pcm.cpp)
++struct SapphireHuc {
++  static constexpr u32 Ring = 0x1f0000 / 4;   //(entries)
++  bool on = false;
++  u64 produced = 0;            //entries written
++  u32 pictures = 0;            //pictures written
++  u32 lead = 4;
++  u16 pad = 0, padLow = 0;
++  int (*frameFn)(u16, const u32**) = nullptr;
++  int (*audioFn)(const s16**) = nullptr;
++  u32 (*pcFn)() = nullptr; bool pcAbove = false; u32 pcLow = 0, pcAt = 0;   //(docs/60: the CPU's PC at each frame's end, for the board's trap)
++  void (*pokeFn)(u32, u8) = nullptr; u32 pokeAt = 0;   //(docs/58)
++  void (*warpFn)(int) = nullptr; u8 warpLives = 0;      //(docs/58: the stage select)
++  int (*psgFn)(const u16**) = nullptr;   //(docs/54: the frame's PSG register writes)
++  u32 psgCount = 0;
++  u16 psgW[65536]; u16 psgN[1024]; u32 psgWw = 0, psgWr = 0, psgFw = 0, psgFr = 0;   //(docs/55: frames' PSG writes waiting for their vertical blank)
++  bool psgNow = false; u32 psgVc = 0, psgHeld = 0;
++  template<typename Put> auto psgRelease(u32 vcounter, Put put) -> void {
++    if(vcounter >= psgVc) { psgVc = vcounter; return; }   //(not a new frame of the console's)
++    psgVc = vcounter;
++    u32 waiting = psgFw - psgFr;
++    int n = waiting > 24 ? 2 : 1;                           //(far behind: two a blank, to come back)
++    if(waiting > psgHeld) psgHeld = waiting;
++    while(n-- && psgFr != psgFw) {
++      for(u32 k = psgN[psgFr & 1023]; k; k--) { put(0x07f100 + (psgCount & 1023) * 2, psgW[psgWr++ & 65535]); psgCount++; }
++      psgFr++;
++      if(auto w = getenv("ARES_PCM_RAW")) { static FILE* f; if(!f) { string nn = {w, ".at"}; f = fopen(nn, "wb"); } if(f) { u32 k = (u32)aresPcmRawSamples; fwrite(&k, 4, 1, f); } }   //DIAG
++      put(0x07f000, 0x5450); put(0x07f002, (u16)psgCount);
++    }
++  }
++  //(Sapphire docs/55, ARES_HUC_PACE=1) the game at its own rate: a frame made a vertical blank at most, up to what the SH2 allows
++  //(want) - not all of them at once when the SH2 asks, which no cart would do and which chops the sound
++  bool pace = false; u32 want = 0, credit = 0, lastVc = 0, burst = 0;   //(burst: frames that had to be made at once for the SH2)
++  const u16* (*vramFn)() = nullptr;   //(DIAG: ARES_HUC_VCHECK)
++  u16 vramAt[64][0x8000]; u32 vramPic[64];   //(the game's VRAM at the last 64 pictures, by picture)
++  u32 samples = 0;            //(docs/44: PWM samples written to the ring at cart 0x3F0000, 32,768 of them; register 0xcc)
++  static constexpr u32 PwmCycle = 1044;
++
++  auto power() -> void {
++    if(getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: power (had %u pictures)\n", pictures);
++    on = false; produced = 0; pictures = 0; pad = 0; samples = 0;
++    auto so = getenv("ARES_HUCHOST"); if(!so) return;
++    void* h = dlopen(so, RTLD_NOW | RTLD_LOCAL);
++    if(!h) { fprintf(stderr, "huchost: %s\n", dlerror()); return; }
++    auto init = (int (*)(const char*, const char*))dlsym(h, "huchost_init");
++    frameFn = (int (*)(u16, const u32**))dlsym(h, "huchost_frame");
++    pcFn = (u32 (*)())dlsym(h, "huchost_pc"); pcAbove = false; pcLow = 0;
++    audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
++    psgFn = (int (*)(const u16**))dlsym(h, "huchost_psg"); psgCount = 0;
++    pokeFn = (void (*)(u32, u8))dlsym(h, "huchost_poke");
++    warpFn = (void (*)(int))dlsym(h, "huchost_warp");
++    if(!getenv("ARES_HUC_PSGRING")) psgFn = nullptr;
++    psgNow = getenv("ARES_HUC_PSGRING") && getenv("ARES_HUC_PSGRING")[0] == '2'; psgWw = psgWr = psgFw = psgFr = 0; psgVc = 0;
++    vramFn = (const u16* (*)())dlsym(h, "huchost_vram");
++    if(!init || !frameFn || !init(getenv("ARES_HUC_STATE"), getenv("ARES_HUC_TRACK"))) { fprintf(stderr, "huchost: not started\n"); return; }
++    if(auto e = getenv("ARES_HUC_LEAD")) lead = atoi(e);
++    pace = getenv("ARES_HUC_PACE") != nullptr; want = 0; credit = 0;
++    on = true;
++    fprintf(stderr, "huchost: on\n");
++  }
++  //pictures up to `want`: the game run a frame at a time, its entries into the ring (put(local, word))
++  template<typename Put> auto produce(u32 want, Put put) -> void {
++    while(on && pictures < want) {
++      const u32* e = nullptr; int n = frameFn(pad, &e);
++      if(pcFn) { u32 pc = pcFn() & 0xffff; if(pc >= 0x2000) pcAbove = true; else if(pcAbove) { pcLow++; pcAt = pc; } }   //(docs/60: below $2000 after having run above it)
++      if(auto w = getenv("ARES_PCM_RAW"); w && (!psgFn || psgNow)) {   //DIAG (docs/54): the PCM capture's sample count at each game frame made (<file>.at, u32) - or, with the writes let in a frame a blank, at each frame let in (psgRelease)
++        static FILE* f; if(!f) { string nn = {w, ".at"}; f = fopen(nn, "wb"); }
++        if(f) { u32 k = (u32)aresPcmRawSamples; fwrite(&k, 4, 1, f); }
++      }
++      if(psgFn) {   //(Sapphire docs/54, the BootCamp's TPSG) the PSG's register writes for the ring the 68000 reads for the Sub-CPU:
++        //cart 0x07F000 (window 0) = 0x5450, + 2 the count of writes so far, from + 0x100 1,024 words (register << 8 | value).
++        //(docs/55) The cart's game runs at its own rate, so its writes reach the ring a frame's at a time, a frame apart. This
++        //stand-in makes frames when the SH2 asks, several at once: each frame's writes are kept here and let into the ring one
++        //frame a vertical blank (psgRelease, from the board's reads) - ARES_HUC_PSGRING=2: at once, as made
++        const u16* w = nullptr; int nw = psgFn(&w);
++        if(psgNow) { for(int i = 0; i < nw; i++) { put(0x07f100 + (psgCount & 1023) * 2, w[i]); psgCount++; } put(0x07f000, 0x5450); put(0x07f002, (u16)psgCount); }
++        else if(psgFw - psgFr < 1000) { for(int i = 0; i < nw; i++) psgW[psgWw++ & 65535] = w[i]; psgN[psgFw++ & 1023] = (u16)nw; }
++      }
++      if(audioFn) {   //(docs/44) the frame's sound as the PWM's pulse widths, 1..cycle-1 about the middle
++        const s16* a = nullptr; int na = audioFn(&a);
++        if(auto w = getenv("ARES_HUC_WAV")) {   //DIAG (docs/48): the stand-in's sound in the game's time - raw s16, 22,044 Hz, and its count a frame (<w>.n, u16)
++          static FILE *f, *fn; if(!f) { f = fopen(w, "wb"); string nn = {w, ".n"}; fn = fopen(nn, "wb"); }
++          if(f) { fwrite(a, 2, na, f); u16 k = na; fwrite(&k, 2, 1, fn); }
++        }
++        for(int i = 0; i < na; i++) {
++          s32 w = PwmCycle / 2 + (s32)a[i] * (s32)(PwmCycle / 2 - 2) / 32768;
++          put(0x3f0000 + (samples & 0x7fff) * 2, (u16)w);
++          samples++;
++        }
++      }
++      for(int i = 0; i < n; i++) {
++        u32 l = 0x200000 + (u32)(produced % Ring) * 4, x = e[i];
++        put(l, (u16)((x & 0xff) << 8 | (x >> 8 & 0xff)));          //(little-endian, as the files the PC wrote)
++        put(l + 2, (u16)((x >> 16 & 0xff) << 8 | (x >> 24 & 0xff)));
++        produced++;
++        if(pace && (x >> 28) == 5 && (pictures + 1) % 3000 == 0) fprintf(stderr, "huchost: %u game frames made, %u of them at once for the SH2\n", pictures + 1, burst);
++        if(produced % Ring == 0 && getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: ring wrapped at picture %u\n", pictures);
++        if((x >> 28) == 5) { if(vramFn && getenv("ARES_HUC_VCHECK")) { memory::copy(vramAt[pictures & 63], vramFn(), 0x10000); vramPic[pictures & 63] = pictures; } pictures++; if(getenv("ARES_HUC_LOG") && pictures % 300 == 0) fprintf(stderr, "huchost: %u pictures, %llu entries, pad %04x\n", pictures, (unsigned long long)produced, (unsigned)pad); }
++      }
++    }
++  }
++  auto write(u32 r, u32 v) -> bool {
++    if(!on) return false;
++    //(Sapphire docs/58: the options menu) the poke port into the cart CPU's RAM: 0xcf the address' low byte, 0xd0 its high
++    //byte, 0xd1 the value - written at once (below 0x2000 the base RAM, from 0x2000 the CD RAM, as the recordings' pokes)
++    if(r == 0xcf) { pokeAt = (pokeAt & 0xff00) | v; return true; }
++    if(r == 0xd0) { pokeAt = (pokeAt & 0x00ff) | v << 8; return true; }
++    if(r == 0xd1) { if(pokeFn) pokeFn(pokeAt, v); if(getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: poke %04x = %02x\n", pokeAt, v); return true; }
++    //0xd2: a new game held to stage 1-5 (the stand-in resets its machine, presses RUN to the game's start and serves the
++    //stage's own sectors - sapmhost.c huchost_warp; on the cart the engine's reset, feed and poke port)
++    //(0xd3 first: the new game's lives, 0 the game's own)
++    if(r == 0xd3) { warpLives = v; return true; }
++    if(r == 0xd2) { if(warpFn) warpFn(v | warpLives << 8); if(getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: warp to stage %d, lives %d\n", v, warpLives); return true; }
++    if(r == 0xcd) { padLow = v; if(getenv("ARES_HUC_LOG2")) fprintf(stderr, "huchost: w cd %02x\n", v); return true; }
++    if(r == 0xce) { u16 p = (u16)(v << 8 | padLow); if(p != pad && getenv("ARES_HUC_LOG")) fprintf(stderr, "huchost: pad %04x at picture %u\n", p, pictures); pad = p; return true; }
++    return false;
++  }
++};
+diff --git a/ares/md/m32x/bus-internal.cpp b/ares/md/m32x/bus-internal.cpp
+index de5a8ec..308f8ed 100644
+--- a/ares/md/m32x/bus-internal.cpp
++++ b/ares/md/m32x/bus-internal.cpp
+@@ -82,6 +82,20 @@ auto M32X::readInternal(n1 upper, n1 lower, n32 address, n16 data) -> n16 {
+   return data;
+ }
+ 
++//DIAG (Sapphire docs/58): ARES_WATCH=<lo>,<hi> (hex, SDRAM offsets) - the last 1,024 SH2 writes into the range are kept,
++//with the writing CPU's PC, PR and R15, and printed at an illegal instruction (exceptions.cpp, ARES_PC=1)
++static u32 diagWatchLo = 0, diagWatchHi = 0; static int diagWatchInit = 0;
++struct DiagWatch { u32 a, d, pc, pr, sp; u8 cpu, mask; };
++static DiagWatch diagW[1024]; static u32 diagWn = 0;
++extern "C" void aresWatchDump() {
++  if(!diagWatchHi) return;
++  const u32 n = diagWn < 1024 ? diagWn : 1024;
++  fprintf(stderr, "[watch] the last %u writes into SDRAM %05x-%05x (of %u):\n", n, diagWatchLo, diagWatchHi, diagWn);
++  for(u32 i = diagWn - n; i != diagWn; i++) { const DiagWatch& w = diagW[i & 1023];
++    fprintf(stderr, "[watch] %c %05x %s= %04x  pc %08x pr %08x r15 %08x\n", w.cpu ? 's' : 'm', w.a, w.mask == 3 ? "" : w.mask == 2 ? "hi " : "lo ", w.d, w.pc, w.pr, w.sp); }
++  diagWatchHi = 0;   //(once)
++}
++
+ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
+   if(address >= 0x0000'4000 && address <= 0x0000'43ff) {
+     return writeInternalIO(upper, lower, address, data);
+@@ -113,6 +127,10 @@ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
+   }
+ 
+   if(address >= 0x0600'0000 && address <= 0x0603'ffff) {
++    if(!diagWatchInit) { diagWatchInit = 1; if(const char* e = getenv("ARES_WATCH")) { char* q; diagWatchLo = (u32)strtoul(e, &q, 16) & 0x3ffff; diagWatchHi = *q == ',' ? (u32)strtoul(q + 1, nullptr, 16) & 0x7ffff : 0; } }
++    if(diagWatchHi) { const u32 a = address & 0x3ffff;
++      if(a >= diagWatchLo && a < diagWatchHi) { auto& c = shm.active() ? shm : shs;
++        diagW[diagWn++ & 1023] = {a, (u32)data, (u32)c.regs.PC, (u32)c.regs.PR, (u32)c.regs.R[15], (u8)!shm.active(), (u8)((u32)upper << 1 | (u32)lower)}; } }
+     stats.sdramWrite++;
+     busCharge(timing.sdramWrite, timing.holdWrite);
+     if(upper) sdram[address >> 1 & 0x1ffff].byte(1) = data.byte(1);
+diff --git a/ares/md/mcd/pcm.cpp b/ares/md/mcd/pcm.cpp
+index 18325ce..2f673d0 100644
+--- a/ares/md/mcd/pcm.cpp
++++ b/ares/md/mcd/pcm.cpp
+@@ -15,6 +15,8 @@ auto MCD::PCM::unload(Node::Object parent) -> void {
+   ram.reset();
+ }
+ 
++extern "C" { u64 aresPcmRawSamples = 0; }   //DIAG (Sapphire docs/54): samples written to ARES_PCM_RAW so far
++
+ auto MCD::PCM::clock() -> void {
+   s32 left  = 0;
+   s32 right = 0;
+@@ -42,6 +44,8 @@ auto MCD::PCM::clock() -> void {
+   //clamp to 10-bit DAC output rate
+   left  = sclamp<16>(left ) >> 2 & ~15;
+   right = sclamp<16>(right) >> 2 & ~15;
++  { static int on = -1; static FILE* f; if(on < 0) { auto e = getenv("ARES_PCM_RAW"); on = e != nullptr; if(on) f = fopen(e, "wb"); }   //DIAG (Sapphire docs/54): the PCM chip alone, raw s16 mono, 32,552 Hz
++    if(on && f) { s16 v = (left + right) / 2; fwrite(&v, 2, 1, f); aresPcmRawSamples++; } }
+   stream->frame(left / 32768.0, right / 32768.0);
+ }
+ 
+@@ -62,6 +66,8 @@ auto MCD::PCM::read(n13 address, n8 data) -> n8 {
+ }
+ 
+ auto MCD::PCM::write(n13 address, n8 data) -> void {
++  { static int on = -1; static FILE* f; if(on < 0) { auto e = getenv("ARES_PCM_REGLOG"); on = e != nullptr; if(on) f = fopen(e, "wb"); }   //DIAG (Sapphire docs/55): every write to the chip - u32 the capture's sample count, u16 address, u8 data, u8 the channel selected
++    if(on && f && address < 0x1000) { u32 t = (u32)aresPcmRawSamples; u16 a = address; u8 d = data, c = io.channel; fwrite(&t, 4, 1, f); fwrite(&a, 2, 1, f); fwrite(&d, 1, 1, f); fwrite(&c, 1, 1, f); } }
+   if(address >= 0x1000 && address <= 0x1fff) {
+     ram[io.bank << 12 | (n12)address] = data;
+     return;
+diff --git a/ares/md/vdp/fifo.cpp b/ares/md/vdp/fifo.cpp
+index e2d2f65..bcb15c0 100644
+--- a/ares/md/vdp/fifo.cpp
++++ b/ares/md/vdp/fifo.cpp
+@@ -57,8 +57,13 @@ auto VDP::FIFO::run() -> bool {
+     vdp.vram.writeByte(slots[0].address | 1, slots[0].data.byte(0));
+   else if(slots[0].target == 3)
+     vdp.cram.write(slots[0].address >> 1, slots[0].data);
+-  else if(slots[0].target == 5)
++  else if(slots[0].target == 5) {
++    //(DIAG, Sapphire CD32X docs/35: ARES_VSRAM_LOG=<from frame> prints VSRAM 0's writes with the line they land on)
++    static s64 from = getenv("ARES_VSRAM_LOG") ? atoll(getenv("ARES_VSRAM_LOG")) : -1;
++    if(from >= 0 && (slots[0].address >> 1) == 0 && (s64)vdp.diagFrames >= from)
++      fprintf(stderr, "vsram0 frame %llu line %u = %03x\n", (unsigned long long)vdp.diagFrames, (u32)vdp.vcounter(), (u32)(slots[0].data & 0x3ff));
+     vdp.vsram.write(slots[0].address >> 1, slots[0].data);
++  }
+   else
+     debug(unusual, "[VDP::FIFO] write target = 0x", hex(slots[0].target));
+ 
+diff --git a/ares/md/vdp/main.cpp b/ares/md/vdp/main.cpp
+index fd51370..aa2af72 100644
+--- a/ares/md/vdp/main.cpp
++++ b/ares/md/vdp/main.cpp
+@@ -75,7 +75,7 @@ template<bool _h40, bool _refresh> auto VDP::tick() -> void {
+ 
+ auto VDP::vblankcheck() -> void {
+   if(v28()) {
+-    if(vcounter() == 0x0e0) vblank(1);
++    if(vcounter() == 0x0e0) { vblank(1); diagFrames++; }
+     if(vcounter() == 0x1ff) vblank(0);
+   }
+   if(v30()) {
+diff --git a/ares/md/vdp/vdp.hpp b/ares/md/vdp/vdp.hpp
+index 3588365..52cf083 100644
+--- a/ares/md/vdp/vdp.hpp
++++ b/ares/md/vdp/vdp.hpp
+@@ -38,6 +38,7 @@ struct VDP : Thread {
+   auto debugVSRAM(u32 a) const -> u16 { return a < 40 ? (u16)vsram.memory[a] : 0; }
+   auto hcounter() const -> u32 { return state.hcounter; }
+   auto vcounter() const -> u32 { return state.vcounter; }
++  u64 diagFrames = 0;   //(DIAG: vblanks seen, for ARES_VSRAM_LOG)
+   auto field() const -> bool { return state.field; }
+   auto hblank() const -> bool { return state.hblank; }
+   auto vblank() const -> bool { return state.vblank; }
