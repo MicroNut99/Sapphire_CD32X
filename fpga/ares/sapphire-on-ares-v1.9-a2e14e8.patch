@@ -237,7 +237,7 @@ index ae39053..7b43eab 100644
  #include "mega-32x.cpp"
  #include "debugger.cpp"
 diff --git a/ares/md/cartridge/board/everdrive-pro.cpp b/ares/md/cartridge/board/everdrive-pro.cpp
-index 086033d..8ae751a 100644
+index 086033d..056c5f9 100644
 --- a/ares/md/cartridge/board/everdrive-pro.cpp
 +++ b/ares/md/cartridge/board/everdrive-pro.cpp
 @@ -86,6 +86,13 @@ struct EverDrivePro : Interface {
@@ -276,7 +276,7 @@ index 086033d..8ae751a 100644
    auto dxTrap(u32 kind, const string& what) -> void { coreTrap(TrapDracx, kind, what); }
    static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
  
-@@ -515,7 +526,83 @@ struct EverDrivePro : Interface {
+@@ -515,7 +526,94 @@ struct EverDrivePro : Interface {
    }
  
    auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
@@ -311,6 +311,15 @@ index 086033d..8ae751a 100644
 +          u32 v = off >> 9 & 0xff;
 +          if(huc.on && cells.live_ && r == 0xcd && (v & 0x04)) {   //(docs/60: as the cores - RUN + SELECT is the PC Engine's reset pair)
 +            spTrap(3, "SELECT asked by the SH2: a PC Engine CD core never gives it (RUN + SELECT is the PC Engine's reset)"); v &= 0xfb; }
++          //(Sapphire docs/63) the save port: 2 KB at the battery RAM (bank 31) + 0x1000, which the EverDrive's OS keeps on the SD
++          //card - as the cart core's (fpga/gotcore): 0xd4 / 0xd5 the address, 0xd6 a byte written there and the address stepped
++          //(an even byte the word's high half, as the 68000 sees the bank)
++          if(huc.on && cells.live_ && (r == 0xd4 || r == 0xd5 || r == 0xd6)) {
++            if(r == 0xd4) huc.saveAt = (huc.saveAt & 0x700) | v;
++            else if(r == 0xd5) huc.saveAt = (huc.saveAt & 0xff) | (v & 7) << 8;
++            else { u32 b = 0x1000 + huc.saveAt, w = 31 << 18 | b >> 1; n16 o = ram[w]; ram.write(w, b & 1 ? (n16)((o & 0xff00) | v) : (n16)((o & 0x00ff) | v << 8)); huc.saveAt = (huc.saveAt + 1) & 0x7ff; }
++            return data;
++          }
 +          if(cells.live_ && huc.write(r, v)) return data;   //(the pad only after the unlock: a start-up scan of the window wrote it 0-255)
 +          if(huc.on && cells.live_ && r == 0xca) {   //(docs/46: only after the unlock - the start-up scan wrote 0xca 0-255, and the pictures it made went into the ring before the disc's loads; the pictures the SH2 will want: written before the store reads them)
 +            u32 at = cells.sh2At + (u8)(v - cells.sh2At);
@@ -333,6 +342,8 @@ index 086033d..8ae751a 100644
 +          }
 +        }
 +        else if(huc.on && r == 0xcc) return (n16)huc.samples;   //(docs/44: the PWM samples written so far)
++        else if(huc.on && cells.live_ && r == 0xd7) { u32 b = 0x1000 + huc.saveAt; n16 o = ram[31 << 18 | b >> 1]; huc.saveAt = (huc.saveAt + 1) & 0x7ff; return (n16)(b & 1 ? o & 0xff : o >> 8); }   //(docs/63: the save port's read)
++        else if(huc.on && cells.live_ && r == 0xd8) return (n16)(huc.peekFn ? huc.peekFn(huc.pokeAt) : 0xff);   //(docs/63: the peek)
 +        else if(!cells.live_) {}
 +        else if(r == 0xc7) return cells.bits();
 +        else if(r == 0xc9) return (n16)cells.lockedAt;
@@ -360,7 +371,7 @@ index 086033d..8ae751a 100644
      if(gotx) {
        u32 off = (word & 0x3ffff) << 1; n16 v;
        if(word >> 18 == GxBank && gxRead(off, v)) return v;
-@@ -553,6 +640,10 @@ struct EverDrivePro : Interface {
+@@ -553,6 +651,10 @@ struct EverDrivePro : Interface {
        gxTrap(1, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
        return;
      }
@@ -371,7 +382,7 @@ index 086033d..8ae751a 100644
      if(dracx && dx.on) {   //(DraculaX docs/171: chip 1 the engine's once started; its windows 6 and 7 still the core's)
        u32 b = offset(address) >> 19;
        if(b >= 16 && b <= 30 && b != bank[6] && b != bank[7]) {
-@@ -563,10 +654,24 @@ struct EverDrivePro : Interface {
+@@ -563,10 +665,24 @@ struct EverDrivePro : Interface {
      if(!writeEnable || writeProtect) return;
      u32 word = offset(address) >> 1;
      if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)
@@ -396,7 +407,7 @@ index 086033d..8ae751a 100644
    }
  
    auto corrupt(u32 word, n16 data) -> void {
-@@ -639,6 +744,11 @@ struct EverDrivePro : Interface {
+@@ -639,6 +755,11 @@ struct EverDrivePro : Interface {
    auto power(bool reset) -> void override {
      dx = {};   //(dracx: the engine at its reset until the start read)
      gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
@@ -537,10 +548,10 @@ index 0000000..d04b37d
 +};
 diff --git a/ares/md/cartridge/board/sapphire-huchost.hpp b/ares/md/cartridge/board/sapphire-huchost.hpp
 new file mode 100644
-index 0000000..ffe958b
+index 0000000..4e71553
 --- /dev/null
 +++ b/ares/md/cartridge/board/sapphire-huchost.hpp
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,130 @@
 +//Sapphire CD32X's CPU in the cart, a stand-in (github.com/MicroNut99/Sapphire_CD32X docs/40). The real cart runs the
 +//game on its FPGA's HuC6280 and writes the FIFO of the video chips' writes (docs/20-24); ares has no model of that
 +//FPGA, so with ARES_HUCHOST=<huchost.so> (tools/m3_huchost.sh: the 32X runtime's own C as a library) the board runs
@@ -562,6 +573,8 @@ index 0000000..ffe958b
 +  int (*audioFn)(const s16**) = nullptr;
 +  u32 (*pcFn)() = nullptr; bool pcAbove = false; u32 pcLow = 0, pcAt = 0;   //(docs/60: the CPU's PC at each frame's end, for the board's trap)
 +  void (*pokeFn)(u32, u8) = nullptr; u32 pokeAt = 0;   //(docs/58)
++  u8 (*peekFn)(u32) = nullptr;                          //(docs/63: the game's RAM read at pokeAt)
++  u32 saveAt = 0;                                        //(docs/63: the save port's address, 0-2047)
 +  void (*warpFn)(int) = nullptr; u8 warpLives = 0;      //(docs/58: the stage select)
 +  int (*psgFn)(const u16**) = nullptr;   //(docs/54: the frame's PSG register writes)
 +  u32 psgCount = 0;
@@ -600,6 +613,7 @@ index 0000000..ffe958b
 +    audioFn = (int (*)(const s16**))dlsym(h, "huchost_audio");
 +    psgFn = (int (*)(const u16**))dlsym(h, "huchost_psg"); psgCount = 0;
 +    pokeFn = (void (*)(u32, u8))dlsym(h, "huchost_poke");
++    peekFn = (u8 (*)(u32))dlsym(h, "huchost_peek");
 +    warpFn = (void (*)(int))dlsym(h, "huchost_warp");
 +    if(!getenv("ARES_HUC_PSGRING")) psgFn = nullptr;
 +    psgNow = getenv("ARES_HUC_PSGRING") && getenv("ARES_HUC_PSGRING")[0] == '2'; psgWw = psgWr = psgFw = psgFr = 0; psgVc = 0;

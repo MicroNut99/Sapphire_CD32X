@@ -1433,6 +1433,66 @@ static void opt_poke(unsigned a, unsigned val) { CS_WR(0xcf, a & 0xFF); CS_WR(0x
 static int opt_lives_on;                                      /* (the menu set the lives once: a new game's too) */
 static void opt_lives_set(void) { opt_poke(0xC00C, (unsigned)opt_lives); }
 static char *o_num(char *d, int v) { if (v >= 10) *d++ = (char)('0' + v / 10); *d++ = (char)('0' + v % 10); *d = 0; return d; }
+/* (docs/63; the owner, 13 Nov: keep the menu's settings and the high score) The game itself never saves (docs/62: no
+   read or write of its backup RAM in 75,000 frames, no bm_read / bm_write in its code) and shows no high score. The port
+   keeps one record of its own in the cart's save area: the EverDrive's battery RAM, which its OS keeps on the SD card as
+   bram.srm. The record is the BootCamp sdcard/ kit's form (magic, length, FNV-1a, its complement, then the data), so a
+   blank or garbage area reads as "no save". The cart's save port (2 KB at battery RAM + 0x1000): registers 0xd4 / 0xd5
+   the address, 0xd6 writes a byte there and steps it, a read of 0xd7 reads one and steps it. The game's RAM by the
+   peek: 0xcf / 0xd0 the address (the poke port's), a read of 0xd8 the byte.
+   The score: CD RAM $A070 / $A072 / $A074 (poke addresses $C070 / $C072 / $C074; $C071 / $C073 / $C075 stay 0 in the
+   recording - most likely player 2's) hold the score / 10, low byte first (docs/63: 240 at frame 9,000 with 2,400 on
+   screen; it never drops in the whole recorded game). */
+#define SV_MAGIC 0x53505331u                                  /* 'SPS1' */
+enum { SV_VER = 1, SV_LEN = 12 };
+static uint32_t sv_best, sv_saved_best; static int sv_loaded, sv_dirty, sv_err = -1; static uint32_t sv_age;
+static long sv_act = -100000, sv_run = -100000;              /* (the game frames of the pad's last input and last RUN: the
+                                                                 title's attract demo plays two players with scores and no one
+                                                                 at the pad - in ares it reached 19,850; it counts only while
+                                                                 someone holds the pad, not just after a RUN) */
+static uint32_t sv_fnv(const uint8_t *p, unsigned n) { uint32_t h = 0x811C9DC5u; while (n--) { h ^= *p++; h *= 0x01000193u; } return h; }
+static void sv_put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }
+static uint32_t sv_get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+static void sv_at(unsigned a) { CS_WR(0xd4, a & 0xFF); CS_WR(0xd5, (a >> 8) & 0x07); }
+static uint8_t opt_peek(unsigned a) { CS_WR(0xcf, a & 0xFF); CS_WR(0xd0, (a >> 8) & 0xFF); return (uint8_t)CS_RD(0xd8); }
+static int sv_write(void)                                     /* 0 written and read back equal */
+{
+    uint8_t r[16 + SV_LEN], b[16 + SV_LEN];
+    uint8_t *d = r + 16;
+    d[0] = SV_VER; d[1] = (uint8_t)opt_lives; d[2] = (uint8_t)opt_lives_on; d[3] = (uint8_t)opt_inf; d[4] = (uint8_t)opt_auto;
+    d[5] = (uint8_t)opt_mus; d[6] = (uint8_t)opt_fx; d[7] = 0; sv_put32(d + 8, sv_best);
+    const uint32_t h = sv_fnv(d, SV_LEN);
+    sv_put32(r + 4, SV_LEN); sv_put32(r + 8, h); sv_put32(r + 12, ~h); sv_put32(r, 0);   /* (the magic last: below) */
+    sv_at(4); for (unsigned i = 4; i < sizeof r; i++) CS_WR(0xd6, r[i]);
+    sv_at(0); sv_put32(r, SV_MAGIC); for (unsigned i = 0; i < 4; i++) CS_WR(0xd6, r[i]);   /* (a save cut off half way: no magic, or the sum fails) */
+    sv_at(0); for (unsigned i = 0; i < sizeof b; i++) b[i] = (uint8_t)CS_RD(0xd7);
+    for (unsigned i = 0; i < sizeof b; i++) if (b[i] != r[i]) return sv_err = 1;
+    sv_saved_best = sv_best; sv_dirty = 0; return sv_err = 0;
+}
+static void sv_load(void)                                     /* the settings and the best score, if a good record is there */
+{
+    uint8_t r[16 + SV_LEN]; const uint8_t *d = r + 16;
+    sv_at(0); for (unsigned i = 0; i < sizeof r; i++) r[i] = (uint8_t)CS_RD(0xd7);
+    if (sv_get32(r) != SV_MAGIC) { sv_err = 2; return; }      /* (none: the first start, a fresh bram.srm) */
+    const uint32_t h = sv_get32(r + 8);
+    if (sv_get32(r + 4) != SV_LEN || sv_get32(r + 12) != ~h || sv_fnv(d, SV_LEN) != h || d[0] != SV_VER) { sv_err = 3; return; }
+    if (d[1] >= 1 && d[1] <= 9) opt_lives = d[1];
+    opt_lives_on = d[2] != 0; opt_inf = d[3] != 0; opt_auto = d[4] != 0;
+    if (d[5] <= 8) opt_mus = d[5];
+    if (d[6] <= 8) opt_fx = d[6];
+    sv_best = sv_saved_best = sv_get32(d + 8); sv_err = 0;
+}
+static void sv_score(void)                                    /* the score now, the best kept: read twice, equal (no torn read) */
+{
+    uint32_t a, b;
+    a = opt_peek(0xC070) | (uint32_t)opt_peek(0xC072) << 8 | (uint32_t)opt_peek(0xC074) << 16;
+    b = opt_peek(0xC070) | (uint32_t)opt_peek(0xC072) << 8 | (uint32_t)opt_peek(0xC074) << 16;
+    if (a == b && a > sv_best && a < 10000000u) { sv_best = a; sv_dirty = 1; }
+}
+static char *o_score(char *t, uint32_t s10)                  /* the score as the game shows it: 8 digits */
+{
+    uint32_t v = s10 * 10u; for (int i = 7; i >= 0; i--) { t[i] = (char)('0' + v % 10u); v /= 10u; } t[8] = 0; return t;
+}
 static void opt_menu(void)
 {
     volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
@@ -1466,7 +1526,8 @@ static void opt_menu(void)
                 else if (i == R_FX) { o_num(t, opt_fx); val = t; }
                 if (val) { o_text(208, y, "<", O_DIM); o_text(224, y, val, c); o_text(256, y, ">", O_DIM); }
             }
-            if (row == R_STAGE) o_mid(160, "STAGE: SELECT LEVEL. PRESS A TO START", O_DIM);
+            { char t[24] = "HIGH SCORE  "; o_score(t + 12, sv_best); o_mid(154, t, O_TXT); }   /* (docs/63) */
+            if (row == R_STAGE) o_mid(165, "STAGE: SELECT LEVEL. PRESS A TO START", O_DIM);
             o_mid(176, "UP/DOWN PICK  LEFT/RIGHT CHANGE", O_DIM); o_mid(186, "A/START: DO IT   B: BACK", O_DIM);
             o_mid(206, "PORTED BY MICRONUT99", O_HI);
         } else {
@@ -1499,6 +1560,7 @@ static void opt_menu(void)
         if (row == R_FX) { opt_fx += ch; if (opt_fx < 0) opt_fx = 0; if (opt_fx > 8) opt_fx = 8; }
     }
     if (!warp && (lives_touched || opt_inf)) opt_lives_set();
+    sv_dirty = 1; sv_write();                                  /* (docs/63: the settings as the menu leaves them) */
     for (int b = 0; b < 2; b++) {                             /* both buffers as the game keeps them: the picture clear, the borders opaque */
         for (int y = 0; y < 224; y++) for (int x = 0; x < 160; x++) FB[0x100 + y * 160 + x] = (x < 16 || x >= 144) ? 0x1010 : 0;
         spr_last_clear((MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1);
@@ -1596,6 +1658,8 @@ static void fifo_play(V32 *v, long frames)
                     if (rawp & SEGA_CTRL_START) { if (++st_hold == 30) opt_req = 1; }
                     else { if (st_hold > 0 && st_hold < 30) st_run = 8; st_hold = 0; }
                     if (st_run) { st_run--; m |= 1u << 3; } }
+                if (rawp & 0x0FFF) sv_act = k;                     /* (docs/63) */
+                if (m & (1u << 3)) sv_run = k;
                 if (opt_auto && (k & 2)) m &= ~1u;                /* (autofire: II let go every other pair of frames) */
                 if (opt_inf && (k & 31) == 0) opt_lives_set();
 #else
@@ -1616,6 +1680,14 @@ static void fifo_play(V32 *v, long frames)
                     for (int n = 0; n < 40000000 && MARS_SYS_COMM0 != 0; n++) { }
                 }
             }
+#endif
+#if defined(FIFO_LIVE) && defined(SP_MENU)
+            if (!sv_loaded) {                                 /* (docs/63) the saved settings, once, after the effects' ring is on */
+                sv_loaded = 1; sv_load();
+                if (opt_mus != 8) opt_cmd103(3, (uint32_t)opt_mus * 0x80);
+                if (opt_fx != 8) opt_cmd103(2 | (unsigned)opt_fx << 8, 0);
+            }
+            if (k % 60 == 30) { if (k - sv_act < 600 && k - sv_run > 120) sv_score(); if (sv_dirty && ++sv_age >= 10) { sv_age = 0; sv_write(); } }
 #endif
 #if defined(FIFO_LIVE) && defined(PWM_SOUND)
             if (!pwm_on) {                                    /* (docs/44: the sound on once the ring holds 3,000 samples,

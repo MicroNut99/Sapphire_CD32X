@@ -243,6 +243,8 @@ uint32_t huchost_pc(void) { return sapm_pc(); }
 /* docs/58 (the options menu): a byte into the game's RAM through the cart's poke port - below 0x2000 the base RAM, from
    0x2000 the CD RAM (the recordings' pokes' addresses) */
 void huchost_poke(uint32_t a, uint8_t v) { if (a < 0x2000) sapm_base_ram()[a] = v; else if (a - 0x2000 < 0x10000) sapm_cd_ram()[a - 0x2000] = v; }
+uint8_t huchost_peek(uint32_t a)                               /* (docs/63: the game's RAM read, the poke's addresses) */
+{ if (a < 0x2000) return sapm_base_ram()[a]; if (a - 0x2000 < 0x10000) return sapm_cd_ram()[a - 0x2000]; return 0xFF; }
 void huchost_warp(int stage)                                  /* (docs/58: the cart's register - a new game at stage 1-5;
                                                                  bits 8-15: its lives, 0 the game's own) */
 {

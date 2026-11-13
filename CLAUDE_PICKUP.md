@@ -271,6 +271,13 @@ Read `CLAUDE.md` first.
      as a patch against GoT's files applied to a copy in the work folder; then the bench with `sapm` as the host, the
      fit's `.bat`, the ares model, the program.** The game does not save yet.
 
+  58. **docs/63 (the owner: keep the settings and the high score; "Best Score to High Score"):** the game saves nothing
+     and shows no high score; its score is CD RAM $A070/$A072/$A074 ÷ 10 (poke $C070...). One record (`SPS1`, the
+     sdcard kit's form) at bank 31 + 0x1000: the menu's settings and the HIGH SCORE (shown in the menu), loaded at the
+     start, written at the menu's close and 10 s after a new high score; a score counts only with the pad in use (the
+     attract demo scores). Stand-in ports 0xd4-0xd8 (ares `a39c246`, `fpga/ares` patch; `huchost_peek`); tests
+     `work/save.sh`, `work/warp.sh`. **Next: the same ports in GoT's core (make_core.py): the save port on the battery
+     RAM chip, peek / poke into CD RAM through the cache.**
 ## 2. Where things live
 
 | What | Where | In git? |

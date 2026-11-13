@@ -7,6 +7,10 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**Saves (13 Nov 2026, [docs/63](docs/63_THE_SETTINGS_AND_THE_HIGH_SCORE_ON_THE_SD_CARD.md)):** the options menu's
+settings and a HIGH SCORE (the game has none of its own) kept in the EverDrive's battery RAM, which its OS keeps on the
+SD card. ares only; the cart core's ports are still to write.
+
 **Route to the console (13 Nov 2026, [docs/62](docs/62_GATE_OF_THUNDERS_CORE_AND_THE_ARCADE_CARD.md)):** the owner's choice -
 Gate of Thunder's console-proven cart core with the Arcade Card added. The card is written and equal to Mednafen's
 (`fpga/gotcore/sap_ac.sv`); the combined core, its bench, fit, ares model and program are still to do. Saving will be the
