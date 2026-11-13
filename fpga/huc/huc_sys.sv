@@ -58,7 +58,16 @@ module huc_sys (
   reg  [7:0] read_index;
   reg  [8:0] ctaddress;
   reg  [7:0] vce_cr;
+  // (docs/60) the colours in a block RAM. Read in the clock they were addressed in, as they were, they are 4,608
+  // flip-flops and a 512-way multiplexer (yosys: 4,666 flip-flops in this module). Now the RAM's read port follows the
+  // address's value AFTER the clock (ct_next), so the colour at ctaddress is there (col_q) the clock after any change
+  // of it - an access for one clock sees no difference; a write to the address being read is carried past the RAM
+  // (byp: a block RAM's read during a write gives the old word)
   reg  [8:0] color [0:511];
+  reg  [8:0] col_q, byp_v;
+  reg        byp;
+  reg  [8:0] ct_next;
+  wire [8:0] cq = byp ? byp_v : col_q;   // the colour at ctaddress
   reg  [6:0] t_reload, t_value;
   reg        t_on, t_pend;
   reg [11:0] t_div;                   // the timer's prescaler: 1,024 CPU clocks at 7.16 MHz, 3,072 master clocks
@@ -101,8 +110,8 @@ module huc_sys (
   always @* begin
     dout = 8'hFF;
     if (vce) case (o[2:0])
-      3'd4: dout = color[ctaddress][7:0];
-      3'd5: dout = {7'h7F, color[ctaddress][8]};
+      3'd4: dout = cq[7:0];
+      3'd5: dout = {7'h7F, cq[8]};
       default: dout = 8'hFF;
     endcase
     else if (psg) dout = blk ? 8'h00 : io_bus;
@@ -118,7 +127,26 @@ module huc_sys (
 
   assign col_we = acc && wr && vce && (o[2:0] == 3'd4 || o[2:0] == 3'd5);
   assign col_ix = ctaddress;
-  assign col_v  = o[2:0] == 3'd4 ? {color[ctaddress][8], din} : {din[0], color[ctaddress][7:0]};
+  assign col_v  = o[2:0] == 3'd4 ? {cq[8], din} : {din[0], cq[7:0]};
+  always @* begin                     // the colour address after this clock
+    ct_next = ctaddress;
+    if (acc && vce) begin
+      if (wr) case (o[2:0])
+        3'd2: ct_next = {ctaddress[8], din};
+        3'd3: ct_next = {din[0], ctaddress[7:0]};
+        3'd5: ct_next = ctaddress + 9'd1;
+        default: ;
+      endcase
+      else if (o[2:0] == 3'd5) ct_next = ctaddress + 9'd1;
+    end
+  end
+  always @(posedge clk) begin         // the colours' RAM: one write port, one read port
+    if (col_we) color[ctaddress] <= col_v;
+    col_q <= color[ct_next];
+    byp   <= col_we && ct_next == ctaddress;
+    byp_v <= col_v;
+    ctaddress <= ct_next;
+  end
 
   assign irq1_n = !(irq1_line && irq_mask[1]);
   assign irq2_n = !(irq2_line && irq_mask[0]);
@@ -137,11 +165,7 @@ module huc_sys (
       if (wr) begin
         if (vce) case (o[2:0])
           3'd0: vce_cr <= din;
-          3'd2: ctaddress <= {ctaddress[8], din};
-          3'd3: ctaddress <= {din[0], ctaddress[7:0]};
-          3'd4: color[ctaddress] <= {color[ctaddress][8], din};
-          3'd5: begin color[ctaddress] <= {din[0], color[ctaddress][7:0]}; ctaddress <= ctaddress + 9'd1; end
-          default: ;
+          default: ;                  // (the colour address and the colours: above)
         endcase
         if (psg) io_bus <= din;
         if (tmr) begin
@@ -166,7 +190,6 @@ module huc_sys (
           if (o[1] && o[0]) t_pend <= 1'b0;                                           // the timer's acknowledge
         end
       end else begin
-        if (vce && o[2:0] == 3'd5) ctaddress <= ctaddress + 9'd1;
         if (tmr) io_bus <= dout;
         if (pad && !blk) io_bus <= pad_v;
         if (irc && !blk) io_bus <= dout;

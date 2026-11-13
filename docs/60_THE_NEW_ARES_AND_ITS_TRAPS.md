@@ -129,9 +129,9 @@ Card, no cell store - fits at 98 %. So, each part alone through yosys 0.33 for t
 |---|---|---|
 | krikzz's `map_ssf` | | 1,754 logic elements (docs/10) |
 | `ac_engine.sv` | 2,575 / 853 | about 1,920, with 8 multipliers for its shifters (docs/10) |
-| `huc_sys.sv` | 4,676 / 4,666 | |
+| `huc_sys.sv` | 4,676 / 4,666; **with the colours in a block RAM: 244 / 68 and 1 block RAM** | |
 | `pak_read.sv` | 2,307 / 611, 4 block RAMs | |
-| `vdc_timing.sv` | not finished in 600 s (its two copies of the sprite table become registers) | |
+| `vdc_timing.sv` | not finished in 600 s | |
 | `cellstore.sv` | not read (`automatic` in an `always_comb`: yosys 0.33's SystemVerilog) | |
 | `psg.sv`, `adpcm.sv` | not read (a table's hex file the bench makes; a block RAM's start values) | |
 | the MiSTer HuC6280 | not read (it has latches) | about 2,400, worked out from Gate of Thunder docs/23's fits (14,528 without the PSG, its VDC 10,144, `map_ssf` 1,754; the VCE is in the rest) |
@@ -139,9 +139,18 @@ Card, no cell store - fits at 98 %. So, each part alone through yosys 0.33 for t
 
 What it shows, and no more than that:
 
-- **`huc_sys.sv` cannot go in as it is.** 4,608 of its flip-flops are the VCE's 512 colours, read in the same clock
-  they are addressed in - no block RAM can be that. They must become one (a registered read; the CPU's read of a
-  colour a clock later), and the part counted again.
+- **`huc_sys.sv` could not go in as it was**: 4,608 of its flip-flops were the VCE's 512 colours, read in the clock
+  they are addressed in - no block RAM can be that. **Done here:** the RAM's read port follows the colour address's
+  value after the clock, a write to the address being read is carried past the RAM, and an access sees no
+  difference. 244 LUTs for 4,676. `HWRTL=1 fpga/huc/run_vsys.sh` on two windows of 600 frames (stage 1's and the
+  title's): the colours at the end equal to Mednafen's, 6,006 and 6,014 hardware-page reads equal to `io_model.c`,
+  the rest as docs/47 had it (the same stack bytes).
+- **`vdc_timing.sv` is written as the C runs, not for size**: its counters are 32 bits wide, it keeps two copies of
+  the 64 sprites' Y and flags in 3,328 flip-flops and copies one to the other in a clock, and it counts the sprites
+  on a line by comparing all 64 in one clock. It is equal to the model (docs/24) and it will not fit like that: the
+  sprite table in a block RAM walked over a line's clocks, the counters at their ranges - as Dracula X did for its
+  `dx_vdc` (Gate of Thunder docs/28). The cell store and the PSG's logger were written the same way and want the
+  same look.
 - Where both have run (the Arcade Card engine), Quartus needs about three quarters of yosys's LUTs.
 - The parts with a Quartus figure are 8,857 of the 15,408 (`map_ssf`, the engine, the CPU, a CD unit). `huc_sys`,
   the pack's reader, the VDC's timing, the cell store, the PSG's logger, ADPCM, the FIFO's writer and the memory's
@@ -151,7 +160,10 @@ What it shows, and no more than that:
 ## Open
 
 - **The cart core** (section 8): one core from the parts, on the EverDrive's memories, through Quartus; before
-  that, the colours in a block RAM and a count of every part.
+  that, `vdc_timing.sv` and the cell store made small, and a count of every part. **Or the other way to a console,
+  for the owner to choose:** Gate of Thunder's core (the same CPU, Dracula X's VDC and CD unit: it plays on the
+  console) with the Arcade Card engine put in - it is at 98 % without the engine's 1,920 logic elements, and the SH2
+  would draw from its window as Gate of Thunder's does, not from this build's FIFO and cell store.
 - The menu's ports and the stage select in RTL (docs/58).
 - The layer as a kept, scrolled surface (docs/59 section 4): with the split line 99 % of the pictures are on time in
   ares, so it waits for a console figure.

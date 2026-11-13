@@ -251,8 +251,11 @@ Read `CLAUDE.md` first.
      Read before any console work: ares_android `README-FPGA-FINDINGS.md` section 6, Gate of Thunder's
      `CONSOLE_FINDINGS.md`, Dracula X docs/175 and 177-178 - **ares's picture rate is not the console's** (Gate of Thunder:
      55 in ares, ~15 there). **The first thing to measure next: whether the cart core fits** (docs/60 section 8:
-     `fpga/huc/yosys_count.sh`; `huc_sys.sv`'s colours are 4,608 flip-flops and must become a block RAM; the parts with a
-     Quartus figure are already 8,857 of 15,408 logic elements).
+     `fpga/huc/yosys_count.sh`; `huc_sys.sv`'s colours are in a block RAM now - 244 LUTs for 4,676, the bench equal;
+     `vdc_timing.sv` is written as the C runs - 32-bit counters, 3,328 flip-flops of sprite table, 64 sprites compared in
+     a clock - and must be made small, as the cell store; the parts with a Quartus figure are already 8,857 of 15,408
+     logic elements). The other way, the owner's to choose: Gate of Thunder's console-proven core + the Arcade Card
+     engine.
 
 ## 2. Where things live
 

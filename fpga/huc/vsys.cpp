@@ -85,6 +85,7 @@ extern "C" void hr_init(unsigned io_bus, unsigned irq_mask, int sel, int clr, un
     hs->acc = 0; hs->clk = 0; hs->eval();   // (the first eval settles the model: the state after it)
     HS(io_bus) = io_bus; HS(irq_mask) = irq_mask & 7; HS(sel) = sel; HS(clr) = clr; HS(read_index) = read_index & 0xFF;
     HS(ctaddress) = ctaddress & 0x1FF; (void)vce_cr;   /* (vce_cr: vdc_timing.sv's, from the same writes) */ for (int i = 0; i < 512; i++) HS(color)[i] = color[i] & 0x1FF;
+    HS(col_q) = color[ctaddress & 0x1FF] & 0x1FF; HS(byp) = 0;   /* (docs/60: the colours' RAM - its read port's word for this address) */
     HS(t_on) = 0; HS(t_pend) = 0; hs->eval();
 }
 extern "C" int hr_mask(void) { return HS(irq_mask); }
