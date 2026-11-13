@@ -11,10 +11,10 @@ the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafe
 (74,277 game frames, into stage 5) and its screenshots compared with Mednafen's pictures. Eight faults found and
 mended - the pictures stopped after game frame 65,535; the plane came back as it was left; frames whose lines scroll
 one by one (662 of them); the backdrop's colour; the boss's fire; lines with the background off - and the background
-now drawn on the 32X layer throughout, by both SH2s. From power-on in ares: 59.9 game frames a second, **26.0-30.0
-pictures a second by stretch (29.3 the median; before: 20.2-29.6)**, 244 of 265 screenshots within 5 % of Mednafen's
-picture and none more than 17 % apart (effects the game alternates frame by frame, seen at one phase). Nothing has
-run on a console. **[docs/58](docs/58_OPTIONS_MENU_STAGE_SELECT_AND_SPEED.md):** an options menu on START - a stage
+now drawn on the 32X layer throughout, by both SH2s. From power-on in ares: 59.9 game frames a second, **27.0-30.0
+pictures a second by stretch (29.7 the median; before: 20.2-29.6), 97 % of the pictures two frames after the one
+before**, 248 of 265 screenshots within 5 % of Mednafen's picture and none more than 13 % apart (effects the game
+alternates frame by frame, seen at one phase). Nothing has run on a console. **[docs/58](docs/58_OPTIONS_MENU_STAGE_SELECT_AND_SPEED.md):** an options menu on START - a stage
 select (a new game from stage 1-5), lives, infinite lives, autofire, music and effects volume, credits -
 tried with the pad in ares; the crash at the game's start mended (a 64-entry array overrun in the plane's colour pack);
 and stage 1 at the game's speed: from power-on in ares 59.9 game frames a second throughout and 25-28 pictures a

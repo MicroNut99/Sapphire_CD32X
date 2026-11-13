@@ -220,9 +220,9 @@ Read `CLAUDE.md` first.
      over: the skip runs at the first frame asked for; a skipped run's game frame is printed by `spd.sh`, it is not
      "ares - 721"); lines scrolled one by one (`V32` `xs` / `xsl`: every match; `rt_bg32.c` `b32_first` / `b32_next`);
      lines with the background off (colour 256 / colour 0 / burst, Mednafen's rule). **The background is on the 32X layer
-     throughout** (`RTX=-DBG32_NOPREFER`: docs/57-58's rules with the plane). **From power-on in ares (G4, `4f4aff7`): 59.9
-     game frames a second, 26.0-30.0 pictures a second by stretch (29.3 the median), 94 % of the pictures two frames after
-     the one before; 244 of 265 screenshots within 5 % of Mednafen's picture, the worst 17 % - effects the game alternates
+     throughout** (`RTX=-DBG32_NOPREFER`: docs/57-58's rules with the plane). **From power-on in ares (G5, `8896fa7`): 59.9
+     game frames a second, 27.0-30.0 pictures a second by stretch (29.7 the median), 97 % of the pictures two frames after
+     the one before; 248 of 265 screenshots within 5 % of Mednafen's picture, the worst 13 % - effects the game alternates
      frame by frame, seen at one phase.** Work folder: `bench.sh <tag> <tree> <pack> "<game frames ...>"` (a build at places
      of the game, from skipped starts), `spd.sh` (`SHOTS="<frames>"`, `STATS=--stats`), `full2.sh` (a screenshot every 250),
      `pichist.py`, `stat.py` (`RTX=-DBG32_STAT`), `cmpsheet.py <ref> <run> <png> <ares frames>` (`F0=`), `sparsecmp.py`;
@@ -231,8 +231,11 @@ Read `CLAUDE.md` first.
      rebuild it in place while a run has it loaded** - build under another name). References: `work/ref_250` (265 places),
      `ref_intro`, `ref_all`, `ref_s1b`. PC tests: `LINES=<line>` / `SPLIT=<line> tools/m3_bg32test.sh work/m2mach_gen
      <dumps>`; the stand-in's entries through a plain player: `tools/m3_synthtest.py <sapmhost.so> <skip> <frames>`.
-     **Next:** the console; the RTL for the menu's ports and the stage select; fewer cart reads a sprite cell (stage 4's
-     boss: 23 pictures a second, docs/59 §4); `fifo_v32.c` and `rt_pc.c`'s players do not keep `xs` yet.
+     `RTX=-DSEC_TIMES` + `work/sect.py` / `stat.py`: where a picture's time goes (docs/59 §4: the background is 0.74 of a
+     refresh for the master's half; a table kept in SDRAM for the FPGA's tile info was slower and is out).
+     **Next:** the console; the RTL for the menu's ports and the stage select; the layer as a kept, scrolled surface
+     (the 32X's line table: docs/59 §4 has what it takes) for a steady 30; a bigger kept-tile table (36 KB of SDRAM are
+     free); `fifo_v32.c` and `rt_pc.c`'s players do not keep `xs` yet.
 
 ## 2. Where things live
 

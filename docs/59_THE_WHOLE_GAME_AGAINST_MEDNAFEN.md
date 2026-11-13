@@ -7,16 +7,16 @@ at". This round played **the whole recording in ares** (74,277 game frames: the 
 5; `work/full.sh`, 76,500 ares frames, 40 minutes a run) and compared its screenshots with Mednafen's pictures of the
 same frames. Eight faults came out of it; all are mended. **Nothing here has run on a console.**
 
-| The whole game in ares, from power-on | The rules of docs/57-58 (run G3, `a006343`: faults 1-4 mended) | The layer throughout (run G4, `4f4aff7`: all eight) |
-|---|---|---|
-| Game frames a second, every 3,000-frame stretch | 59.9 | 59.9 |
-| Pictures a second by stretch: lowest / median / highest | 20.2 / 26.8 / 29.6 | **26.0 / 29.3 / 30.0** |
-| Pictures two game frames after the one before | 24,371 of 29,011 (84 %) | **30,083 of 31,990 (94 %)** |
-| Screenshots within 2 % / 5 % of Mednafen's picture, at the same 45 places; the worst | 34 / 35; 52 % apart | **35 / 42; 9 %** |
-| ... at 265 places (one every 250 frames) | not run | 225 / 244; 17 % |
-| The intro and the title, 33 places (ares frames 1,000-9,000) | not run | 32 / 33; 3 % |
-| The effects against Mednafen's PSG (loudness, 30-frame windows) | 0.969 | 0.971 |
-| Illegal instructions | 0 | 0 |
+| The whole game in ares, from power-on | The rules of docs/57-58 (run G3, `a006343`: faults 1-4 mended) | The layer throughout (run G4, `4f4aff7`: all eight) | ... and §4's trimmed count (run G5, `8896fa7`) |
+|---|---|---|---|
+| Game frames a second, every 3,000-frame stretch | 59.9 | 59.9 | 59.9 |
+| Pictures a second by stretch: lowest / median / highest | 20.2 / 26.8 / 29.6 | 26.0 / 29.3 / 30.0 | **27.0 / 29.7 / 30.0** |
+| Pictures two game frames after the one before | 24,371 of 29,011 (84 %) | 30,083 of 31,990 (94 %) | **31,416 of 32,450 (97 %)** |
+| Screenshots within 2 % / 5 % of Mednafen's picture, at the same 45 places; the worst | 34 / 35; 52 % apart | 35 / 42; 9 % | 35 / 43; 13 % |
+| ... at 265 places (one every 250 frames) | not run | 225 / 244; 17 % | **227 / 248; 13 %** |
+| The intro and the title, 33 places (ares frames 1,000-9,000) | not run | 32 / 33; 3 % | not run again |
+| The effects against Mednafen's PSG (loudness, 30-frame windows) | 0.969 | 0.971 | 0.971 |
+| Illegal instructions | 0 | 0 | 0 |
 
 (Before fault 1 no run got through the game: the pictures stopped in stage 4.)
 
@@ -141,15 +141,15 @@ pictures: **none in play** (G4's 31,990 pictures from ares frame 9,000), one bef
 
 `pic_at` / `pic_gap` in the SDRAM dumps (`work/pichist.py`), ares frames 9,000-75,000:
 
-| | G3 (the rules) | G4 (the layer) |
-|---|---|---|
-| Pictures | 29,011 | 31,990 |
-| Game frames since the picture before: 2 / 3 / 4 / 5 / 6 / 7 or more | 24,371 / 2,817 / 932 / 458 / 328 / 105 | 30,083 / 1,795 / 111 / 1 / 0 / 0 |
-| Refreshes from asked to shown: 1 / 2 / 3 / 4 / 5 / 6 / 7 or more | 8,734 / 15,614 / 2,858 / 923 / 460 / 330 / 92 | 300 / 29,733 / 1,951 / 6 / 0 / 0 / 0 |
+| | G3 (the rules) | G4 (the layer) | G5 (the count trimmed) |
+|---|---|---|---|
+| Pictures | 29,011 | 31,990 | 32,450 |
+| Game frames since the picture before: 2 / 3 / 4 / 5 / 6 / 7 or more | 24,371 / 2,817 / 932 / 458 / 328 / 105 | 30,083 / 1,795 / 111 / 1 / 0 / 0 | 31,416 / 971 / 62 / 1 / 0 / 0 |
+| Refreshes from asked to shown: 1 / 2 / 3 / 4 / 5 / 6 / 7 or more | 8,734 / 15,614 / 2,858 / 923 / 460 / 330 / 92 | 300 / 29,733 / 1,951 / 6 / 0 / 0 / 0 | 553 / 30,842 / 1,054 / 1 / 0 / 0 / 0 |
 
-The long waits are gone: the worst picture of G4 is shown four refreshes after it is asked for (six of them); G3
-had 882 at five or more. 6 % of G4's pictures come three game frames after the one before - 20 a second for that
-one step - mostly where the sprites are many.
+The long waits are gone: G5's worst picture is shown four refreshes after it is asked for (one); G3 had 882 at
+five or more. 3 % of G5's pictures come three game frames after the one before - 20 a second for that one step -
+mostly where the sprites are many or the background is all different tiles.
 
 **Where a picture's time goes** (`RTX=-DSEC_TIMES`: the phases of `draw_hook` in the watchdog's ticks, `work/sect.py`;
 with it `rt_bg32.c` counts why tiles were made, `work/stat.py`), in refreshes a picture - two are there:
@@ -202,12 +202,12 @@ with it `rt_bg32.c` counts why tiles were made, `work/stat.py`), in refreshes a 
 
 ## 5. What the comparison still shows
 
-Of G4's 265 screenshots 21 are 5 % or more apart from Mednafen's picture, none more than 17 %. Those looked at
+Of G4's 265 screenshots 21 are 5 % or more apart from Mednafen's picture, none more than 17 % (G5: 17, none more than 13 %). Those looked at
 (`work/cmpsheet.py`: the reference beside the screenshot) are one thing: **an effect the game alternates frame by
 frame, seen at one phase.** A bomb's ring is a white disc on one frame and a web of lightning on the next; a boss
 under fire is red on one frame and its own colours on the next; "PRESS RUN!" blinks. Mednafen shows 60 frames a
 second and the eye mixes them; a picture every second frame shows one of the two until a three-frame step turns
-the phase (once or twice a second in G4). It is what "30 pictures a second" means for this game, not a fault of the
+the phase (about once a second in G5). It is what "30 pictures a second" means for this game, not a fault of the
 drawing: the reference's frame one earlier or later matches.
 
 A caution on the comparison itself: a sparse reference's unkept frames are zeros, and so is a black picture. The
@@ -222,8 +222,8 @@ frame as a picture.
   TPSG-3.
 - **The FPGA's RTL** for the menu's ports and the stage select (docs/58), and for nothing new here: the cart's FIFO
   already holds every raster match. Quartus not run.
-- **30 pictures a second, not 60:** effects that alternate frame by frame show one phase (§5). And 6 % of the
-  pictures are a frame late; the bosses of stages 4 and 5 run at 22-26 (§4: the layer as a scrolled surface, a
+- **30 pictures a second, not 60:** effects that alternate frame by frame show one phase (§5). And 3 % of the
+  pictures are a frame late; the bosses of stages 4 and 5 run at 26-27 (§4: the layer as a scrolled surface, a
   bigger kept-tile table).
 - The plane's own bands still take BYR as written at every split (`rt_bg2.c`): only with `BG32_NOPREFER`.
 - From before: nothing says "loading" during a stage select; the 344 frames of the machine against Mednafen;
