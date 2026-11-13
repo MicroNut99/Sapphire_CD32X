@@ -151,13 +151,35 @@ The long waits are gone: the worst picture of G4 is shown four refreshes after i
 had 882 at five or more. 6 % of G4's pictures come three game frames after the one before - 20 a second for that
 one step - mostly where the sprites are many.
 
-**Where the time goes at the slowest place** (stage 4's boss, 23.4 a second: a blue sphere of sprites over half
-the screen; `--stats`, `ARES_PC=1`): 26,000-41,000 cart words read a picture - the sprites' cells from the FPGA's
-store - and both SH2s on the one bus. The sprites drawn by both SH2s (`SPLIT=1`: the master the upper half, the
-secondary the lower once its half of the background is out) gave nothing: 22.9 and 25.4 at the two slowest places,
-against 23.4 and 26.5. The background is not it either: 86-120 of a picture's 957 tiles are made again
-(`RTX=-DBG32_STAT`, `work/stat.py`), nearly all because another tile had the kept slot. What would help is fewer
-cart reads a sprite cell: not done.
+**Where a picture's time goes** (`RTX=-DSEC_TIMES`: the phases of `draw_hook` in the watchdog's ticks, `work/sect.py`;
+with it `rt_bg32.c` counts why tiles were made, `work/stat.py`), in refreshes a picture - two are there:
+
+| Game frames | The count for the colours | The last sprites cleared, the entries | The master's half of the background | Waiting for the secondary's half | The sprites | Pictures a second |
+|---|---|---|---|---|---|---|
+| 16,284-17,034 (stage 1) | 0.19 | 0.05 | 0.76 | 0.18 | 0.50 | 28.8 |
+| 72,284-73,034 (a boss drawn in the background) | 0.19 | 0.06 | 1.40 | 0.00 | 0.33 | 22.5 (22.0-25.0 over four builds of the same drawing) |
+
+- **The background is most of a picture**: 0.76 of a refresh for the master's half, drawn whole every picture -
+  28,672 frame buffer words - while the secondary writes the other half through the same bus. (How much of the
+  0.76 is the two SH2s waiting for each other on that bus was not measured: the drawing was never run on one SH2
+  alone in this build.) What would cut it is not drawing what is there already: the 32X's line table can scroll a
+  kept surface (a line's start is a word of the buffer), so a picture would need the columns that came in, the
+  tiles that changed and what the last sprites covered. Not done: it is the next step for a steady 30.
+- **A background of tiles that are all different** (the boss at 72,284) makes 265 tiles a picture again: a half
+  keeps 256 (the two tables are 39 KB of the SDRAM's 256), and its 462 places want more. 36 KB are free.
+- **The count** walked the window three times (the palettes for the rules, the tiles' masks, the pack's test):
+  with the layer the default only the masks are read - 0.29 to 0.19 of a refresh, and the build this table is
+  from is the faster for it: 29.5, 30.0, 29.2 and 25.9 pictures a second at game frames 8,584, 12,284, 30,284 and
+  63,283, where §3's column has 28.7, 29.4, 30.0 and 23.4.
+- **Tried and taken out:** the FPGA's long for a tile (its hash and colour mask: a cart read, asked twice a picture
+  for each tile) kept in SDRAM under the tile's write tag. The FPGA was then asked once in 300 pictures, and the
+  pictures were slower - 26.3 a second for 28.0 at 16,284, the master's half 0.83 for 0.72. The likely reason, not
+  measured: a 16 KB table read at random throws out of the 4 KB cache the lines the band's loop lives in, where a
+  cart read goes past the cache.
+- **The sprites by both SH2s** (`SPLIT=1`: the master the upper half, the secondary the lower once its half of the
+  background is out) gave nothing either: 22.9 and 25.4 at game frames 63,283 and 16,284, against 23.4 and 26.5.
+  At stage 4's boss (a blue sphere of sprites over half the screen) a picture reads 26,000-41,000 cart words -
+  the sprites' cells from the FPGA's store (`--stats`).
 
 ## 5. What the comparison still shows
 
@@ -182,7 +204,8 @@ frame as a picture.
 - **The FPGA's RTL** for the menu's ports and the stage select (docs/58), and for nothing new here: the cart's FIFO
   already holds every raster match. Quartus not run.
 - **30 pictures a second, not 60:** effects that alternate frame by frame show one phase (§5). And 6 % of the
-  pictures are a frame late; stage 4's boss runs at 23 (§4).
+  pictures are a frame late; the bosses of stages 4 and 5 run at 22-26 (§4: the layer as a scrolled surface, a
+  bigger kept-tile table).
 - The plane's own bands still take BYR as written at every split (`rt_bg2.c`): only with `BG32_NOPREFER`.
 - From before: nothing says "loading" during a stage select; the 344 frames of the machine against Mednafen;
   `ARES_HUC_PACE`'s pictures; tones below 112 Hz; the ADPCM ring's writer and the PSG write logger in RTL; the

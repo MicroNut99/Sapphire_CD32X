@@ -652,6 +652,11 @@ static uint16_t bg32_cram[256]; static uint8_t bg32_own[256]; static int bg32_on
 int bg32_cols;                                                /* (docs/58: the last counted window's colours) */
 uint32_t bg2_fpga_tile(unsigned t);
 #if defined(BG32) && defined(BG2_FPGA_TILES)
+/* (docs/59, tried and taken out) The FPGA's long for a tile - its hash and colour mask, asked twice a picture for
+   each of 957 tiles, a cart read each - kept in SDRAM under the tile's write tag (rt_marks.v): the FPGA was asked
+   once in 300 pictures, and the pictures were slower: 26.3 a second for 28.0 at game frame 16,284, 22.0 for 25.0 at
+   72,284, the master's half of the background 0.83 refresh for 0.72. A 16 KB table read at random throws the lines
+   out of the 4 KB cache that the band's loop lives in; the cart read goes past the cache and costs less than that */
 static uint16_t bg32_fpga_key(unsigned t) { return (uint16_t)(bg2_fpga_tile(t) >> 16); }
 static uint16_t bg32_fpga_mask(unsigned t) { return (uint16_t)bg2_fpga_tile(t); }   /* (docs/59: its colour mask, for bg32_masks_by) */
 #endif
@@ -701,7 +706,7 @@ static void pic_extras(const V32 *v, uint32_t num)
    (read from an SDRAM dump): [0] the game from one display start to the next, [1] waiting for the picture before to
    be shown, [2] the background's list (the master), [3] then waiting for the secondary's sprites, [4] sending the
    list, [5] pictures, [6] hook-to-hook over one refresh's ticks */
-uint32_t sec_t[10]; static uint32_t sec_last;
+uint32_t sec_t[16]; static uint32_t sec_last;   /* (docs/59, the layer's path: [10] the rule and the colour count, [11] the last sprites cleared and the entries, [12] the master's half of the background, [13] waiting for the secondary's, [7] the sprites, [14] the SH2's own swap asked) */
 #define SEC_T(i, a) do { const uint32_t n_ = wdt_now(); sec_t[i] += n_ - (a); (a) = n_; } while (0)
 #else
 #define SEC_T(i, a) do { } while (0)
@@ -990,8 +995,7 @@ static void draw_hook(V32 *v)
 #define TRAFFIC_OFF 90
         static int late_n, toff;
         if (ran_prev && bg2.late) { if (++late_n >= TRAFFIC_LATE) { toff = TRAFFIC_OFF; stale = 1; late_n = 0; bg32_traffic++; } } else if (ran_prev) late_n = 0;
-        const int wanted = bg32_wanted(v);
-        int want = wanted, cols_ = 0;
+        int cols_ = 0;
         /* (docs/59) Every shown background on the 32X layer, the plane never: at 16 places of the game (work/bench.sh,
            each from a skipped start) 26.5-30.0 pictures a second, where the rules below gave 20-29 with the plane's
            late lists (a seam where the stage scrolls up, holes in the boss's fire) and its 60 colours. The layer is
@@ -1005,15 +1009,22 @@ static void draw_hook(V32 *v)
         /* (docs/59) Lines scrolled one by one (more matches than the picture's four places) or a band with the
            background off: the layer, whatever the colours - the plane can show neither */
         const int must = bg32_must(v);
+        const int layer = pref || must;                       /* (the layer whatever the colours: nothing counted for the rules - the
+                                                                 palettes' walk, the colours' numbers and the pack's test were a
+                                                                 tenth of a refresh a picture) */
+        const int wanted = layer ? 1 : bg32_wanted(v);
+        int want = wanted;
         if (v->xsl_n > 4) bg32_lines++;                       /* (DIAG: pictures with lines scrolled one by one) */
-        if (wanted || stale || pref || must) {
+        if (wanted || stale) {
 #ifdef BG2_FPGA_TILES
             uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
-            memset(seen, 0, sizeof seen);
             bg32_masks_by(v, used, bg32_fpga_mask);           /* (docs/58: each band's window - the score bar's too; docs/59: every band, a map row once) */
-            for (int p_ = 0; p_ < 16; p_++) { int i = 1; for (unsigned u = used[p_] >> 1; u; u >>= 1, i++) if (u & 1) {
-                const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) seen[c] = (uint8_t)++cols; } }   /* (its number, for pack_fits) */
-            fits = cols <= 60 && pack_fits(v, used, seen);
+            if (!layer) {
+                memset(seen, 0, sizeof seen);
+                for (int p_ = 0; p_ < 16; p_++) { int i = 1; for (unsigned u = used[p_] >> 1; u; u >>= 1, i++) if (u & 1) {
+                    const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) seen[c] = (uint8_t)++cols; } }   /* (its number, for pack_fits) */
+                fits = cols <= 60 && pack_fits(v, used, seen);
+            }
 #else
             const int cols = 61;                              /* (no tile masks to count with: docs/42's rule) */
 #endif
@@ -1040,7 +1051,7 @@ static void draw_hook(V32 *v)
             if (ran_prev && fits && !bg2.col_ok) { if (++vain > 8) { off = 64; vain = 0; } } else if (ran_prev) vain = 0;
             int run = plane_next || (fits && !off);
             if (toff) { toff--; run = 0; want = 1; }          /* (docs/59: the traffic's rest) */
-            if (pref || must) { run = 0; want = 1; }
+            if (layer) { run = 0; want = 1; }
             SEC_NOBG = !run; ran_prev = run; if (!run) stale = 1; }
 #endif
 #endif
@@ -1048,6 +1059,7 @@ static void draw_hook(V32 *v)
 #else
         const int tb = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1, want = bg32_wanted(v);
 #endif
+        SEC_T(10, ta);
         if (want || had[tb]) {
             spr_last_clear(tb);
             if (want) {
@@ -1064,8 +1076,11 @@ static void draw_hook(V32 *v)
                 if (!bg32_prep(v, bg32_cram, bg32_own, um)) bg32_short++;   /* (DIAG, docs/59: the 256 entries did not hold the picture's colours) */
 #if defined(BG32_SEC) && defined(SPR_SEC)
                 { static uint32_t n32; SEC_BV = v; SEC_B32 = ++n32;
+                  SEC_T(11, ta);
                   bg32_rows(v, fbp, 320, 0, 112);
-                  while (SEC_B32D != n32) { } }
+                  SEC_T(12, ta);
+                  while (SEC_B32D != n32) { }
+                  SEC_T(13, ta); }
 #else
                 bg32_rows(v, fbp, 320, 0, 224);
 #endif
@@ -1162,6 +1177,10 @@ static void draw_hook(V32 *v)
             while (MARS_VDP_FBCTL & MARS_VDP_VBLK) { }
             pace_req = cur ^ 1; pal_go = cur ^ 1; MARS_VDP_FBCTL = (uint16_t)(cur ^ 1); bg32_direct++;
             SET_COMM6((short)pace_missed);
+            SEC_T(14, ta);
+#ifdef SEC_TIMES
+            sec_last = ta;
+#endif
             return;
         }
 #endif

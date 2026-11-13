@@ -31,6 +31,9 @@
 #endif
 
 int bg32_black = 1;                                      /* (the entry it gave black: the caller's borders) */
+#if defined(SEC_TIMES) && !defined(BG32_STAT)
+#define BG32_STAT                                        /* (DIAG: where a picture's time goes - and why its tiles were made) */
+#endif
 #ifdef BG32_STAT
 uint32_t bg32_stat[8];                                   /* ([0] tiles made, [1] of them into the overflow, [2] the tile's words changed, [3] its palette's entries changed, [4] another tile had the slot, [5] palettes' tables made) */
 #endif
