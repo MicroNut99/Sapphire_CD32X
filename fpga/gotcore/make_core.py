@@ -131,6 +131,48 @@ rep("\tassign sram.oe    = use_w ? 1'b1 : w_lk ? w_rb : poe_r;\n\tassign sram.we
     "\tassign sram.oe    = use_w ? 1'b1 : pin_b ? 1'b0 : w_lk ? w_rb : poe_r;\n\tassign sram.we_lo = we_g && w_lo && !pin_b;\n\tassign sram.we_hi = we_g && w_hi && !pin_b;\n"
     "\tassign bram.addr  = {12'd0, w_lk ? w_addr[10:0] : pa_r[10:0]};\n\tassign bram.dati  = sram.dati;\n"
     "\tassign bram.oe    = pin_b && (w_lk ? w_rb : poe_r);\n\tassign bram.we_lo = w_we && w_lo && pin_b;\n\tassign bram.we_hi = w_we && w_hi && pin_b;\n")
+# ---- docs/63: the ports for the program - a write and a read of any byte through the controller (px_*, pr_*). The
+# options menu's LIVES and the score are CD RAM, behind the cache: a port write goes the CPU's own write path (the cache
+# kept right, then the queue), a port read through the controller at the lowest priority. The save area: the battery RAM
+# chip at + 0x1000 (sram byte address 0x41000 on: section 3b's map)
+rep("\toutput wire [1:0]  d_ac,", "\tinput  wire        px_req, input wire [18:0] px_a, input wire [7:0] px_d, input wire px_cache, output wire px_busy,   // (docs/63: a port write)\n"
+    "\tinput  wire        pr_req, input wire [18:0] pr_a, output reg [7:0] pr_q, output reg pr_v,   // (docs/63: a port read)\n\toutput wire [1:0]  d_ac,")
+rep("\twire is_base = !boot_rom && bk >= 8'hF8 && bk < 8'hFC;\n", "\twire is_base = !boot_rom && bk >= 8'hF8 && bk < 8'hFC;\n"
+    "\treg px_p, px_cr, pr_p, wq_e; reg [18:0] px_ar, pr_ar; reg [7:0] px_dr;   // (docs/63: the ports' requests; wq_e the queue empty a clock ago)\n")
+rep("\twire w_fl = m_we && is_ram1 && fl_on && fl_ln == cwa[11:3] && fl_tg == cwa[16:12];",
+    "\t// (docs/63) a port write takes the CPU's write path in a clock the CPU does not write (x_*)\n"
+    "\twire px_go = px_p && !m_we && !cw_p && wq_e;\n"
+    "\twire x_ram1 = m_we ? is_ram1 : px_go && px_cr; wire x_br = m_we ? is_br : px_go && !px_cr;\n"
+    "\twire [16:0] x_cwa = m_we ? cwa : px_ar[17:1]; wire x_a0 = m_we ? m_a[0] : px_ar[0];\n"
+    "\twire [7:0] x_wd = m_we ? m_wd : px_dr; wire [18:0] x_sb = m_we ? sb : px_ar;\n"
+    "\tassign px_busy = px_p;\n"
+    "\twire w_fl = x_ram1 && fl_on && fl_ln == x_cwa[11:3] && fl_tg == x_cwa[16:12];")
+rep("\twire dlo_we = w_fl ? !m_a[0] :", "\twire dlo_we = w_fl ? !x_a0 :")
+rep("\twire dhi_we = w_fl ?  m_a[0] :", "\twire dhi_we = w_fl ?  x_a0 :")
+rep("\twire [11:0] d_wa = w_fl ? cwa[11:0] :", "\twire [11:0] d_wa = w_fl ? x_cwa[11:0] :")
+rep("\twire [7:0] dlo_d = (w_fl || cw_hit) ? (w_fl ? m_wd : cw_d)", "\twire [7:0] dlo_d = (w_fl || cw_hit) ? (w_fl ? x_wd : cw_d)")
+rep("\twire [7:0] dhi_d = (w_fl || cw_hit) ? (w_fl ? m_wd : cw_d)", "\twire [7:0] dhi_d = (w_fl || cw_hit) ? (w_fl ? x_wd : cw_d)")
+rep("if (m_we && is_ram1 && !w_fl) begin cw_p <= 1'b1; cw_wa <= cwa; cw_hi <= m_a[0]; cw_d <= m_wd; end",
+    "if (x_ram1 && !w_fl) begin cw_p <= 1'b1; cw_wa <= x_cwa; cw_hi <= x_a0; cw_d <= x_wd; end")
+rep("if (w_fl) begin if (m_a[0]) bw_hi[cwa[2:0]] <= 1'b1; else bw_lo[cwa[2:0]] <= 1'b1; end",
+    "if (w_fl) begin if (x_a0) bw_hi[x_cwa[2:0]] <= 1'b1; else bw_lo[x_cwa[2:0]] <= 1'b1; end")
+rep("\t\t\t\tif (m_we && (is_ram1 || is_br)) begin\n\t\t\t\t\tif (n == 2'd0) begin wq_a0 <= sb; wq_d0 <= m_wd; end\n\t\t\t\t\telse if (n == 2'd1) begin wq_a1 <= sb; wq_d1 <= m_wd; end",
+    "\t\t\t\tif (x_ram1 || x_br) begin\n\t\t\t\t\tif (n == 2'd0) begin wq_a0 <= x_sb; wq_d0 <= x_wd; end\n\t\t\t\t\telse if (n == 2'd1) begin wq_a1 <= x_sb; wq_d1 <= x_wd; end")
+rep("\t\t\t\twq_n <= n;\n", "\t\t\t\twq_n <= n; wq_e <= n == 2'd0;\n")
+# the port read: the lowest owner
+rep("\twire op_any = own_w || own_f || own_b || own_a || own_v;",
+    "\twire own_p = !own_w && !fl_on && !br_rd && !adp && !(v_req && !v_done) && pr_p;   // (docs/63: the port read, last)\n"
+    "\twire op_any = own_w || own_f || own_b || own_a || own_v || own_p;")
+rep(": own_a ? {4'd0, 3'b101, ada} : {4'd0, 2'b11, v_addr, 1'b0};", ": own_a ? {4'd0, 3'b101, ada} : own_p ? {4'd0, pr_ar} : {4'd0, 2'b11, v_addr, 1'b0};")
+rep("own_v ? 3'd5 : 3'd0;", "own_v ? 3'd5 : own_p ? 3'd6 : 3'd0;")
+rep("\t\t\tif (own_b && o_done) begin", "\t\t\t// (docs/63) the ports: a write waits its clock (px_go), a read its turn; the battery RAM chip's even byte is the high half\n"
+    "\t\t\tif (px_go) px_p <= 1'b0;\n"
+    "\t\t\tif (px_req && !px_p) begin px_p <= 1'b1; px_ar <= px_a; px_dr <= px_d; px_cr <= px_cache; end\n"
+    "\t\t\tif (pr_req) begin pr_p <= 1'b1; pr_ar <= pr_a; pr_v <= 1'b0; end\n"
+    "\t\t\telse if (own_p && o_done) begin pr_p <= 1'b0; pr_v <= 1'b1;\n"
+    "\t\t\t\tpr_q <= pr_ar[18:16] == 3'b100 ? (pr_ar[0] ? o_word[7:0] : o_word[15:8]) : (pr_ar[0] ? o_word[15:8] : o_word[7:0]); end\n"
+    "\t\t\tif (own_b && o_done) begin")
+rep("\t\tif (erst) begin wq_n <= 2'd0;", "\t\tif (erst) begin wq_n <= 2'd0; wq_e <= 1'b1; px_p <= 1'b0; pr_p <= 1'b0; pr_v <= 1'b0;")
 open(os.path.join(O, 'got_cart_sram.sv'), 'w').write(s)
 
 # ---- map_ssf_got.sv
@@ -144,6 +186,36 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
     (".hold(!got_on), .sram(sram), .rom_addr(got_rom_a), .rom_req(got_rom_req),", ".hold(!got_on), .sram(sram), .bram(gbram), .rom_addr(got_rom_a), .rom_req(got_rom_req),\n"
      "\t\t.rom_we_hi(got_we_hi), .rom_we_lo(got_we_lo), .rom_dati(got_rom_d), .sp_rst(sp_rst), .sp_we(sp_we), .sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac),"),
     ("{8'h20, 7'd0, cfg_busy})", "{8'h20, 4'd0, d_ac, sp_need, cfg_busy})"),
+    # docs/63: + 0x43000 + (h << 1) the poke address' bits 16-13 (0: GoT's base RAM port as it was; CD RAM is 0x2000 on);
+    # + 0x42000 + (a << 1) a peek at {h, the 0x4D000 bits, a}: base RAM's byte at + 0x40002 (high), any other in the port
+    # word + 0x40010 = {byte, 8'b{valid, write busy}}; + 0x44000 + (a << 1) the save address (0-2047); + 0x45000 + (d << 1)
+    # a byte written there, + 0x45800 a byte read (both step the address)
+    ("\t\tif (pkd_rd) begin pk_a <= {pk_ah, rom_addr[10:9]}; pk_d <= rom_addr[8:1]; pk_we <= rom_addr[11] & got_on; end\n\tend\n",
+     "\t\tif (pkd_rd) begin pk_a <= {pk_ah, rom_addr[10:9]}; pk_d <= rom_addr[8:1]; pk_we <= rom_addr[11] & got_on & pk_hi == 4'd0; end\n"
+     "\t\tif (pkp_rd) pk_a <= {pk_ah, rom_addr[2:1]};\n"
+     "\tend\n"
+     "\t// (Sapphire docs/63) the poke beyond base RAM, the peek, the save port\n"
+     "\twire pkh_rd, pkp_rd, svs_rd, svx_rd; reg [3:0] pk_hi; reg [10:0] sv_a; reg px_req, pr_req; reg [18:0] px_a, pr_a; reg [7:0] px_d; reg px_cache;\n"
+     "\twire px_busy, pr_v; wire [7:0] pr_q;\n"
+     "\tsync_edge sync_pkh(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h43 & !cpu_oe), .sync(pkh_rd));\n"
+     "\tsync_edge sync_pkp(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h42 & !cpu_oe), .sync(pkp_rd));\n"
+     "\tsync_edge sync_svs(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h44 & !cpu_oe), .sync(svs_rd));\n"
+     "\tsync_edge sync_svx(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h45 & !cpu_oe), .sync(svx_rd));\n"
+     "\twire [16:0] pk_full = {pk_hi, pk_ah, rom_addr[10:9]}, pp_full = {pk_hi, pk_ah, rom_addr[2:1]};\n"
+     "\twire [15:0] pk_off = pk_full[15:0] - 16'h2000, pp_off = pp_full[15:0] - 16'h2000;   // (CD RAM: sram byte 0x30000 on)\n"
+     "\talways @(posedge clk) begin\n"
+     "\t\tpx_req <= 1'b0; pr_req <= 1'b0;\n"
+     "\t\tif (got_rst || !got_on) pk_hi <= 4'd0; else if (pkh_rd) pk_hi <= rom_addr[4:1];\n"
+     "\t\tif (pkd_rd && rom_addr[11] && got_on && pk_hi != 4'd0) begin px_req <= 1'b1; px_a <= {3'b011, pk_off}; px_d <= rom_addr[8:1]; px_cache <= 1'b1; end\n"
+     "\t\tif (pkp_rd && pk_hi != 4'd0) begin pr_req <= 1'b1; pr_a <= {3'b011, pp_off}; end\n"
+     "\t\tif (svs_rd) sv_a <= rom_addr[11:1];\n"
+     "\t\tif (svx_rd) begin sv_a <= sv_a + 11'd1;\n"
+     "\t\t\tif (!rom_addr[11]) begin px_req <= got_on; px_a <= {8'h41, sv_a}; px_d <= rom_addr[8:1]; px_cache <= 1'b0; end\n"
+     "\t\t\telse begin pr_req <= got_on; pr_a <= {8'h41, sv_a}; end end\n"
+     "\tend\n"),
+    ("\twire [15:0] reg_q = rom_addr[3] ? cd_audio[15:0]", "\twire [15:0] reg_q = rom_addr[4] ? {pr_q, pr_v, px_busy, 6'd0} : rom_addr[3] ? cd_audio[15:0]"),
+    (".sp_need(sp_need), .d_ac(d_ac),", ".sp_need(sp_need), .px_req(px_req), .px_a(px_a), .px_d(px_d), .px_cache(px_cache), .px_busy(px_busy),\n"
+     "\t\t.pr_req(pr_req), .pr_a(pr_a), .pr_q(pr_q), .pr_v(pr_v), .d_ac(d_ac),"),
     ("\t\t\t\tmout.rom1.dati  = 16'h0000;\n\t\t\t\tmout.rom1.oe    = got_rom_req;\n\t\t\t\tmout.rom1.we_lo = 0;\n\t\t\t\tmout.rom1.we_hi = 0;\n",
      "\t\t\t\tmout.rom1.dati  = got_rom_d;\n\t\t\t\tmout.rom1.oe    = got_rom_req;\n\t\t\t\tmout.rom1.we_lo = got_we_lo;\n\t\t\t\tmout.rom1.we_hi = got_we_hi;\n"
      "\t\t\t\tmout.bram = mout_got.bram;   // (Sapphire docs/62: the battery RAM chip the engine's once it starts - the backup RAM)\n"),
@@ -159,6 +231,7 @@ edit(os.path.join(T, 'cart_tb.sv'), 'cart_tb.sv', [
      "\tassign bram_addr = bram.addr; assign bram_dati = bram.dati; assign bram.dato = bram_dato;\n"
      "\tassign bram_oe = bram.oe; assign bram_we_lo = bram.we_lo; assign bram_we_hi = bram.we_hi;\n"),
     (".sram(sram), .rom_addr(rom_addr),", ".sram(sram), .bram(bram), .rom_we_hi(rom_we_hi), .rom_we_lo(rom_we_lo), .rom_dati(rom_dati), .sp_rst(sp_rst), .sp_we(sp_we),\n"
-     "\t\t.sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac), .sec_want_o(sec_want_o), .rom_addr(rom_addr),"),
+     "\t\t.sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac), .sec_want_o(sec_want_o),\n"
+     "\t\t.px_req(1'b0), .px_a(19'd0), .px_d(8'd0), .px_cache(1'b0), .px_busy(), .pr_req(1'b0), .pr_a(19'd0), .pr_q(), .pr_v(), .rom_addr(rom_addr),"),
 ])
 print('wrote', O)

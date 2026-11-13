@@ -44,9 +44,29 @@ The program's `CS_WR` / `CS_RD` registers of the cart window (docs/58's poke por
 
 ares: `fpga/ares/sapphire-on-ares-v1.9-a2e14e8.patch` (local `a39c246`): the board writes bank 31 of the EverDrive's 16 MB
 (an even byte the word's high half), which ares keeps in the cart's RAM file and does not wipe at a launcher's start;
-`sapmhost.c` `huchost_peek`. **The cart core has none of it yet**: on Gate of Thunder's core (docs/62) the save port goes
-on the battery RAM chip, and the peek and poke must reach CD RAM - GoT's poke port reaches base RAM only, and Sapphire's
-LIVES ($C00C) and score ($C070) are CD RAM, behind the core's cache (a poke must also update or drop the cached line).
+`sapmhost.c` `huchost_peek`. The cart core's: section 3b (GoT's poke port reached base RAM only; Sapphire's LIVES ($C00C)
+and score ($C070) are CD RAM, behind the core's cache).
+
+## 3b. The same ports in the cart core (written, not yet simulated)
+
+`fpga/gotcore/make_core.py` (docs/62 section 3b) now also gives Gate of Thunder's core, in its bank 26 window (reads
+whose address carries the value, as GoT's poke port):
+
+| Read of bank 26 + | Does |
+|---|---|
+| 0x43000 + (h << 1) | the poke address' bits 16-13 (0 after a start: GoT's base RAM poke as it was; CD RAM is 0x2000 on) |
+| 0x4D000 / 0x4F000 | GoT's poke port as it is (bits 12-2; then bits 1-0, the byte, write); with h ≠ 0 the write goes to CD RAM |
+| 0x42000 + (a << 1) | a peek at {h, the 0x4D000 bits, a}: base RAM's byte in + 0x40002's high byte, any other in the port word |
+| 0x44000 + (a << 1) | the save area's address (0-2047; battery RAM + 0x1000) |
+| 0x45000 + (d << 1) | the byte d written there, the address stepped |
+| 0x45800 | a byte read from there (into the port word), the address stepped |
+| 0x40010 (the port word) | {the byte read, valid, a write still pending, 6 zero bits} |
+
+A write beyond base RAM takes the CPU's own write path in a clock the CPU does not write (`px_go`: the cache line, if
+held, changed with it - then the write queue), one at a time (the program waits while "pending" reads 1). A read goes
+through the controller at the lowest priority (after the engine's VRAM, ADPCM and CPU traffic). The whole core (GoT's
+`map_got` with krikzz's `map_ssf` and library) passes Verilator's lint with no error. **Nothing of it has run**: the
+program's side of these addresses is written when the program moves to GoT's core (docs/62 step 5).
 
 ## 4. Tried in ares (console timing, `ARES_32X_TRAP=1`; `work/save.sh`, `work/warp.sh`)
 
