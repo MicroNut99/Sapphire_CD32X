@@ -7,6 +7,11 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**Route to the console (13 Nov 2026, [docs/62](docs/62_GATE_OF_THUNDERS_CORE_AND_THE_ARCADE_CARD.md)):** the owner's choice -
+Gate of Thunder's console-proven cart core with the Arcade Card added. The card is written and equal to Mednafen's
+(`fpga/gotcore/sap_ac.sv`); the combined core, its bench, fit, ares model and program are still to do. Saving will be the
+backup RAM on the EverDrive's battery RAM chip, which its OS keeps on the SD card; the game does not save yet.
+
 **Latest (13 Nov 2026, [docs/60](docs/60_THE_NEW_ARES_AND_ITS_TRAPS.md)):** on the owner's new ares (v1.9, with the
 error traps Dracula X and Gate of Thunder built from their console runs). The live build from power-on, through the
 options menu, a stage select and the whole recording, with `ARES_32X_TRAP=1`: no access the console would stop on.

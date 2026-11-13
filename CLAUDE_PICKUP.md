@@ -259,6 +259,17 @@ Read `CLAUDE.md` first.
   56. **docs/61 (the owner: "Add an options menu like the one in MetalSlug"):** the menu opens on START held half a
      second, a short START is RUN (A too); Metal Slug's title line, `>` cursor and foot. The game's own credits count
      was not found in RAM (no row for it).
+  57. **docs/62 (the owner, 13 Nov: "switch to Gate of Thunder's console-proven core and add the Arcade Card engine to
+     it"; saves: "directly to the MEDPro SDCard ... straight wiring job thru the MEDPros OS"):** the route to the
+     console is now GoT's core (its checkout `/home/claude/gate-of-thunder_cd32x`, `4a438c6`, core step 20) + the card.
+     Done: `fpga/gotcore/sap_ac.sv` (the card on the HuC6280's bus; `run_eqac.sh`: 3 M accesses = Mednafen's card, full
+     and lean), the card's use measured over the whole game (control 00/03/11/13, left shifts only), GoT's bench built
+     here unchanged (`work/gc/tg16` = the MiSTer core at `827d45f`, `work/gc/b0/cart`). **Next (docs/62's table): step 2 -
+     the card in `got_cart_sram.sv` (2 MB in PSRAM chip 1, a write path; `got_cart.sv`'s `io_c` letting $1A00-$1AFF
+     through), the sector port in place of the feed (the track is 10.26 MB: it stays packed in chip 0), the backup RAM
+     on the battery RAM chip (`mout.bram`, offset 0: the OS writes it to `bram.srm`; the launcher needs `EDCD_SAVE=1`);
+     as a patch against GoT's files applied to a copy in the work folder; then the bench with `sapm` as the host, the
+     fit's `.bat`, the ares model, the program.** The game does not save yet.
 
 ## 2. Where things live
 
