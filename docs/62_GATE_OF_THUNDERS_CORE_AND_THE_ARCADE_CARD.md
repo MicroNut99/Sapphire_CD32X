@@ -19,7 +19,7 @@ What goes with it, in order:
 | Step | What | State |
 |---|---|---|
 | 1 | The card on the HuC6280's bus: `fpga/gotcore/sap_ac.sv`, checked against Mednafen's card | **done** (section 3) |
-| 2 | The card in `got_cart_sram.sv`: its 2 MB in PSRAM chip 1 (a write path for that chip), `got_cart.sv` letting $1A00-$1AFF through as memory; the sector port in place of the feed; the backup RAM on the battery RAM chip (section 5) | next |
+| 2 | The card in `got_cart_sram.sv`: its 2 MB in PSRAM chip 1 (a write path for that chip), `got_cart.sv` letting $1A00-$1AFF through as memory; the sector port in place of the feed; the backup RAM on the battery RAM chip (section 5) | **written, compiles; not simulated yet** (section 3b) |
 | 3 | GoT's bench (`tools/fpga/cart.sh`, built here unchanged as the baseline: `work/gc/b0`) with Sapphire's machine `sapm` as the host: power-on, frames against `sapm_pc` | |
 | 4 | A size-and-timing fit on the owner's PC (a `.bat`): what must leave to make room (section 4) | |
 | 5 | The ares model (GoT's `gotx` way: the C machine in ares, here `sapm`), the program (GoT's `goteng` front end reading the core's window, Sapphire's drawing behind it), the packed launcher, the kit | |
@@ -48,6 +48,29 @@ The card's registers and ports; the 2 MB are the memory side's. `FULL=1` is the 
 - yosys (`synth_intel -family cycloneive`, a rough count: docs/60): lean 871 LUTs / 293 flip-flops, lean without
   the read-back 778, full 1,135. `ac_engine.sv` (docs/10, the card behind the SH2's window) counted 2,575 the same way
   and was about 1,920 in Quartus; by that ratio the lean card is about 600-650 logic elements. **Not a Quartus number.**
+
+## 3b. Step 2 as written: `fpga/gotcore/make_core.py`
+
+`make_core.py <Gate-of-Thunder_CD32X checkout> <out dir>` writes edited copies of GoT's `got_cart.sv`,
+`got_cart_sram.sv`, `map_ssf_got.sv` and the bench's `cart_tb.sv` into the work folder (GoT's source is not copied
+into this repository; each edit must find its text exactly once in GoT at `4a438c6`, or the script stops).
+
+- **The card:** `$1A00-$1AFF` is no longer the CD unit's page for the engine (`ARCADE`), so the card's accesses are
+  memory accesses and wait as memory does. Its byte is read from PSRAM chip 1 at `AC_BASE` + the port's index and
+  kept until the port moves; a write is held while the chip takes it (address and byte a clock, WE four, a clock
+  more) and a read of the card waits for it. The port steps at the CPU's edge that ends the access.
+- **The sector port:** reads of bank 26 + 0x47000 (start), + 0x46000 + byte × 2 (2,048 of them), + 0x47800 (done);
+  "a sector is wanted" is bit 1 of the busy word (+ 0x40004), the number at + 0x40000 as before.
+- **The card's flags:** bits 2-3 of the same word: the game used what the lean card leaves out; a card write lost.
+- **The backup RAM:** the controller's transactions for it go to the battery RAM chip's pins (offset 0, an even byte
+  the word's high half - so `bram.srm` is the PC Engine's backup RAM byte for byte); chip 1 and that chip are the
+  engine's once it starts.
+
+Verilator reads the four files with `sap_ac.sv`, the MiSTer chip and Dracula X's parts without an error. **That is
+all that is known of it**: no frame has run. To check first in the bench: that the MiSTer chip makes exactly one
+read cycle for each byte the game reads from the card (a dummy read would step a port); the PSRAM write's timing is
+this file's guess and has never been on a console; GoT's own windows must still pass with the edits (they are not in
+this container any more).
 
 ## 4. The room, and the data track
 
