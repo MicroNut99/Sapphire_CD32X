@@ -549,7 +549,7 @@ static int32_t schedule_run(const V32 *v, int32_t horizon, int frame, VSched *o)
 
 void v32_load(V32 *v, VPort *vp, const uint16_t *vram, const uint16_t *sat, const uint16_t *color, const uint32_t *r, int64_t t0)
 {
-    memset(v, 0, sizeof *v); v->sp_cur = -1;      /* (docs/16: no split open) */
+    memset(v, 0, sizeof *v); v->sp_cur = -1; v->xs_cur = -1;   /* (docs/16: no split open) */
     v->vp = vp; vp->vram = v->vram; vp->color = v->color;
     memcpy(v->vram, vram, sizeof v->vram); memcpy(v->sat, sat, sizeof v->sat); memcpy(v->color, color, sizeof v->color);
     VTime *s = &v->t;

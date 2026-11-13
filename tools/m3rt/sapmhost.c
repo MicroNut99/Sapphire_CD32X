@@ -69,6 +69,7 @@ static int sector(void *user, int32_t lba, uint8_t *out)
 static FifoShadow shadow; static uint32_t *ents; static int nents, maxents = 1 << 18;
 static V32 pic;                                              /* (fifo_synth's view: the fields it reads are filled) */
 static struct { uint16_t line, bxr, byr, cr; } sp[4]; static int sp_n, sp_cur = -1;
+static struct { uint16_t line, bxr, byr, cr; uint8_t wrote; } xs[XS_N]; static int xs_n, xs_cur = -1;   /* (docs/59: every match of the frame) */
 static uint16_t vsnap[32768];
 static long skip_n; static int skipping;                     /* (SAPM_SKIP: no entries made of the frames skipped) */
 static void line0(Vdc *v)
@@ -76,6 +77,8 @@ static void line0(Vdc *v)
     if (skipping) return;
     for (int i = 0; i < sp_n; i++) { pic.spl[i].line = sp[i].line; pic.spl[i].bxr = sp[i].bxr; pic.spl[i].byr = sp[i].byr; pic.spl[i].cr = sp[i].cr; }
     pic.spl_n = (int8_t)sp_n; sp_n = 0; sp_cur = -1;
+    for (int i = 0; i < xs_n; i++) { pic.xsl[i].line = xs[i].line; pic.xsl[i].bxr = xs[i].bxr; pic.xsl[i].byr = xs[i].byr; pic.xsl[i].cr = xs[i].cr; pic.xsl[i].wrote = xs[i].wrote; }
+    pic.xsl_n = (int16_t)xs_n; xs_n = 0; xs_cur = -1;
     memcpy(pic.vram, v->vram, sizeof pic.vram); memcpy(pic.sat, v->sat, sizeof pic.sat); memcpy(pic.color, v->color, sizeof pic.color);
     pic.DVSSR = v->DVSSR; pic.BXR = v->BXR; pic.BYR = v->BYR; pic.t.CR = v->CR; pic.MWR = v->MWR;
     memcpy(vsnap, v->vram, sizeof vsnap);
@@ -88,11 +91,17 @@ static void split(Vdc *v, int what)
        scrolls line by line before stage 1's boss (a match on every line from 37 on, the score bar's at 203 the last):
        with the first four kept and every later write landing in the fourth, the bar was gone and its "sprites off"
        sat at line 40 - no ship for four seconds. The lines' own scroll between is not shown */
-    if (what == 1) { const int k = sp_n < 4 ? sp_n++ : 3; sp[k].line = (uint16_t)(v->rcr_count + 1); sp[k].bxr = v->BXR; sp[k].byr = v->BYR; sp[k].cr = v->CR; sp_cur = k; }
-    else if (what < 0) sp_cur = -1;
-    else if (sp_cur >= 0) sp[sp_cur].cr = v->CR;
+    if (what == 1) { const int k = sp_n < 4 ? sp_n++ : 3; sp[k].line = (uint16_t)(v->rcr_count + 1); sp[k].bxr = v->BXR; sp[k].byr = v->BYR; sp[k].cr = v->CR; sp_cur = k;
+        /* (docs/59) ... and every match, with what its handler wrote, for the 32X layer's own bands (fifo_synth sends them all) */
+        if (xs_n < XS_N) { const int q = xs_n++; xs[q].line = (uint16_t)(v->rcr_count + 1); xs[q].bxr = v->BXR; xs[q].byr = v->BYR; xs[q].cr = v->CR; xs[q].wrote = 0; xs_cur = q; } else xs_cur = -1; }
+    else if (what < 0) { sp_cur = -1; xs_cur = -1; }
+    else { if (sp_cur >= 0) sp[sp_cur].cr = v->CR; if (xs_cur >= 0) xs[xs_cur].cr = v->CR; }
 }
-static void scroll(Vdc *v) { if (sp_cur >= 0) { sp[sp_cur].bxr = v->BXR; sp[sp_cur].byr = v->BYR; } }
+static void scroll(Vdc *v)
+{
+    if (sp_cur >= 0) { sp[sp_cur].bxr = v->BXR; sp[sp_cur].byr = v->BYR; }
+    if (xs_cur >= 0) { if (vdc_scroll_reg == 8) xs[xs_cur].wrote |= 2; xs[xs_cur].bxr = v->BXR; xs[xs_cur].byr = v->BYR; }
+}
 
 /* the sound */
 static int16_t snd[2048]; static int nsnd;
@@ -175,7 +184,7 @@ int huchost_frame(uint16_t pad, const uint32_t **entries)
 {
     live_pad = pad; nents = 0;
     if (skip_n) { skipping = 1; io_psg_hook = 0; io_adpcm_hook = 0;      /* (the PSG's chip then lacks what was written before: for speed and picture tests, not sound) */
-        sapm_run_frames(skip_n); skipping = 0; nents = 0; npsg = 0; sp_n = 0; sp_cur = -1; io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
+        sapm_run_frames(skip_n); skipping = 0; nents = 0; npsg = 0; sp_n = 0; sp_cur = -1; xs_n = 0; xs_cur = -1; io_psg_hook = psg_tap; io_adpcm_hook = psnd_nibble;
         fprintf(stderr, "sapmhost: %ld frames run before the first picture\n", skip_n); skip_n = 0; }
     Hw *hw = sapm_hw(); const int p0 = hw->playing;
     frame_t0 = sapm_now();

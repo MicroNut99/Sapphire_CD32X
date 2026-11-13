@@ -12,6 +12,7 @@ static const uint16_t vram_inc[4] = { 1, 32, 64, 128 };
 void (*vdc_line0_hook)(Vdc *v);                              /* (Sapphire docs/55: at the display's first line) */
 void (*vdc_split_hook)(Vdc *v, int what);                    /* (docs/55: 1 a raster match, -1 the display's end, 0 a CR write) */
 void (*vdc_scroll_hook)(Vdc *v);                             /* (docs/105: each BXR / BYR write) */
+int vdc_scroll_reg;                                          /* (Sapphire docs/59: which of them the hook's write was - 7 or 8) */
 void (*vdc_vram_hook)(unsigned addr);                       /* (docs/101: each VRAM word written, for the video window's stamps) */
 
 void vdc_init(Vdc *v) { memset(v, 0, sizeof *v); v->irq_rise = v->irq_prev_rise = INT64_MAX; v->irq_prev_clear = 0; }
@@ -132,8 +133,8 @@ void vdc_write(Vdc *v, unsigned a, uint8_t val)
         break;
     case 0x05: SETP(v->CR, val, msb); if (vdc_split_hook) vdc_split_hook(v, 0); break;
     case 0x06: SETP(v->RCR, val, msb); v->RCR &= 0x3FF; break;
-    case 0x07: SETP(v->BXR, val, msb); v->BXR &= 0x3FF; if (vdc_scroll_hook) vdc_scroll_hook(v); break;
-    case 0x08: SETP(v->BYR, val, msb); v->BYR &= 0x1FF; v->bg_ymoo = v->BYR; if (vdc_scroll_hook) vdc_scroll_hook(v); break;
+    case 0x07: SETP(v->BXR, val, msb); v->BXR &= 0x3FF; if (vdc_scroll_hook) { vdc_scroll_reg = 7; vdc_scroll_hook(v); } break;
+    case 0x08: SETP(v->BYR, val, msb); v->BYR &= 0x1FF; v->bg_ymoo = v->BYR; if (vdc_scroll_hook) { vdc_scroll_reg = 8; vdc_scroll_hook(v); } break;
     case 0x09: SETP(v->MWR, val, msb); break;
     case 0x0A: SETP(v->HSR, val, msb); break;
     case 0x0B: SETP(v->HDR, val, msb); break;

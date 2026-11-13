@@ -34,6 +34,34 @@ int main(int argc, char **argv)
                 for (int y = 0; y < 224; y++) for (int x = 0; x < 256; x++)
                     diff += y < L ? c1[f1[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]] : c5[f5[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]];
             }
+            if (getenv("LINES") && sx == 0) {   /* (docs/59) a match on every line from L0 to 209 (v.xsl): the scroll moving, BYR written
+                   at two lines of three, the background off for 8 lines with the sprites on and for 8 with them off - each line
+                   against the reference drawn with that line's scroll alone, by Mednafen's rule worked out here */
+                const int L0 = atoi(getenv("LINES")); static uint8_t f4[224 * 320], f5[224 * 320]; uint16_t u4[16];
+                static const uint8_t k5[8] = { 0, 4, 9, 13, 18, 22, 27, 31 };
+                V32 *w = &v; const uint16_t bx0 = w->BXR, by0 = w->BYR, cr0 = w->t.CR;
+                int lx[224], lrow[224], lfill[224]; int row = by0, bx = bx0, fill = (cr0 & 0x80) ? 0 : 1, n_ = 0;
+                for (int y = 0; y < 224; y++) {
+                    if (y >= L0 && y < 210 && n_ < XS_N) {       /* (the match's handler ran on the line before) */
+                        const int k = y - L0, wy = k % 3 != 2; const unsigned nby = (unsigned)(by0 + 2 * k + (k * k) % 37) & 0x1FF;
+                        unsigned cr = cr0 | 0xC0; if (k >= 40 && k < 48) cr &= ~0x80u; if (k >= 60 && k < 68) cr &= ~0xC0u;
+                        bx = (bx0 + 3 * k + (k & 1) * 5) & 0x3FF;
+                        w->xsl[n_].line = (uint16_t)y; w->xsl[n_].bxr = (uint16_t)bx; w->xsl[n_].byr = (uint16_t)nby; w->xsl[n_].cr = (uint16_t)cr; w->xsl[n_].wrote = wy ? 2 : 0; n_++;
+                        row = wy ? (int)nby + 1 : row + 1; fill = (cr & 0x80) ? 0 : (cr & 0x40) ? 1 : 2;
+                    } else if (y) row++;
+                    lx[y] = bx; lrow[y] = row & 0x1FF; lfill[y] = (cr0 & 0xC0) ? fill : 1;
+                }
+                w->xsl_n = (int16_t)n_;
+                bg32_masks(w, u4); bg32_prep(w, c2, o2, u4); bg32_rows(w, f4 + 32, 320, 0, 112); bg32_rows(w, f4 + 32, 320, 112, 224);
+                w->xsl_n = 0;
+                for (int y = 0; y < 224; y++) {
+                    if (lfill[y]) { const unsigned c = w->color[lfill[y] == 1 ? 256 : 0] & 0x1FF; const uint16_t want = (uint16_t)(k5[c & 7] << 10 | k5[(c >> 6) & 7] << 5 | k5[(c >> 3) & 7]);
+                        for (int x = 0; x < 256; x++) diff += c2[f4[32 + y * 320 + x]] != want; continue; }
+                    w->BXR = (uint16_t)lx[y]; w->BYR = (uint16_t)((lrow[y] - y) & 0x1FF); w->t.CR = cr0 | 0x80; old_draw(w, f5 + 32, 320, c1, o1);
+                    for (int x = 0; x < 256; x++) diff += c1[f5[32 + y * 320 + x]] != c2[f4[32 + y * 320 + x]];
+                }
+                w->BXR = bx0; w->BYR = by0; w->t.CR = cr0;
+            }
             if (getenv("SAVE") && sx == 0) {   /* SAVE=<prefix>: the new drawing as a picture, <prefix><n>.ppm (to look at) */
                 char nm[256]; snprintf(nm, sizeof nm, "%s%d.ppm", getenv("SAVE"), a); FILE *o = fopen(nm, "wb");
                 if (o) { fprintf(o, "P6 256 224 255\n"); for (int y = 0; y < 224; y++) for (int x = 0; x < 256; x++) { const uint16_t c = c2[f2[32 + y * 320 + x]];

@@ -6,6 +6,7 @@
 typedef struct {
     uint16_t vram[32768], color[512], sat[256];             /* what the player has, as these entries left it */
     unsigned dvssr, cur;                                    /* (its DVSSR; the address its next VRAM word goes to) */
+    unsigned bxr, cr;                                       /* (docs/59: its BXR and CR after the last picture's entries) */
     int started;
 } FifoShadow;
 

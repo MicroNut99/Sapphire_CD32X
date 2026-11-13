@@ -51,4 +51,5 @@ void vt_dot_clock(Vdc *v, uint8_t vce_cr);          /* a VCE control write */
 extern void (*vdc_line0_hook)(struct Vdc *v);              /* Sapphire docs/55: the display's first line (NULL: none) */
 extern void (*vdc_split_hook)(struct Vdc *v, int what);    /* docs/55: 1 a raster match, -1 the display's end, 0 a CR write */
 extern void (*vdc_scroll_hook)(struct Vdc *v);              /* docs/105: called after each BXR / BYR write (NULL: none) */
+extern int vdc_scroll_reg;                                  /* (Sapphire docs/59: 7 or 8, the register the hook's write was to) */
 extern void (*vdc_vram_hook)(unsigned addr);              /* docs/101: called with each VRAM word written (NULL: none) */

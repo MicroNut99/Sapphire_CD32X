@@ -25,7 +25,7 @@ int fifo_synth(FifoShadow *s, const V32 *v, uint32_t *out, int max)
         for (unsigned a = 0; a < 0x8000; a++) s->vram[a] = (uint16_t)~v->vram[a];
         for (int i = 0; i < 512; i++) s->color[i] = (uint16_t)~v->color[i];
         for (int i = 0; i < 256; i++) s->sat[i] = (uint16_t)~v->sat[i];
-        s->dvssr = 0xFFFF; s->started = 1; s->cur = 0xFFFFFFFFu;
+        s->dvssr = 0xFFFF; s->started = 1; s->cur = 0xFFFFFFFFu; s->bxr = s->cr = 0xFFFFFFFFu;
     }
     E(6, 0, 0);                                               /* (no split open: the registers below are the current ones) */
     for (int i = 0; i < 512; i++) if (v->color[i] != s->color[i]) { E(4, i, v->color[i]); s->color[i] = v->color[i]; }
@@ -44,12 +44,27 @@ int fifo_synth(FifoShadow *s, const V32 *v, uint32_t *out, int max)
         if (a != s->cur) E(2, 0, a);
         E(1, 0, v->vram[a]); s->vram[a] = v->vram[a]; s->cur = a + 1;
     }
+    if (v->xsl_n > 0) {
+        /* (docs/59) every match of the frame (v->xsl: the stand-in's, sapmhost.c), as the cart's FIFO has them. A
+           register only when it differs from what the player has - at a match it takes its current ones - and BYR
+           whenever the handler wrote it: a BYR write restarts the lines' count, the same value or not. 178 matches
+           are three or four entries each, not eight */
+        unsigned cb = s->bxr, cc = s->cr;
+        for (int i = 0; i < v->xsl_n; i++) {
+            E(7, 0, v->xsl[i].line);
+            if (v->xsl[i].bxr != cb) { REG(7, v->xsl[i].bxr); cb = v->xsl[i].bxr; }
+            if (v->xsl[i].wrote & 2) REG(8, v->xsl[i].byr);
+            if (v->xsl[i].cr != cc) { REG(5, v->xsl[i].cr); cc = v->xsl[i].cr; }
+        }
+        E(6, 0, 0);
+    } else
     for (int i = 0; i < v->spl_n && i < 4; i++) {             /* the splits: each opened at its line, its registers in it */
         E(7, 0, v->spl[i].line);
         REG(7, v->spl[i].bxr); REG(8, v->spl[i].byr); REG(5, v->spl[i].cr);
         E(6, 0, 0);
     }
     REG(7, v->BXR); REG(8, v->BYR); REG(5, v->t.CR); REG(9, v->MWR);
+    s->bxr = v->BXR; s->cr = v->t.CR;
     E(5, 0, 0);
     return n;
 }

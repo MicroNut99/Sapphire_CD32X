@@ -99,7 +99,7 @@ uint32_t bg32_direct;                                         /* (DIAG: pictures
 /* (DIAG, docs/59) a picture's way in refreshes, counted from the moment it is asked for: [0] to draw_hook's start, [1] to
    its list sent (or queued for the blank, or the SH2's own swap asked), [2] to its showing; pic_gap: the game frames
    since the picture before. Read from an SDRAM dump (work/vars.py, work/pichist.py) */
-uint32_t pic_at[3][8], pic_gap[8], bg32_traffic; static volatile uint32_t pic_rel_tick;
+uint32_t pic_at[3][8], pic_gap[8], bg32_traffic, bg32_short, bg32_lines; static volatile uint32_t pic_rel_tick;
 #define PIC_AT(n) do { const uint32_t d_ = gTicks - pic_rel_tick; pic_at[n][d_ > 7 ? 7 : d_]++; } while (0)
 static volatile uint32_t vs_job_v; static volatile int lst_ready_v, lst_op_v;
 #define vs_job SH(vs_job_v)
@@ -653,6 +653,7 @@ int bg32_cols;                                                /* (docs/58: the l
 uint32_t bg2_fpga_tile(unsigned t);
 #if defined(BG32) && defined(BG2_FPGA_TILES)
 static uint16_t bg32_fpga_key(unsigned t) { return (uint16_t)(bg2_fpga_tile(t) >> 16); }
+static uint16_t bg32_fpga_mask(unsigned t) { return (uint16_t)bg2_fpga_tile(t); }   /* (docs/59: its colour mask, for bg32_masks_by) */
 #endif
 #if defined(FIFO_LIVE) && defined(SAPPHIRE_PLAY) && defined(SP_MENU)
 #endif
@@ -991,27 +992,30 @@ static void draw_hook(V32 *v)
         if (ran_prev && bg2.late) { if (++late_n >= TRAFFIC_LATE) { toff = TRAFFIC_OFF; stale = 1; late_n = 0; bg32_traffic++; } } else if (ran_prev) late_n = 0;
         const int wanted = bg32_wanted(v);
         int want = wanted, cols_ = 0;
-#ifdef BG32_PREFER                                            /* (docs/59, RTX=-DBG32_PREFER: every shown background on the 32X layer, the plane never) */
+        /* (docs/59) Every shown background on the 32X layer, the plane never: at 16 places of the game (work/bench.sh,
+           each from a skipped start) 26.5-30.0 pictures a second, where the rules below gave 20-29 with the plane's
+           late lists (a seam where the stage scrolls up, holes in the boss's fire) and its 60 colours. The layer is
+           drawn whole each picture by both SH2s from kept tiles and swapped by the SH2 itself; no list, no 68000.
+           RTX=-DBG32_NOPREFER: the rules alone, as docs/57-58 */
+#ifndef BG32_NOPREFER
         const int pref = (v->t.CR & 0x80) != 0;
 #else
         const int pref = 0;
 #endif
-        if (wanted || stale || pref) {
-            const int w_ = (v->MWR >> 4) & 3, mw = w_ == 0 ? 32 : w_ == 1 ? 64 : 128, mh = (v->MWR & 0x40) ? 64 : 32;
+        /* (docs/59) Lines scrolled one by one (more matches than the picture's four places) or a band with the
+           background off: the layer, whatever the colours - the plane can show neither */
+        const int must = bg32_must(v);
+        if (v->xsl_n > 4) bg32_lines++;                       /* (DIAG: pictures with lines scrolled one by one) */
+        if (wanted || stale || pref || must) {
 #ifdef BG2_FPGA_TILES
             uint16_t *const used = bg32_used; static uint8_t seen[512]; int cols = 0;
-            memset(used, 0, sizeof bg32_used); memset(seen, 0, sizeof seen);
-            uint16_t bl_[6], bx_[5], by_[5]; const int nb_ = bg32_bands(v, bl_, bx_, by_);   /* (docs/58: each band's window - the score bar's too) */
-            for (int kb = 0; kb < nb_; kb++) for (int ty = 0, nt = ((by_[kb] & 7) + (bl_[kb + 1] - bl_[kb]) + 7) >> 3; ty < nt; ty++) for (int tx = 0; tx < 33; tx++) {
-                const uint16_t e = v->vram[(((by_[kb] >> 3) + ty) & (mh - 1)) * mw + (((bx_[kb] >> 3) + tx) & (mw - 1))];
-                used[e >> 12] |= (uint16_t)bg2_fpga_tile(e & 0x7FF);
-            }
+            memset(seen, 0, sizeof seen);
+            bg32_masks_by(v, used, bg32_fpga_mask);           /* (docs/58: each band's window - the score bar's too; docs/59: every band, a map row once) */
             for (int p_ = 0; p_ < 16; p_++) { int i = 1; for (unsigned u = used[p_] >> 1; u; u >>= 1, i++) if (u & 1) {
                 const unsigned c = v->color[p_ * 16 + i] & 0x1FF; if (!seen[c]) seen[c] = (uint8_t)++cols; } }   /* (its number, for pack_fits) */
             fits = cols <= 60 && pack_fits(v, used, seen);
 #else
             const int cols = 61;                              /* (no tile masks to count with: docs/42's rule) */
-            (void)mw; (void)mh;
 #endif
             bg32_cols = cols; cols_ = cols;
             want = wanted ? (cols > 60 || ((fit_n < 4) && BG32_EXACT)) : 0;
@@ -1036,7 +1040,7 @@ static void draw_hook(V32 *v)
             if (ran_prev && fits && !bg2.col_ok) { if (++vain > 8) { off = 64; vain = 0; } } else if (ran_prev) vain = 0;
             int run = plane_next || (fits && !off);
             if (toff) { toff--; run = 0; want = 1; }          /* (docs/59: the traffic's rest) */
-            if (pref) { run = 0; want = 1; }
+            if (pref || must) { run = 0; want = 1; }
             SEC_NOBG = !run; ran_prev = run; if (!run) stale = 1; }
 #endif
 #endif
@@ -1057,7 +1061,7 @@ static void draw_hook(V32 *v)
 #ifdef BG2_FPGA_TILES
                 bg32_tile_key = bg32_fpga_key;                /* (a tile's words' hash: the FPGA's, as bg2_frame's) */
 #endif
-                bg32_prep(v, bg32_cram, bg32_own, um);
+                if (!bg32_prep(v, bg32_cram, bg32_own, um)) bg32_short++;   /* (DIAG, docs/59: the 256 entries did not hold the picture's colours) */
 #if defined(BG32_SEC) && defined(SPR_SEC)
                 { static uint32_t n32; SEC_BV = v; SEC_B32 = ++n32;
                   bg32_rows(v, fbp, 320, 0, 112);
@@ -1451,6 +1455,7 @@ static void fifo_play(V32 *v, long frames)
     const uint32_t *f = (const uint32_t *)0x02200000;
 #endif
     uint32_t t0 = gTicks; long k = 0; unsigned addr = 0;      /* (t0 moves on by a menu's time) */
+    v->xs_n = 0; v->xs_cur = -1; v->xsl_n = 0;
 #ifdef SPR_FPGA_CELLS
     CS_WR(0xcb, 0xa5); CS_WR(0xcb, 0x5a);                     /* (docs/29: the store's start - its registers answer from here) */
 #endif
@@ -1472,10 +1477,13 @@ static void fifo_play(V32 *v, long frames)
             const unsigned sel = x >> 1, hi = x & 1;
 #define SETB_(r, val) (r) = (uint16_t)(hi ? (((r) & 0x00FF) | (val) << 8) : (((r) & 0xFF00) | (val)))
             switch (sel) {
-            case 5: SETB_(v->t.CR, d); if (v->sp_cur >= 0) { v->sp[v->sp_cur].cr = v->t.CR; v->sp[v->sp_cur].wrote |= 4; } break;
+            case 5: SETB_(v->t.CR, d); if (v->sp_cur >= 0) { v->sp[v->sp_cur].cr = v->t.CR; v->sp[v->sp_cur].wrote |= 4; }
+                    if (v->xs_cur >= 0) v->xs[v->xs_cur].cr = v->t.CR; break;
             case 6: SETB_(v->t.RCR, d); v->t.RCR &= 0x3FF; break;
-            case 7: SETB_(v->BXR, d); v->BXR &= 0x3FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].bxr = v->BXR; v->sp[v->sp_cur].wrote |= 1; } break;
-            case 8: SETB_(v->BYR, d); v->BYR &= 0x1FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].byr = v->BYR; v->sp[v->sp_cur].wrote |= 2; } break;
+            case 7: SETB_(v->BXR, d); v->BXR &= 0x3FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].bxr = v->BXR; v->sp[v->sp_cur].wrote |= 1; }
+                    if (v->xs_cur >= 0) v->xs[v->xs_cur].bxr = v->BXR; break;
+            case 8: SETB_(v->BYR, d); v->BYR &= 0x1FF; if (v->sp_cur >= 0) { v->sp[v->sp_cur].byr = v->BYR; v->sp[v->sp_cur].wrote |= 2; }
+                    if (v->xs_cur >= 0) { v->xs[v->xs_cur].byr = v->BYR; v->xs[v->xs_cur].wrote |= 2; } break;
             case 9: SETB_(v->MWR, d); break;
             case 0x13: SETB_(v->DVSSR, d); break;
             }
@@ -1537,6 +1545,8 @@ static void fifo_play(V32 *v, long frames)
 #endif
             for (int i = 0; i < v->sp_n; i++) v->spl[i] = v->sp[i];
             v->spl_n = v->sp_n; v->sp_n = 0; v->sp_cur = -1;
+            for (int i = 0; i < v->xs_n; i++) v->xsl[i] = v->xs[i];   /* (docs/59: every match, for the layer) */
+            v->xsl_n = v->xs_n; v->xs_n = 0; v->xs_cur = -1;
             while ((long)(gTicks - t0) < k) { }                 /* (not due yet: the PC Engine's own rate) */
             /* (docs/27: drawn only when the picture before is on screen - the frames keep coming meanwhile, their
                entries applied while the swap is awaited - and when it is the newest due) */
@@ -1582,7 +1592,7 @@ static void fifo_play(V32 *v, long frames)
             rt_marks_frame();
             k++;
             break;
-        case 6: v->sp_cur = -1; break;
+        case 6: v->sp_cur = -1; v->xs_cur = -1; break;
 #if defined(FIFO_LIVE) && defined(FIFO_CDDA)
         case 0xB: fifo_cdda((int)(x & 1), d); break;          /* (docs/41: FIFO_CDDA=1 - open: the title's pictures stop
                                                                  after it, and no sound comes in ares yet) */
@@ -1591,7 +1601,9 @@ static void fifo_play(V32 *v, long frames)
                                                                  last match keeps the last place, as the stand-in's split():
                                                                  the cart's FIFO has every match, the stand-in's only four) */
                   v->sp[j].line = (uint16_t)d; v->sp[j].bxr = v->BXR; v->sp[j].byr = v->BYR;
-                  v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j; } break;
+                  v->sp[j].cr = v->t.CR; v->sp[j].wrote = 0; v->sp_cur = (int8_t)j;
+                  if (v->xs_n < XS_N) { const int q = v->xs_n++; v->xs[q].line = (uint16_t)d; v->xs[q].bxr = v->BXR; v->xs[q].byr = v->BYR;
+                                        v->xs[q].cr = v->t.CR; v->xs[q].wrote = 0; v->xs_cur = (int16_t)q; } } break;
         case 9: if (d < 0x8000) { const unsigned len = d > 0x8000 - 0x100 ? 0x8000u - d : 256; memcpy(v->sat, &v->vram[d], len * 2); } break;
         default: break;
         }

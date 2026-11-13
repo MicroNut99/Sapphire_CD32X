@@ -71,6 +71,7 @@ static uint16_t tc_band[2];                               /* (the band being dra
 static uint32_t tc_over[2][33][16]; static int tc_nover[2];   /* (... the tile that wanted the slot is made here, for the band) */
 static uint16_t lver[16];                                 /* (a palette's entries changed: its tiles' pixels too) */
 static uint32_t zrow[16];                                 /* (a tile past VRAM's: the backdrop's entry, 64 times) */
+static uint32_t fill256;                                  /* (docs/59: colour 256's entry, four times - a line with the background off) */
 static void sp_make(void)
 {
     if (sp_tab[1]) return;
@@ -78,35 +79,86 @@ static void sp_make(void)
 }
 #define ROW_NIB(a, b) (sp_tab[(a) & 0xFF] | sp_tab[(a) >> 8] << 1 | sp_tab[(b) & 0xFF] << 2 | sp_tab[(b) >> 8] << 3)
 
-/* (docs/58) The raster splits, as rt_bg2.c's bands() (up to 5 bands here): band k from line bl[k] (bl[nb] = 224) with the scroll bx[k] and,
-   at its first line, by[k] - a split's BYR counts from the line after its write. The stage's score bar is such a
-   band: drawn with the picture's one scroll (docs/42: the title has none) it was the city going on, no bar */
-int bg32_bands(const V32 *v, uint16_t bl[6], uint16_t bx[5], uint16_t by[5])
+/* (docs/58) The raster splits, as rt_bg2.c's bands(): each band from its line with its own scroll. The stage's score
+   bar is such a band: drawn with the picture's one scroll (docs/42: the title has none) it was the city going on.
+   (docs/59) Every match of the frame, where the player keeps them (v->xsl; else the picture's four, v->spl): the game
+   scrolls line by line before stage 1's boss and in stage 3 - 662 frames of the recording, up to 178 matches - and
+   four places showed a few bands of it. As Mednafen's VDC (huc6270/vdc.cpp): a line shows BXR as it is at the line;
+   its row is the row before + 1, or BYR + 1 on the line after a BYR write; a line with the background off (CR bit 7)
+   is colour 256 where the sprites are on and colour 0 where they are off too; a frame that starts with both off
+   (burst mode) is colour 256 all through. An iterator, not arrays: 178 bands of three words each on the secondary's
+   3 KB stack would not do */
+static inline unsigned m_line(const V32 *v, int i) { return v->xsl_n ? v->xsl[i].line : v->spl[i].line; }
+static void b32_end(B32Band *b)
 {
-    int nb = 1; bl[0] = 0; bx[0] = v->BXR; by[0] = v->BYR;
-    for (int i = 0; i < v->spl_n && nb < 5; i++) {            /* (every split the picture has - the plane keeps to 3 bands) */
-        const unsigned l = v->spl[i].line;
-        if (l == 0 || l >= 224 || l <= bl[nb - 1]) continue;
-        bl[nb] = (uint16_t)l; bx[nb] = v->spl[i].bxr; by[nb] = (uint16_t)((v->spl[i].byr + 1) & 0x1FF); nb++;
-    }
-    bl[nb] = 224;
+    for (; b->i < b->n; b->i++) { const unsigned l = m_line(b->v, b->i); if (l == 0 || l >= 224 || l <= b->l0) continue; b->l1 = (uint16_t)l; return; }
+    b->l1 = 224;
+}
+void b32_first(B32Band *b, const V32 *v)
+{
+    b->v = v; b->n = v->xsl_n ? v->xsl_n : v->spl_n; b->i = 0; b->l0 = 0; b->bx = v->BXR; b->by = v->BYR;
+    b->burst = !(v->t.CR & 0xC0);
+    b->fill = (uint8_t)(b->burst ? 1 : (v->t.CR & 0x80) ? 0 : 1);   /* (the top with the background off: the sprites are on, or it is burst) */
+    b32_end(b);
+}
+int b32_next(B32Band *b)
+{
+    if (b->l1 >= 224) return 0;
+    const V32 *const v = b->v; const int i = b->i++;
+    unsigned bxr, byr, cr; int wy;
+    if (v->xsl_n) { bxr = v->xsl[i].bxr; byr = v->xsl[i].byr; cr = v->xsl[i].cr; wy = v->xsl[i].wrote & 2; }
+    else { bxr = v->spl[i].bxr; byr = v->spl[i].byr; cr = v->spl[i].cr; wy = 1; }   /* (the four places: BYR as written, as rt_bg2.c) */
+    b->by = (uint16_t)((wy ? byr + 1 : (unsigned)b->by + (b->l1 - b->l0)) & 0x1FF);
+    b->bx = (uint16_t)bxr; b->l0 = b->l1;
+    b->fill = (uint8_t)(b->burst ? 1 : (cr & 0x80) ? 0 : (cr & 0x40) ? 1 : 2);
+    b32_end(b);
+    return 1;
+}
+int bg32_bands(const V32 *v, uint16_t bl[6], uint16_t bx[5], uint16_t by[5])   /* (the first five, in arrays: tests) */
+{
+    B32Band b; int nb = 0; b32_first(&b, v);
+    do { bl[nb] = b.l0; bx[nb] = b.bx; by[nb] = b.by; nb++; } while (nb < 5 && b32_next(&b));
+    bl[nb] = nb < 5 || b.l1 >= 224 ? b.l1 : 224;
     return nb;
 }
+/* the picture needs the layer whatever its colours: lines scrolled one by one, or a band with the background off (the
+   plane has no way to show either) */
+int bg32_must(const V32 *v)
+{
+    if (!(v->t.CR & 0x80)) return 1;
+    if (v->xsl_n > 4) return 1;
+    for (int i = 0; i < v->xsl_n; i++) if (!(v->xsl[i].cr & 0x80) && v->xsl[i].line > 0 && v->xsl[i].line < 224) return 1;
+    return 0;
+}
+/* a band's tiles, each map row's window once (docs/59: 178 one-line bands are mostly the same few rows - visited
+   again for every line, the count alone was a refresh): f(e) for each entry e in view. seen[row] = the window's first
+   column + 1 it was last walked with */
+#define B32_TILES(v, BODY) do { \
+        const int mw_ = map_w(v), mh_ = map_h(v); uint8_t seen_[64]; memset(seen_, 0, sizeof seen_); \
+        B32Band b_; b32_first(&b_, v); \
+        do { if (b_.fill) continue; \
+            for (int ty_ = 0, nt_ = ((b_.by & 7) + (b_.l1 - b_.l0) + 7) >> 3; ty_ < nt_; ty_++) { \
+                const int my_ = ((b_.by >> 3) + ty_) & (mh_ - 1), c0_ = (b_.bx >> 3) & (mw_ - 1); \
+                if (seen_[my_] == (uint8_t)(c0_ + 1)) continue; \
+                seen_[my_] = (uint8_t)(c0_ + 1); \
+                for (int tx_ = 0; tx_ < 33; tx_++) { const uint16_t e = (v)->vram[my_ * mw_ + ((c0_ + tx_) & (mw_ - 1))]; BODY } } \
+        } while (b32_next(&b_)); } while (0)
 void bg32_masks(const V32 *v, uint16_t used[16])
 {
     sp_make();
-    const int mw = map_w(v), mh = map_h(v);
     for (int p = 0; p < 16; p++) used[p] = 0;
-    uint16_t bl[6], bx[5], by[5]; const int nb = bg32_bands(v, bl, bx, by);
-    for (int k = 0; k < nb; k++) for (int ty = 0, nt = ((by[k] & 7) + (bl[k + 1] - bl[k]) + 7) >> 3; ty < nt; ty++) for (int tx = 0; tx < 33; tx++) {
-        const int my = ((by[k] >> 3) + ty) & (mh - 1), mx = ((bx[k] >> 3) + tx) & (mw - 1);
-        const uint16_t e = v->vram[my * mw + mx]; const unsigned tile = e & 0xFFF; uint16_t m = 1;
+    B32_TILES(v, {
+        const unsigned tile = e & 0xFFF; uint16_t m = 1;
         if (tile < 0x800) for (int r = 0; r < 8; r++) {
             uint32_t w = ROW_NIB(v->vram[tile * 16 + r], v->vram[tile * 16 + 8 + r]);
             for (int k = 0; k < 8; k++, w >>= 4) m |= (uint16_t)(1u << (w & 15));
         }
-        used[e >> 12] |= m;
-    }
+        used[e >> 12] |= m; });
+}
+void bg32_masks_by(const V32 *v, uint16_t used[16], uint16_t (*mask)(unsigned tile))   /* (the tiles' colour masks from elsewhere: the cart's FPGA) */
+{
+    for (int p = 0; p < 16; p++) used[p] = 0;
+    B32_TILES(v, { used[e >> 12] |= mask(e & 0x7FF); });
 }
 
 int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t used_idx[16])
@@ -162,6 +214,9 @@ int bg32_prep(const V32 *v, uint16_t cram[256], uint8_t own[256], const uint16_t
             lver[p]++;
             for (int n = 0; n < 256; n++) t[n] = (uint16_t)(l[n >> 4] << 8 | l[n & 15]); }
     }
+    {   /* (docs/59) a band with the background off and the sprites on, or a burst frame: colour 256's entry */
+        int need = 0; B32Band bb; b32_first(&bb, v); do { if (bb.fill == 1) { need = 1; break; } } while (b32_next(&bb));
+        if (need) { const unsigned col = v->color[256] & 0x1FF; uint16_t ix; ENTRY_FOR(col, ix); fill256 = ix * 0x01010101u; } }
     {   const uint8_t z = lut[0][0];                           /* (a tile past VRAM's tiles, a palette no tile uses: the backdrop) */
         for (int p = 0; p < 16; p++) if (!(used_idx[p] & 0xFFFE)) { uint16_t *t = lut2[p];
             if (t[0] == (uint16_t)(z << 8 | z) && t[0x12] == t[0] && t[0xFF] == t[0]) continue;
@@ -204,15 +259,9 @@ static const uint32_t *tile_px(const V32 *v, int h, unsigned tile, unsigned pal)
    (tile k: L2k, L2k+1) goes out from pixel o = BXR & 7: long j = L[m0 + j] with sh = 0, else L[m0 + j] << sh |
    L[m0 + j + 1] >> (32 - sh), m0 = o >> 2, sh = 8 (o & 3) - sh a constant in each copy of this (the SH2 shifts by a
    variable only through a library call). The first and the last tile give the longs that exist */
-static inline __attribute__((always_inline)) void band(const V32 *v, uint8_t *fb, int pitch, int y, int r0, int nr,
-                                                       const uint16_t *bat, int mx, int mw, const unsigned sh, const int m0, const int tc)
+static inline __attribute__((always_inline)) void band(uint8_t *fb, int pitch, int y, int r0, int nr,
+                                                       const uint32_t *const *pp, const unsigned sh, const int m0)
 {
-    const uint32_t *pp[33];
-    tc_band[tc]++; tc_nover[tc] = 0;
-    for (int k = 0; k < 33; k++, mx = (mx + 1) & (mw - 1)) {
-        const uint16_t e = bat[mx]; const unsigned tile = e & 0xFFF;
-        pp[k] = tile < 0x800 ? tile_px(v, tc, tile, e >> 12) : zrow;
-    }
     for (int i = 0; i < nr; i++) {
         const int off = 2 * (r0 + i); uint32_t *d = (uint32_t *)(void *)(fb + (y + i) * pitch);
         const uint32_t *const *q = pp; const uint32_t *px = *q++ + off;
@@ -236,23 +285,39 @@ void bg32_rows(const V32 *v, uint8_t *fb, int pitch, int y0, int y1)
 {
     const int mw = map_w(v), mh = map_h(v);
     const int tc = y0 != 0;                                   /* (the upper part's table, the lower part's) */
-    uint16_t bl[6], bx[5], by[5]; const int nb = bg32_bands(v, bl, bx, by);
-    for (int kb = 0; kb < nb; kb++) {
-    const int ya = y0 > bl[kb] ? y0 : bl[kb], yb = y1 < bl[kb + 1] ? y1 : bl[kb + 1];
-    const unsigned bxr = bx[kb], byr = (unsigned)by[kb] - bl[kb];      /* (line y shows row byr + y) */
-    const unsigned o = bxr & 7; const int m0 = (int)(o >> 2), mx0 = (bxr >> 3) & (mw - 1);
-    for (int y = ya; y < yb; ) {
-        const int yy = (int)((byr + (unsigned)y) & (unsigned)(mh * 8 - 1)), r0 = yy & 7, nr = 8 - r0 < yb - y ? 8 - r0 : yb - y;
-        const uint16_t *bat = v->vram + (yy >> 3) * mw;
-        switch (o & 3) {
-        case 0: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 0, m0, tc); break;
-        case 1: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 8, m0, tc); break;
-        case 2: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 16, m0, tc); break;
-        default: band(v, fb, pitch, y, r0, nr, bat, mx0, mw, 24, m0, tc); break;
+    /* (docs/59) the 33 tiles' kept pixels, found once for a map row and its first column - also across bands: lines
+       scrolled one by one are a band a line, most of them in the row of the line before */
+    const uint32_t *pp[33]; const uint16_t *pbat = 0; int pmx = -1;
+    B32Band b; b32_first(&b, v);
+    do {
+        const int ya = y0 > b.l0 ? y0 : b.l0, yb = y1 < b.l1 ? y1 : b.l1;
+        if (ya >= yb) continue;
+        if (b.fill) {                                         /* (the background off: colour 256, or colour 0) */
+            const uint32_t z = b.fill == 1 ? fill256 : zrow[0];
+            for (int y = ya; y < yb; y++) { uint32_t *d = (uint32_t *)(void *)(fb + y * pitch); for (int k = 0; k < 64; k++) PUT32(d + k, z); }
+            continue;
         }
-        y += nr;
-    }
-    }
+        const unsigned bxr = b.bx, byr = (unsigned)b.by - b.l0;        /* (line y shows row byr + y) */
+        const unsigned o = bxr & 7; const int m0 = (int)(o >> 2), mx0 = (bxr >> 3) & (mw - 1);
+        for (int y = ya; y < yb; ) {
+            const int yy = (int)((byr + (unsigned)y) & (unsigned)(mh * 8 - 1)), r0 = yy & 7, nr = 8 - r0 < yb - y ? 8 - r0 : yb - y;
+            const uint16_t *bat = v->vram + (yy >> 3) * mw;
+            if (bat != pbat || mx0 != pmx) {
+                pbat = bat; pmx = mx0; tc_band[tc]++; tc_nover[tc] = 0;
+                for (int k = 0, mx = mx0; k < 33; k++, mx = (mx + 1) & (mw - 1)) {
+                    const uint16_t e = bat[mx]; const unsigned tile = e & 0xFFF;
+                    pp[k] = tile < 0x800 ? tile_px(v, tc, tile, e >> 12) : zrow;
+                }
+            }
+            switch (o & 3) {
+            case 0: band(fb, pitch, y, r0, nr, pp, 0, m0); break;
+            case 1: band(fb, pitch, y, r0, nr, pp, 8, m0); break;
+            case 2: band(fb, pitch, y, r0, nr, pp, 16, m0); break;
+            default: band(fb, pitch, y, r0, nr, pp, 24, m0); break;
+            }
+            y += nr;
+        }
+    } while (b32_next(&b));
 }
 
 int bg32_draw(const V32 *v, uint8_t *fb, int pitch, uint16_t cram[256], uint8_t own[256])

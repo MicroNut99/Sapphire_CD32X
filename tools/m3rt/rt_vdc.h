@@ -66,6 +66,14 @@ typedef struct V32 {                         /* (the registers and the timing fi
     uint16_t sat[256], color[512], vram[32768];
     int sc_next; long sc_hits, sc_made;
     VSCache sc[VS_CACHE];
+    /* (Sapphire docs/59) every raster match of the frame, for the 32X-layer background (rt_bg32.c): sp / spl hold four
+       (the last match in the last place). The game scrolls line by line in 662 frames of the recording - up to 178
+       matches a frame. wrote: bit 1 the handler wrote BYR (the lines then count on from BYR + 1; not written, they
+       count on from the band before). xs_* this frame's so far, xsl_* the picture's. At the struct's end: the
+       players that know nothing of them (rt_vdc.c's own) leave xsl_n 0 and the layer takes spl */
+#define XS_N 226
+    struct { uint16_t line, bxr, byr, cr; uint8_t wrote; } xs[XS_N], xsl[XS_N];
+    int16_t xs_n, xs_cur, xsl_n;
 } V32;
 
 /* the state Mednafen had (tools/m2_trace.py vdc_snapshot: 64 K words of VRAM, the sprite table, the colours, 96
