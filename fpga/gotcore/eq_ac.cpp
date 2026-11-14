@@ -46,7 +46,7 @@ int main(int argc, char **argv)
             if (w) { ram2[ix] = v; ac_write(&ac, 0x1A00 | r, v); wr++; }
             else { const uint8_t m = ac_read(&ac, 0x1A00 | r); if (m != ram2[ix]) { printf("%ld: read %02X idx %06X: %02X, model %02X\n", i, r, ix, ram2[ix], m); bad++; } rd++; }
             t->step = 1; clk(); t->step = 0;
-        } else if (w) { ac_write(&ac, 0x1A00 | r, v); t->we = 1; clk(); t->we = 0; regs++; }
+        } else if (w) { ac_write(&ac, 0x1A00 | r, v); t->we = 1; clk(); t->we = 0; regs++; for (int k = 0; k < 8; k++) clk(); }   /* (docs/65: the lean card's shift takes up to 7 clocks; the CPU's next access is cycles away) */
         else { const uint8_t m = ac_read(&ac, 0x1A00 | r); if (m != t->q) { printf("%ld: reg %02X: %02X, model %02X\n", i, r, t->q, m); bad++; } regs++; }
         if (t->unimpl) { printf("%ld: unimpl after %02X %s %02X\n", i, r, w ? "w" : "r", v); bad++; }
     }

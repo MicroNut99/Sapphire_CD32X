@@ -196,7 +196,7 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
     # word + 0x40010 = {byte, 8'b{valid, write busy}}; + 0x44000 + (a << 1) the save address (0-2047); + 0x45000 + (d << 1)
     # a byte written there, + 0x45800 a byte read (both step the address)
     ("\t\tif (pkd_rd) begin pk_a <= {pk_ah, rom_addr[10:9]}; pk_d <= rom_addr[8:1]; pk_we <= rom_addr[11] & got_on; end\n\tend\n",
-     "\t\tif (pkd_rd) begin pk_a <= {pk_ah, rom_addr[10:9]}; pk_d <= rom_addr[8:1]; pk_we <= rom_addr[11] & got_on & pk_hi == 4'd0; end\n"
+     "\t\tif (pkd_rd) begin pk_a <= {pk_ah, rom_addr[10:9]}; pk_d <= rom_addr[8:1]; pk_we <= rom_addr[11] & got_on & !pk_hi[3]; end\n"
      "\t\tif (pkp_rd) pk_a <= {pk_ah, rom_addr[2:1]};\n"
      "\tend\n"
      "\t// (Sapphire docs/63) the poke beyond base RAM, the peek, the save port\n"
@@ -206,18 +206,23 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\tsync_edge sync_pkp(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h42 & !cpu_oe), .sync(pkp_rd));\n"
      "\tsync_edge sync_svs(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h44 & !cpu_oe), .sync(svs_rd));\n"
      "\tsync_edge sync_svx(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h45 & !cpu_oe), .sync(svx_rd));\n"
-     "\twire [16:0] pk_full = {pk_hi, pk_ah, rom_addr[10:9]}, pp_full = {pk_hi, pk_ah, rom_addr[2:1]};\n"
-     "\twire [15:0] pk_off = pk_full[15:0] - 16'h2000, pp_off = pp_full[15:0] - 16'h2000;   // (CD RAM: sram byte 0x30000 on)\n"
+     "\t// (docs/65) h: bit 3 = CD RAM, bits 2-0 its 8 KB bank (sram byte 0x30000 on); 0 = base RAM, GoT's port as it was\n"
+     "\twire [15:0] pk_off = {pk_hi[2:0], pk_ah, rom_addr[10:9]}, pp_off = {pk_hi[2:0], pk_ah, rom_addr[2:1]};\n"
      "\talways @(posedge clk) begin\n"
      "\t\tpx_req <= 1'b0; pr_req <= 1'b0;\n"
      "\t\tif (got_rst || !got_on) pk_hi <= 4'd0; else if (pkh_rd) pk_hi <= rom_addr[4:1];\n"
-     "\t\tif (pkd_rd && rom_addr[11] && got_on && pk_hi != 4'd0) begin px_req <= 1'b1; px_a <= {3'b011, pk_off}; px_d <= rom_addr[8:1]; px_cache <= 1'b1; end\n"
-     "\t\tif (pkp_rd && pk_hi != 4'd0) begin pr_req <= 1'b1; pr_a <= {3'b011, pp_off}; end\n"
+     "\t\tif (pkd_rd && rom_addr[11] && got_on && pk_hi[3]) begin px_req <= 1'b1; px_a <= {3'b011, pk_off}; px_d <= rom_addr[8:1]; px_cache <= 1'b1; end\n"
+     "\t\tif (pkp_rd && pk_hi[3]) begin pr_req <= 1'b1; pr_a <= {3'b011, pp_off}; end\n"
      "\t\tif (svs_rd) sv_a <= rom_addr[11:1];\n"
      "\t\tif (svx_rd) begin sv_a <= sv_a + 11'd1;\n"
      "\t\t\tif (!rom_addr[11]) begin px_req <= got_on; px_a <= {8'h41, sv_a}; px_d <= rom_addr[8:1]; px_cache <= 1'b0; end\n"
      "\t\t\telse begin pr_req <= got_on; pr_a <= {8'h41, sv_a}; end end\n"
      "\tend\n"),
+    # docs/65: GoT's USB status page (MCU 0x1830000) and auto-RUN are off - no USB on the owner's console, and a USB read
+    # stops the game (GoT docs/49); Quartus then drops what only fed them (its counters, the SH2's crumbs, the CPU's PC out)
+    ("\tassign got_btn = got_pad | ((autorun && !asked && st_fr[8:4] == 5'h18) ? 8'h08 : 8'h00);",
+     "\tassign got_btn = got_pad;   // (Sapphire docs/65: no auto-RUN)"),
+    ("\twire [7:0] pi_q = pi_w[8 * (5'd31 - mai.pi.addr[4:0]) +: 8];", "\twire [7:0] pi_q = 8'h00;   // (Sapphire docs/65: the USB status page off)"),
     ("\twire [15:0] reg_q = rom_addr[3] ? cd_audio[15:0]", "\twire [15:0] reg_q = rom_addr[4] ? {pr_q, pr_v, px_busy, 6'd0} : rom_addr[3] ? cd_audio[15:0]"),
     (".sp_need(sp_need), .d_ac(d_ac),", ".sp_need(sp_need), .px_req(px_req), .px_a(px_a), .px_d(px_d), .px_cache(px_cache), .px_busy(px_busy),\n"
      "\t\t.pr_req(pr_req), .pr_a(pr_a), .pr_q(pr_q), .pr_v(pr_v), .d_ac(d_ac),"),

@@ -54,37 +54,50 @@ module sap_ac #(parameter FULL = 0, parameter REGRD = 1) (
 	wire [31:0] ro_r = (latch >> ra) | (latch << (6'd32 - {1'b0, ra}));
 	wire [31:0] ro_l = (latch << ra) | (latch >> (6'd32 - {1'b0, ra}));
 
+	// (docs/65) one bus of next values for the addressed port's registers, each register loading it with its own enable:
+	// no mux a port. The lean card's shift moves the latch a bit a clock (shift_n clocks): the game shifts left by 1, 2 or 4
+	// only, and its next access is CPU cycles away (at least 2 x 7 clocks)
+	wire        rlo_w = we && lo;
+	wire        st_b = step && c[0] && c[4];
+	wire        st_o = step && c[0] && !c[4];
+	wire        w_b = rlo_w && (r[3:0] == 4'h2 || r[3:0] == 4'h3 || r[3:0] == 4'h4);
+	wire        w_o = rlo_w && (r[3:0] == 4'h5 || r[3:0] == 4'h6);
+	wire        w_n = rlo_w && (r[3:0] == 4'h7 || r[3:0] == 4'h8);
+	wire        w_c = rlo_w && r[3:0] == 4'h9;
+	wire [23:0] nb = step ? b + {8'd0, n} : (rlo_w && add_off) ? b_add
+	               : r[3:0] == 4'h2 ? {b[23:8], wd} : r[3:0] == 4'h3 ? {b[23:16], wd, b[7:0]} : {wd, b[15:0]};
+	wire [15:0] no = step ? o + n : r[3:0] == 4'h5 ? {o[15:8], wd} : {wd, o[7:0]};
+	wire [15:0] nn = r[3:0] == 4'h7 ? {n[15:8], wd} : {wd, n[7:0]};
+	wire        e_b = !rst && (st_b || (!step && (w_b || (rlo_w && add_off))));
+	wire        e_o = !rst && (st_o || (!step && w_o));
+	wire        e_n = !rst && !step && w_n;
+	wire        e_c = !rst && !step && w_c;
+	wire        hi_w = we && r[7:5] == 3'b111 && !step;
+	reg  [2:0]  shift_n;
 	integer i;
 	always @(posedge clk) begin
-		if (rst) begin
-			for (i = 0; i < 4; i = i + 1) begin base[i] <= 24'd0; offs[i] <= 16'd0; incr[i] <= 16'd0; ctrl[i] <= 7'd0; end
-			latch <= 32'd0; shift_bits <= 4'd0; rotate_bits <= 4'd0; unimpl <= 1'b0;
-		end else if (step) begin
-			if (c[0]) begin
-				if (c[4]) base[p] <= b + {8'd0, n}; else offs[p] <= o + n;
+		for (i = 0; i < 4; i = i + 1) begin
+			if (rst) begin base[i] <= 24'd0; offs[i] <= 16'd0; incr[i] <= 16'd0; ctrl[i] <= 7'd0; end
+			else begin
+				if (e_b && p == i) base[i] <= nb;
+				if (e_o && p == i) offs[i] <= no;
+				if (e_n && p == i) incr[i] <= nn;
+				if (e_c && p == i) ctrl[i] <= wd[6:0];
 			end
-		end else if (we && lo) begin
-			case (r[3:0])
-			4'h2: base[p][7:0] <= wd;
-			4'h3: base[p][15:8] <= wd;
-			4'h4: base[p][23:16] <= wd;
-			4'h5: offs[p][7:0] <= wd;
-			4'h6: offs[p][15:8] <= wd;
-			4'h7: incr[p][7:0] <= wd;
-			4'h8: incr[p][15:8] <= wd;
-			4'h9: begin ctrl[p] <= wd[6:0]; if (FULL == 0 && (wd & 8'h68) != 8'd0) unimpl <= 1'b1; end
-			default: ;
-			endcase
-			if (add_off) base[p] <= b_add;
-		end else if (we && r[7:5] == 3'b111) begin
-			case (r[4:0])
+		end
+		if (rst) begin latch <= 32'd0; shift_bits <= 4'd0; rotate_bits <= 4'd0; unimpl <= 1'b0; shift_n <= 3'd0; end
+		else begin
+			if (shift_n != 3'd0) begin latch <= latch << 1; shift_n <= shift_n - 3'd1; end
+			if (e_c && FULL == 0 && (wd & 8'h68) != 8'd0) unimpl <= 1'b1;
+			if (hi_w) case (r[4:0])
 			5'h00: latch[7:0] <= wd;
 			5'h01: latch[15:8] <= wd;
 			5'h02: latch[23:16] <= wd;
 			5'h03: latch[31:24] <= wd;
 			5'h04: begin shift_bits <= sv;
 				if (sv[3]) begin if (FULL != 0) latch <= sh_r; else unimpl <= 1'b1; end
-				else latch <= sh_l; end                      // (by 0: as it is)
+				else if (FULL != 0) latch <= sh_l;
+				else shift_n <= sv[2:0]; end              // (by 0: as it is)
 			5'h05: begin rotate_bits <= sv;
 				if (sv != 4'd0) begin if (FULL != 0) latch <= sv[3] ? ro_r : ro_l; else unimpl <= 1'b1; end end
 			default: ;

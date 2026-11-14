@@ -54,7 +54,7 @@ whose address carries the value, as GoT's poke port):
 
 | Read of bank 26 + | Does |
 |---|---|
-| 0x43000 + (h << 1) | the poke address' bits 16-13 (0 after a start: GoT's base RAM poke as it was; CD RAM is 0x2000 on) |
+| 0x43000 + (h << 1) | h: 0 after a start - GoT's base RAM poke as it was; bit 3 = CD RAM, bits 2-0 its 8 KB bank (docs/65: no subtractor) |
 | 0x4D000 / 0x4F000 | GoT's poke port as it is (bits 12-2; then bits 1-0, the byte, write); with h ≠ 0 the write goes to CD RAM |
 | 0x42000 + (a << 1) | a peek at {h, the 0x4D000 bits, a}: base RAM's byte in + 0x40002's high byte, any other in the port word |
 | 0x44000 + (a << 1) | the save area's address (0-2047; battery RAM + 0x1000) |

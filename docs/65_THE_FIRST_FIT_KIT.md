@@ -29,3 +29,40 @@ fit), the build logs, the worst paths when timing failed, and `mega-pro_<a|b>.rb
 **Expected:** Gate of Thunder's step 20 was 15,183 of 15,408 logic elements; the feed (331) is gone, the card (~600-650,
 a yosys estimate), the sector port, the ports of docs/63 and the battery RAM pins are added. It may not fit; the reports
 say by how much and where.
+
+## Fit 1: it does not fit (13 Nov, the owner's PC)
+
+Both variants stop at the fitter: **a 15,796 combinational functions, b 15,688**, against the chip's 15,408 (synthesis
+18,454 / 18,230 logic elements before packing). `get_got_files.bat` copied Gate of Thunder's step-20 files and synthesis
+report out of `fpga_work` for a like-for-like comparison - step 20 is **14,991** combinational functions (17,355 logic
+elements in synthesis, 15,183 after the fitter packs registers in). By part (combinational functions, synthesis):
+
+| Part | GoT step 20 | Sapphire fit 1 (a) |
+|---|---|---|
+| the Arcade Card (`sap_ac`) | - | 501 |
+| the memory side's own (`got_cart_sram`) | 856 | 996 |
+| the wrapper's own (`map_got`) | 289 | 370 |
+| the engine's own (`got_cart`) | 932 | 989 |
+| CPU, `dx_vdc`, `dx_cd` + `dx_rv`, `dx_io` | 11,710 | 11,694 |
+
+The ~805 to take out are the additions. Gate of Thunder's own history shows Quartus's effort settings barely move its
+size (its docs/28: 14,222 balanced, 14,110 high-performance), so they come out of the design.
+
+## Fit 2's changes (kit `Sapphire\fpga\gotcore_fit2\`, `build_sap_core2.bat`)
+
+- **Gate of Thunder's USB status page off** (the MCU's page 0x1830000 reads 0) and **its auto-RUN key gone**: the owner's
+  console has no USB link and a USB read stops the game (GoT docs/49). Quartus drops what only fed them: the counters,
+  the SH2's crumbs and values, the CPU's PC output, the PC ring's stand flag.
+- **The card's port registers not read back** (`SAP_NOREGRD`, fit 1's variant b: -108).
+- **The card rewritten** (`sap_ac.sv`): one bus of next values for the addressed port's registers, each register loading it
+  with its own enable (no mux a port); the lean card's shift a bit a clock (the game shifts left by 1, 2 or 4 only, and
+  its next access is CPU cycles away). `run_eqac.sh`: 3 M accesses each form, 0 wrong (the test now gives the
+  shifter its clocks after a write). yosys: 778 → 719.
+- **The CD RAM poke / peek address without a subtractor:** h (+ 0x43000) bit 3 = CD RAM, bits 2-0 its 8 KB bank (docs/63
+  section 3b updated).
+- The bench (`work/gc/b3`): st3_600 and p1_8100, 60 frames each, as before (59 of 61 equal without the stack page, the
+  same frames; every write in; the flags 0).
+- The project's `SEARCH_PATH` now points at `map_sap` too.
+
+Variant c: Gate of Thunder's settings (high-performance effort, physical synthesis); variant d: the same design with
+Quartus's balanced setting, to see how small it gets.
