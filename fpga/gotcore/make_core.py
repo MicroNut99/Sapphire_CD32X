@@ -101,7 +101,7 @@ def rep(old, new):
     if s.count(old) != 1: sys.exit('got_cart_sram.sv: %d of "%s"' % (s.count(old), old[:70]))
     s = s.replace(old, new)
 rep("parameter [20:0] LBA0 = 21'd3590, parameter [20:0] NSEC = 21'd1882) (",
-    "parameter [20:0] LBA0 = 21'd3590, parameter [20:0] NSEC = 21'd1882,\n\tparameter [22:0] AC_BASE = 23'h000000, parameter AC_FULL = 0, parameter AC_REGRD = 1) (   // (Sapphire docs/62: the card's 2 MB in rom1)")
+    "parameter [20:0] LBA0 = 21'd3590, parameter [20:0] NSEC = 21'd1882,\n\tparameter [22:0] AC_BASE = 23'h000000, parameter AC_FULL = 0,\n`ifdef SAP_NOREGRD\n\tparameter AC_REGRD = 0) (   // (docs/65: the fit's variant b - the ports' registers read back as $FF; the game reads none)\n`else\n\tparameter AC_REGRD = 1) (   // (Sapphire docs/62: the card's 2 MB in rom1)\n`endif")
 rep("\tMemBus             sram,\n", "\tMemBus             sram,\n\tMemBus             bram,            // (Sapphire docs/62: the backup RAM, on the chip the EverDrive's OS keeps on the SD card)\n")
 rep("\toutput wire        rom_req,\n", "\toutput wire        rom_req,\n\toutput wire        rom_we_hi, rom_we_lo, output wire [15:0] rom_dati,   // (Sapphire docs/62: the card's write)\n"
     "\tinput  wire        sp_rst, sp_we, sp_commit, input wire [7:0] sp_d, output wire sp_need,   // (the sector port)\n\toutput wire [1:0]  d_ac,            // ({a card write lost, the game used what the lean card leaves out})\n")
@@ -189,7 +189,8 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\talways @(posedge clk) begin sp_we <= sp_b_rd; sp_d <= rom_addr[8:1]; sp_rst <= sp_c_rd & !rom_addr[11]; sp_commit <= sp_c_rd & rom_addr[11]; end\n"),
     (".hold(!got_on), .sram(sram), .rom_addr(got_rom_a), .rom_req(got_rom_req),", ".hold(!got_on), .sram(sram), .bram(gbram), .rom_addr(got_rom_a), .rom_req(got_rom_req),\n"
      "\t\t.rom_we_hi(got_we_hi), .rom_we_lo(got_we_lo), .rom_dati(got_rom_d), .sp_rst(sp_rst), .sp_we(sp_we), .sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac),"),
-    ("{8'h20, 7'd0, cfg_busy})", "{8'h20, 4'd0, d_ac, sp_need, cfg_busy})"),
+    ("{8'h20, 7'd0, cfg_busy})", "{8'hA1, 4'd0, d_ac, sp_need, cfg_busy})"),   # (docs/65: Sapphire's core, step 1 - GoT's was 0x20)
+    ("16'h6F20,", "16'h5A01,"),   # (docs/65: the status page's ID - GoT's 0x6F20)
     # docs/63: + 0x43000 + (h << 1) the poke address' bits 16-13 (0: GoT's base RAM port as it was; CD RAM is 0x2000 on);
     # + 0x42000 + (a << 1) a peek at {h, the 0x4D000 bits, a}: base RAM's byte at + 0x40002 (high), any other in the port
     # word + 0x40010 = {byte, 8'b{valid, write busy}}; + 0x44000 + (a << 1) the save address (0-2047); + 0x45000 + (d << 1)
