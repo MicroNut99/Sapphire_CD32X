@@ -8,7 +8,8 @@
 // FULL = 0 leaves out what the game never uses (docs/62 section 2: the whole recorded game, 75,000 frames - control
 // values 00 / 03 / 11 / 13 only, the shift register only left by 0-7, no rotate, no offset added to the base on a
 // write): a use of any of it sets `unimpl`, which the core's status page shows. FULL = 1 is the whole card.
-// REGRD = 0 reads the ports' base / offset / increment / control back as $FF (the game reads none of them).
+// REGRD = 0 reads the ports' base / offset / increment / control back as $00 (docs/70: the game reads them once, at its
+// boot, after writing 0 to each - it reads none of them after that).
 //
 // Written for this project (no third-party code).
 `default_nettype none
@@ -119,6 +120,9 @@ module sap_ac #(parameter FULL = 0, parameter REGRD = 1) (
 			4'h9: q = {1'b0, c};
 			default: ;
 			endcase
+			else if (r[3:0] >= 4'h2 && r[3:0] <= 4'h9) q = 8'h00;   // (docs/70: the game's boot check writes 0 to every port's
+			                                                      //  registers and reads them back - with $FF it showed
+			                                                      //  "insert the Arcade Card" on the console)
 		end else if (r[7:5] == 3'b111) begin
 			case (r[4:0])
 			5'h00: q = latch[7:0];

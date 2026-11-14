@@ -205,8 +205,8 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\talways @(posedge clk) begin sp_we <= sp_b_rd; sp_d <= rom_addr[8:1]; sp_rst <= sp_c_rd & !rom_addr[11]; sp_commit <= sp_c_rd & rom_addr[11]; end\n"),
     (".hold(!got_on), .sram(sram), .rom_addr(got_rom_a), .rom_req(got_rom_req),", ".hold(!got_on), .sram(sram), " + (".bram(gbram), " if SAVE_DIRECT else "") + ".rom_addr(got_rom_a), .rom_req(got_rom_req),\n"
      "\t\t.rom_we_hi(got_we_hi), .rom_we_lo(got_we_lo), .rom_dati(got_rom_d), .sp_rst(sp_rst), .sp_we(sp_we), .sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac),"),
-    ("{8'h20, 7'd0, cfg_busy})", "{8'hA2, 4'd0, d_ac, sp_need, cfg_busy})"),   # (docs/65: Sapphire's core, step 1 - GoT's was 0x20; docs/69: step 2, A2)
-    ("16'h6F20,", "16'h5A02,"),   # (docs/65: the status page's ID - GoT's 0x6F20; docs/69: 5A02)
+    ("{8'h20, 7'd0, cfg_busy})", "{8'hA3, 4'd0, d_ac, sp_need, cfg_busy})"),   # (docs/65: Sapphire's core, step 1 - GoT's was 0x20; docs/69: step 2, A2; docs/70: A3)
+    ("16'h6F20,", "16'h5A03,"),   # (docs/65: the status page's ID - GoT's 0x6F20; docs/69: 5A02; docs/70: 5A03)
     # docs/63: + 0x43000 + (h << 1) the poke address' bits 16-13 (0: GoT's base RAM port as it was; CD RAM is 0x2000 on);
     # + 0x42000 + (a << 1) a peek at {h, the 0x4D000 bits, a}: base RAM's byte at + 0x40002 (high), any other in the port
     # word + 0x40010 = {byte, 8'b{valid, write busy}}; + 0x44000 + (a << 1) the save address (0-2047); + 0x45000 + (d << 1)

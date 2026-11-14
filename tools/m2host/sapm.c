@@ -77,7 +77,10 @@ static uint8_t model_read(uint16_t a)
     if (off < 0x800) sync_access(off < 0x400 && (off & 3) >= 2);
     if (off < 0x400) return vdc_read(&vdc, off);
     if (off < 0x800) return vce_read(&vdc, off);
-    if ((off & 0x1F00) == 0x1A00) return ac_read(&ac, off);   /* the Arcade Card's registers (as trace_main.c) */
+    if ((off & 0x1F00) == 0x1A00) { const uint8_t q_ = ac_read(&ac, off);   /* the Arcade Card's registers (as trace_main.c) */
+        { static long n_ = -2; if (n_ == -2) n_ = getenv("SAPM_ACT") ? atol(getenv("SAPM_ACT")) : -1;   /* (docs/70: each access to frame n) */
+          if (frame < n_) fprintf(stderr, "act frame %ld PC %04X read $%04X = %02X\n", frame, cur_pc, (unsigned)off, q_); }
+        return q_; }
     const int64_t t = acc_time(0);
     vt_run(&vdc, t); io_run(&hw, t);
     uint8_t m;
@@ -100,6 +103,8 @@ static void model_write(uint32_t off, uint8_t v)
             if (!(ac_flags & 1) && getenv("SAPM_ACLOG")) fprintf(stderr, "sapm: the lean card's flag - $%04X = %02X at frame %ld, PC %04X\n", (unsigned)off, v, frame, cur_pc);
             ac_flags |= 1;
         }
+        { static long n_ = -2; if (n_ == -2) n_ = getenv("SAPM_ACT") ? atol(getenv("SAPM_ACT")) : -1;
+          if (frame < n_) fprintf(stderr, "act frame %ld PC %04X write $%04X = %02X\n", frame, cur_pc, (unsigned)off, v); }
         ac_write(&ac, off, v);
     }
     else { const int64_t t = acc_time(0); vt_run(&vdc, t); io_run(&hw, t); (void)io_write(&hw, off, v); }
