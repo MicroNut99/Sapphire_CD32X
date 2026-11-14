@@ -278,6 +278,14 @@ Read `CLAUDE.md` first.
      attract demo scores). Stand-in ports 0xd4-0xd8 (ares `a39c246`, `fpga/ares` patch; `huchost_peek`); tests
      `work/save.sh`, `work/warp.sh`. The same ports in GoT's core: `make_core.py` (docs/63 §3b; lints clean, not simulated).
      **Next: docs/62 step 3 - GoT's bench with `sapm` as the host, then the fit, the ares model, the program on the core.**
+  59. **docs/64:** the combined core in GoT's bench: `fpga/gotcore/run_bench.sh <GoT> <DraculaX_32X> <tg16> <build>`
+     (`make_bench.py`: `scart.cpp` from GoT's `cart.cpp`; the card's 2 MB in the PSRAM model, its registers from
+     `ac_start.bin`, sectors through the sector port, a battery RAM model), then `scart tr/<window> --run N` with
+     `RUN_DISC=work/disc/sapphire.cue RUN_NOSTACK=1`; reference `work/m2check_ns` (the host with `md5ns`, `RUN_ACDUMP`);
+     `cmp_frames.py`. st3/st1/ps2/p1_8100/t12: every window ends equal, card reads and writes (1.15 M in t12) and
+     1,425 sectors. Found and fixed: the card's write timing (its own count). Builds `work/gc/b2`, outputs
+     `work/gc/out`, the MiSTer core `work/gc/tg16`. **Next: the fit (.bat for the owner), then the ares model and the
+     program on GoT's core.**
 ## 2. Where things live
 
 | What | Where | In git? |

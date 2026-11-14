@@ -49,3 +49,26 @@ address - but between accesses that address is already the card's current byte, 
 not start again and the write ended without its WE. The write now has its own count from the clock it owns the chip
 (`wc`: address and byte, WE clocks 1-4, done at 6). After it: all 8,192 writes in, the card's 2 MB equal to the host's
 after frame 0.
+
+## 4. The card's writes and the sector port, after the fix
+
+| Window | Card reads / writes | Sectors through the port | Frames equal without the stack page | Last frame |
+|---|---|---|---|---|
+| p1_8100 (600 frames) | 637,246 word reads / 8,192 | 1 | 560 of 601, the rest alone or a few in a row | equal |
+| t12 (1,700 frames: the card filled while the game loads) | 226,632 / 1,155,072 | **1,425** (LBA 4,196-11,022) | 1,598 of 1,701, at most 4 in a row | equal |
+
+**Speed:** the engine's ticks a clock are 0.859 in the stage windows (Gate of Thunder's real time at 50 MHz), 0.858 in
+p1_8100, **0.800 in t12** - the card's writes (each holds the CPU about 8 clocks for the PSRAM) and the 1,425 sectors
+take the game to about 93 % of its real speed there, a loading scene. On the cart the sectors come from the SH2 through
+the console's reads, slower than the bench's byte a clock: to be measured with the program.
+
+## 5. What this does and does not show
+
+Shown, in a simulation of the RTL: Gate of Thunder's console-proven engine with the Arcade Card, the sector port and the
+moved backup RAM runs Sapphire's windows to the same end states as Mednafen (through Sapphire's host), card reads
+and writes included. Not shown: the fit (Quartus: the core was at 99 % before the card - docs/62 section 4), the
+console, the SH2's side of the sector port, the save port and peek in use (docs/63 §3b: tied off in this bench), and why
+Sapphire's windows have more transient frames than Gate of Thunder's (stage 1: 74 of 600; frame 24's: base RAM $01F7
+and CD RAM $A01E, equal again after).
+
+**Next:** the fit's `.bat` for the owner (docs/62 step 4) - what leaves the core to make room is decided by its report.
