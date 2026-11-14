@@ -30,7 +30,10 @@ on (8 at most); with an older core (no line marked) it keeps docs/67's cut at th
 buffers whole. This also fixes the cells that crossed line 203 in the secondary's half (it drew to line 224).
 
 **ares** (fit 5's window, the play recording): the first part of the curtain (engine frames 55,517-55,617) 0.0-1.9 % of
-pixels off Mednafen; shots 2,000-20,000 as before (mean 2.00 %).
+pixels off Mednafen; shots 2,000-20,000 as before (mean 2.00 %). The second part, the 64-line band moving down (a run
+to ares frame 56,975: engine frames 55,717-56,241, 22 shots every 25 frames): median 0.88 %, mean 2.20 % - the worst
+(13.5-14.8 %) an explosion's or a ring's animation a few frames apart, no sprite drawn in the band or missing outside
+it. Fit 5's own check (`check_g`): the CPU core's two-clock paths +11.7 ns, hold +0.414 ns.
 
 ## 3. The kit
 
