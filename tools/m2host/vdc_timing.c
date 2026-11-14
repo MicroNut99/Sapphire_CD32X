@@ -130,7 +130,7 @@ static void vdc_tick(Vdc *v)                                  /* one VDC clock *
         case H_HDS: hds_start(v); break;
         case H_HDS2: v->hphase_ctr = (int32_t)t_bxr(v); if (!v->in_exhsync) bgy_step(v); v->bg_yoff = v->bg_ymoo; break;
         case H_HDS3: v->hphase_ctr = (int32_t)((v->hds_c + 1) * 8 - t_byr(v) - t_bxr(v));
-            if (v->rcr_count < 263) { v->lines[v->rcr_count][0] = v->BXR; v->lines[v->rcr_count][1] = v->bg_yoff; }
+            if (v->rcr_count < 263) { v->lines[v->rcr_count][0] = v->BXR; v->lines[v->rcr_count][1] = (uint16_t)(v->bg_yoff | (v->CR & 0x40 ? 0 : 0x8000)); }   /* (Sapphire docs/69: bit 15, the line's sprites off - as the cart core's step 5) */
             break;
         case H_HDW:
             v->need_rcr_inc = 1;

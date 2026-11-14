@@ -18,7 +18,7 @@ cp "$B/edboot/SAPENG_PK.32X" "$K/Sapphire_EDCD.32X"
 cp "$RBF" "$K/mega-pro.rbf"
 cp "$D/SAPENG.cue" "$D/SAPENG.bin" "$K/disc/"
 cat > "$K/README.txt" << 'TXT'
-Sapphire CD32X - the cart core build (Sapphire_CD32X docs/67-68)
+Sapphire CD32X - the cart core build (Sapphire_CD32X docs/67-69)
 
 1. Burn disc/SAPENG.cue (with SAPENG.bin) to a CD-R. It holds the game's CD music; the game itself is in the .32X file.
 2. Copy Sapphire_EDCD.32X and mega-pro.rbf into ONE folder on the EverDrive PRO's SD card (the rbf beside the game is the
@@ -32,5 +32,8 @@ Sapphire CD32X - the cart core build (Sapphire_CD32X docs/67-68)
    cells exactly, while they are few (the title, the scenes); EXACT - always (fewer pictures a second in the stages);
    FAST - never (the nearest colours, the most pictures a second).
 6. A photograph of the menu's STATUS page tells how the console ran it.
+7. v4 (docs/69): mega-pro.rbf is the core's fit 5 (ID 5A02, step A2 on STATUS) - it tells the program on which lines the
+   game turns sprites off, so sprites stay hidden where the game hides them (the curtain before stage 4). The disc is
+   v2's / v3's: no new burn. With fit 4's rbf this program still runs (as v3 did).
 TXT
 ls -la "$K" "$K/disc"

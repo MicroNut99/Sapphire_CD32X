@@ -7,6 +7,10 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**Each line's sprites (14 Nov 2026, [docs/69](docs/69_EACH_LINES_SPRITES.md)):** the cart core's fit 5 (ID 5A02, timing met)
+tells the program on which lines the game has sprites off - the curtain before stage 4 now as the game draws it. Kit
+`console_sd_v4`.
+
 **The missing parts (14 Nov 2026, [docs/68](docs/68_THE_MISSING_PARTS.md)):** the owner's "list everything missing and
 then rebuild and or add it" - **the ADPCM** (the voices and effects: ADPCM RAM mirrored in the cart, 0.959 of Mednafen's
 loudness, heard in the same seconds), **stage play at ~25 pictures a second in ares** (was ~15), the status bar's bands in

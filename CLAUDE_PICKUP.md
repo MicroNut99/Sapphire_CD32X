@@ -335,6 +335,9 @@ Read `CLAUDE.md` first.
      engine frame - the harness's `eng` field, ares local - and the comparison), `/tmp/e4c/vdpview.py` (the planes from a
      `--dump-vdp`, whose last 16 words are now the VDP's state). The kit: the owner's `Sapphire\console_sd_v3\`
      (launcher `d82c565e`, fit 4's rbf, v2's disc). **Next:** the console's word; the curtain before stage 4.
+  64. **docs/69, each line's sprites**: core fit 5 (`fpga/gotcore/make_core.py`: `lny` + `!w_cr[6]`, Y bit 15; ID 5A02, busy
+     A2; the owner's `Sapphire\fpga\gotcore_fit5\out\mega-pro_g.rbf`, timing met), `vdc_timing.c` the same bit; the
+     program's sprite ranges (`eng_scroll_bands`, `tools/sap_spr.patch`). ares `SAPX_STEP=1` = fit 4. Kit `console_sd_v4`.
 ## 2. Where things live
 
 | What | Where | In git? |

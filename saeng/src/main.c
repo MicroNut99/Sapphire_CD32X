@@ -48,6 +48,12 @@ static volatile uint32_t cdg_beat_, cdg_where_; static volatile int *cdg_palgo; 
 #include "rt.h"
 #ifdef SPR_DRAW
 #include "rt_spr.h"
+#if defined(SPR_YLIM) && defined(SPR_SPLIT)
+void spr_draw_rng(const SprCmd *k, int n, int buf, int ya, int yb);   /* (docs/69, tools/sap_spr.patch: within the lines sprites show on) */
+#define SPR_DRAW_R spr_draw_rng
+#else
+#define SPR_DRAW_R spr_draw_cmds
+#endif
 #endif
 
 volatile uint32_t gTicks = 0;
@@ -221,7 +227,7 @@ void secondary(void)
 #endif
 #ifdef SPR_SPLIT
         while (SEC_LIST != j) { }                             /* (the master's list of the sprites' cells) */
-        spr_draw_cmds((const SprCmd *)((uintptr_t)spr_cmd | 0x20000000), SEC_NC, (int)(j & 1), SPLIT_Y, SPR_LINES);
+        SPR_DRAW_R((const SprCmd *)((uintptr_t)spr_cmd | 0x20000000), SEC_NC, (int)(j & 1), SPLIT_Y, SPR_LINES);
 #endif
 #else
         spr_frame(SEC_V, (int)(j & 1));
@@ -1102,7 +1108,7 @@ static void draw_hook(V32 *v)
     spr_frame_list(v, cur ^ 1);
     SEC_T(8, ta);
     SEC_NC = spr_ncmd; SEC_LIST = job;                        /* (the cells' list: the secondary draws its band) */
-    spr_draw_cmds(spr_cmd, spr_ncmd, cur ^ 1, 0, SPLIT_Y);
+    SPR_DRAW_R(spr_cmd, spr_ncmd, cur ^ 1, 0, SPLIT_Y);
 #else
     spr_frame(v, cur ^ 1);
 #endif

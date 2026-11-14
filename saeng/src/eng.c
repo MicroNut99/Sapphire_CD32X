@@ -910,7 +910,9 @@ static void eng_scroll(void)
     eng_scroll_bands();
 }
 #ifdef SPR_YLIM
-extern int spr_ylim;
+extern int spr_ylim, spr_ytop, spr_nrng;
+#define SPR_NRNG 8
+extern int16_t spr_rng[SPR_NRNG][2];
 /* docs/67: where the game's status bar starts - sprites are off from there. Its band shows BAT row 234 (Y 234; 235 when
    the screen shakes) from line 192 down; the game turns sprites off at its split (CR $8C): over the recording (sapm_pc
    SPLIT_LOG, 75,000 frames) 61,695 + 386 frames turn them off at line 203 with Y 234 / 235 there and nowhere else, but
@@ -927,9 +929,25 @@ static int spr_hud_line(void)
 static void eng_scroll_bands(void)
 {
 #ifdef SPR_YLIM
-    {   const int y = spr_hud_line();
-        if (y != spr_ylim) { spr_ylim = y; gm_wipe_n = 2; }   /* (a change: both buffers drawn again whole - the old boxes below the
-                                                                 cut are not cleared by the sprite drawing) */
+    {   /* docs/69: core step 5 marks each line the game has sprites off on (CR bit 6 clear as the line starts) with the
+           line table's Y bit 15: the ranges sprites show on, taken from it (and the bit cleared for every other use).
+           An older core marks none: then 0 to the status bar's split (docs/67's spr_hud_line) */
+        int16_t rg[SPR_NRNG][2]; int n = 0, any = 0, on = 0;
+        for (int l = 0; l < 224; l++) {
+            const int off = (eng_lines[2 * l + 1] & 0x8000) != 0; eng_lines[2 * l + 1] &= 0x7FFF;
+            any |= off;
+            if (!off && !on) { if (n < SPR_NRNG) { rg[n][0] = (int16_t)l; rg[n][1] = 224; n++; } on = 1; }
+            else if (off && on) { rg[n - 1][1] = (int16_t)l; on = 0; }
+        }
+        if (!any) { n = 1; rg[0][0] = 0; rg[0][1] = (int16_t)spr_hud_line(); }
+        if (!n) { n = 1; rg[0][0] = rg[0][1] = 0; }      /* (none: sprites nowhere) */
+        int same = n == spr_nrng;
+        for (int i = 0; i < n && same; i++) same = rg[i][0] == spr_rng[i][0] && rg[i][1] == spr_rng[i][1];
+        if (!same) {                                  /* (a change: both buffers drawn again whole - the old boxes outside the
+                                                         ranges are not cleared by the sprite drawing) */
+            for (int i = 0; i < n; i++) { spr_rng[i][0] = rg[i][0]; spr_rng[i][1] = rg[i][1]; }
+            spr_nrng = n; spr_ytop = rg[0][0]; spr_ylim = rg[n - 1][1]; gm_wipe_n = 2;
+        }
     }
 #endif
 #ifndef BG2_DRAW

@@ -184,6 +184,15 @@ rep("\t\t\tif (own_b && o_done) begin", "\t\t\t// (docs/63) the ports: a write w
     "\t\t\t\tpr_q <= pr_ar[18:16] == 3'b100 ? (pr_ar[0] ? o_word[7:0] : o_word[15:8]) : (pr_ar[0] ? o_word[15:8] : o_word[7:0]); end\n"
     "\t\t\tif (own_b && o_done) begin")
 rep("\t\tif (erst) begin wq_n <= 2'd0;", "\t\tif (erst) begin wq_n <= 2'd0; wq_e <= 1'b1; px_p <= 1'b0; pr_p <= 1'b0; pr_v <= 1'b0;")
+# docs/69: the line table's Y word bit 15 - the line's sprites off (CR bit 6 clear as the line is logged); the C model's
+# vdc_timing.c logs the same
+for old, new in [
+    ('(* ramstyle = "M9K, no_rw_check" *) reg [8:0] lny [512];', '(* ramstyle = "M9K, no_rw_check" *) reg [9:0] lny [512];   // (Sapphire docs/69: + bit 9, the line\'s sprites off)'),
+    ('reg [9:0] lnx_q; reg [8:0] lny_q;', 'reg [9:0] lnx_q; reg [9:0] lny_q;'),
+    ('lny[{lb, w_ln_a}] <= w_ln_y; end', 'lny[{lb, w_ln_a}] <= {!w_cr[6], w_ln_y}; end'),
+    ("(vw_pa[8] ? {7'd0, lny_q} : {6'd0, lnx_q})", "(vw_pa[8] ? {lny_q[9], 6'd0, lny_q[8:0]} : {6'd0, lnx_q})")]:
+    if s.count(old) != 1: sys.exit('got_cart_sram.sv: %d of "%s"' % (s.count(old), old[:70]))
+    s = s.replace(old, new)
 open(os.path.join(O, 'got_cart_sram.sv'), 'w').write(s)
 
 # ---- map_ssf_got.sv
@@ -196,8 +205,8 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\talways @(posedge clk) begin sp_we <= sp_b_rd; sp_d <= rom_addr[8:1]; sp_rst <= sp_c_rd & !rom_addr[11]; sp_commit <= sp_c_rd & rom_addr[11]; end\n"),
     (".hold(!got_on), .sram(sram), .rom_addr(got_rom_a), .rom_req(got_rom_req),", ".hold(!got_on), .sram(sram), " + (".bram(gbram), " if SAVE_DIRECT else "") + ".rom_addr(got_rom_a), .rom_req(got_rom_req),\n"
      "\t\t.rom_we_hi(got_we_hi), .rom_we_lo(got_we_lo), .rom_dati(got_rom_d), .sp_rst(sp_rst), .sp_we(sp_we), .sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac),"),
-    ("{8'h20, 7'd0, cfg_busy})", "{8'hA1, 4'd0, d_ac, sp_need, cfg_busy})"),   # (docs/65: Sapphire's core, step 1 - GoT's was 0x20)
-    ("16'h6F20,", "16'h5A01,"),   # (docs/65: the status page's ID - GoT's 0x6F20)
+    ("{8'h20, 7'd0, cfg_busy})", "{8'hA2, 4'd0, d_ac, sp_need, cfg_busy})"),   # (docs/65: Sapphire's core, step 1 - GoT's was 0x20; docs/69: step 2, A2)
+    ("16'h6F20,", "16'h5A02,"),   # (docs/65: the status page's ID - GoT's 0x6F20; docs/69: 5A02)
     # docs/63: + 0x43000 + (h << 1) the poke address' bits 16-13 (0: GoT's base RAM port as it was; CD RAM is 0x2000 on);
     # + 0x42000 + (a << 1) a peek at {h, the 0x4D000 bits, a}: base RAM's byte at + 0x40002 (high), any other in the port
     # word + 0x40010 = {byte, 8'b{valid, write busy}}; + 0x44000 + (a << 1) the save address (0-2047); + 0x45000 + (d << 1)
