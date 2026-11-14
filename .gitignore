@@ -28,3 +28,6 @@ saspeed/cd/
 fpga/quartus/out/
 *.rbf
 reference/
+saeng/build/
+saeng/cd/
+saeng/music/

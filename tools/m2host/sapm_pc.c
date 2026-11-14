@@ -111,6 +111,15 @@ static void at_frame(void *user, long k)                       /* the frame's en
         memcpy(prev, vr, sizeof prev); have = 1;
         printf("frame %ld stamps: written %d, changed %d\n", k, w, c);
     }
+    if (getenv("SND_LOG")) {   /* docs/67: the cart's sound log as the machine makes it (code 0-15 the PSG's $0800-$080F,
+                                  0x10 | n the CD unit's $1808 + n but $180A): SND_LOG=<code in hex> prints that code's
+                                  writes, SND_LOG=all every one */
+        static unsigned rp; static int code = -2;
+        if (code == -2) code = strcmp(getenv("SND_LOG"), "all") ? (int)strtol(getenv("SND_LOG"), NULL, 16) : -1;
+        unsigned wp; const uint16_t *r = sapm_snd(&wp);
+        for (; (rp & 511) != wp; rp++) { const uint16_t e = r[rp & 511];
+            if (code < 0 || (int)(e >> 8 & 0x1F) == code) printf("snd frame %ld code %02X value %02X\n", k, e >> 8 & 0x1F, e & 0xFF); }
+    }
     if (getenv("LINES_FROM") && k >= atol(getenv("LINES_FROM"))) {   /* docs/105: each frame's line table, appended */
         static FILE *lf; if (!lf) lf = fopen("lines.bin", "wb");
         if (lf) fwrite(sapm_lines(), 2, 263 * 2, lf);
@@ -132,8 +141,10 @@ static void at_frame(void *user, long k)                       /* the frame's en
             char name[1100]; const char *base = getenv("RUN_DUMP_FILE") ? getenv("RUN_DUMP_FILE") : "run_dump.bin";
             if (every > 0) snprintf(name, sizeof name, "%s.%ld", base, k); else snprintf(name, sizeof name, "%s", base);
             FILE *f = fopen(name, "wb");
-            if (f) { fwrite(sapm_base_ram(), 1, 8192, f); fwrite(sapm_cd_ram(), 1, 65536, f); fwrite(sapm_super_ram(), 1, 196608, f);
-                     fwrite(sapm_vram(), 2, 65536, f); fwrite(sapm_sat(), 2, 256, f); fwrite(sapm_colors(), 2, 512, f);
+            if (f && getenv("RUN_DUMP_VIDEO")) fseek(f, 8192 + 65536 + 196608, SEEK_SET);   /* (docs/67, Gate of Thunder's docs/55: the video part
+                                                                 alone, the RAM a hole - bg2_host's input) */
+            else if (f) { fwrite(sapm_base_ram(), 1, 8192, f); fwrite(sapm_cd_ram(), 1, 65536, f); fwrite(sapm_super_ram(), 1, 196608, f); }
+            if (f) { fwrite(sapm_vram(), 2, 65536, f); fwrite(sapm_sat(), 2, 256, f); fwrite(sapm_colors(), 2, 512, f);
                      { uint16_t r[4]; sapm_regs(r, r + 1, r + 2, r + 3); fwrite(r, 2, 4, f); } fclose(f); }   /* + BXR BYR MWR CR */
         }
     }

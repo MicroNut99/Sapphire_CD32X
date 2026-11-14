@@ -305,6 +305,23 @@ Read `CLAUDE.md` first.
      sector. Test: `tools/sap_files.py` (SAPFWTAB.BIN), `tools/sapx_launcher.py <work> <out> <sapm_pc SEC_LOG>` (a 68000
      launcher feeding the sector port): **30,000 of 30,000 frames = `sapm_pc`** (`SAPX_MASKS/POKES/HASHES`, `work/sx`).
      Rebuild ares after a sync: `ninja -C /home/claude/ares_build2 ares-headless`.
+  62. **docs/67, the program on the cart core** (`saeng/`: Gate of Thunder's `goteng` at `4a438c6` + the feed from the
+     pack through the core's sector port, page sessions, Sapphire's menu, the PSG on the PWM without ADPCM). Build:
+     `tools/saeng_disc.sh <BootCamp> <DraculaX_32X> <GoT> <work> <out>` (`MUSIC="<Session 1>"` for the music disc;
+     Dracula X's tools at `DXREV=8dd9b47`; the stack's `VSSWAP=1 HWIN=1` by default - without them the status bar's V
+     split is missed behind a long list; `CDFADE=1`; the `sdcard/` kit merged, `SDSAVE=1 SDSAVE_OUT=76 SDSAVE_IN=77
+     EDCD_SAVE=1`). Run: `work/sxrun.sh <tag> <build dir> <frames> [ares args]` (`SAPX_MASKS=inp/playL_masks.u16
+     SAPX_POKES=pokes_playL.u32` for the recording; `KEEP=1` keeps the cart RAM = the SD card's bank 31). Against
+     Mednafen: `tools/m3_stageref.py playL <from> <to> <out>` with `REF_AT=` the shots' engine frames (the log's
+     `comm6`), then the per-shot comparison (docs/67 section 2). The plane on the PC: `sapm_pc RUN_DUMP_VIDEO=1
+     RUN_DUMP_EVERY=1 LINES_FROM=` + GoT's `tools/bg2/build.sh` (with Dracula X at `8dd9b47`), `TRUEV=1`. **The sprites
+     cut at the status bar** (`SPR_YLIM`, `tools/sap_spr.patch`); **saves on the SD card** (docs/63's record at bank 31 +
+     0x1000, by 58 / 76 / 77 via `ed_cmd`; at the menu's close and 10 s after play); **MUSIC VOLUME** and the game's own
+     CD fades by command 104 (`snd_fader` from the sound log's $180F). In ares: the status bar right in 45 of 45 shots,
+     the save read back by a second launch, MUSIC VOLUME 4 = 0.500 of the level. **The kit:** `tools/sap_kit.sh` ->
+     the owner's `Sapphire\console_sd_v2\` (`Sapphire_EDCD.32X` - keep this name: it is the save's folder - fit 4's
+     `mega-pro.rbf`, `disc\SAPENG.cue`). **Next:** the stage's picture rate (ares ~14 a second in play, 40-45 at the
+     title: `DX_PROF`), the console's word on the kit, the ADPCM.
 ## 2. Where things live
 
 | What | Where | In git? |

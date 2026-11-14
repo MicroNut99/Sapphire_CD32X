@@ -7,6 +7,15 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**The program on the cart core (14 Nov 2026, [docs/67](docs/67_THE_PROGRAM_ON_THE_CART_CORE.md)):** Gate of Thunder's engine
+program runs Sapphire on fit 4's core in ares (`sapx`): the data track fed from the cart's pack through the core's sector
+port, the options menu, the PSG on the 32X. This round: the status bar's split no longer missed (the stack's VSSWAP /
+HWIN), sprites cut at the status bar, **the settings and the HIGH SCORE saved on the EverDrive's SD card** (the BootCamp
+`sdcard/` kit's commands 76 / 77, read back by a second launch), **MUSIC VOLUME** and the game's own CD fades (command
+104). From power-on with the recording: 36 of 45 screenshots within 5 % of Mednafen's pictures, the status bar right in
+all. The SD-card kit is `console_sd_v2` (`Sapphire_EDCD.32X`, fit 4's `mega-pro.rbf`, the music disc). Not yet on a
+console; ares gives ~14 pictures a second in stage play.
+
 **Saves (13 Nov 2026, [docs/63](docs/63_THE_SETTINGS_AND_THE_HIGH_SCORE_ON_THE_SD_CARD.md)):** the options menu's
 settings and a HIGH SCORE (the game has none of its own) kept in the EverDrive's battery RAM, which its OS keeps on the
 SD card. ares only; the cart core's ports are still to write.

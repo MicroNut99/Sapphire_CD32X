@@ -1,0 +1,75 @@
+--- a/rt_spr.c
++++ b/rt_spr.c
+@@ -24,6 +24,15 @@
+ #ifdef SPR_UNDER
+ void spr_under(const V32 *v, int buf, const SprBuf *b, uint16_t *dirty);   /* (Gate of Thunder docs/60) */
+ #endif
++#ifdef SPR_YLIM
++/* Sapphire CD32X docs/67 (SPR_YLIM): the lines sprites show on - the picture's, cut where the game turns them off by a
++   raster split (its status bar from line 203: CR $8C there). The program sets it each picture from the line table
++   (eng.c spr_hud_line); a change of it redraws both buffers whole (the old boxes below the cut are not cleared here) */
++int spr_ylim = SPR_LINES;
++#define SPR_YL spr_ylim
++#else
++#define SPR_YL SPR_LINES
++#endif
+ #ifdef SPR_VERIFY
+ #include <stdio.h>
+ #endif
+@@ -291,9 +300,9 @@
+ {
+     g->sy = (e[0] & 0x3FF) - 64; g->sx = (e[1] & 0x3FF) - 32; const unsigned attr = e[3];
+     g->cgx = attr & 0x100 ? 2 : 1; const int hc = (int)(attr >> 12) & 3; g->cgy = hc == 0 ? 1 : hc == 1 ? 2 : 4;
+-    if (g->sy >= SPR_LINES || g->sy + g->cgy * 16 <= 0 || g->sx >= 256 || g->sx + g->cgx * 16 <= 0) return 0;
++    if (g->sy >= SPR_YL || g->sy + g->cgy * 16 <= 0 || g->sx >= 256 || g->sx + g->cgx * 16 <= 0) return 0;
+     g->x0 = g->sx < 0 ? 0 : g->sx & ~1; const int x1 = (g->sx + g->cgx * 16 + 1) & ~1; g->x1 = x1 > 256 ? 256 : x1;
+-    g->y0 = g->sy < 0 ? 0 : g->sy; g->y1 = g->sy + g->cgy * 16 > SPR_LINES ? SPR_LINES : g->sy + g->cgy * 16;
++    g->y0 = g->sy < 0 ? 0 : g->sy; g->y1 = g->sy + g->cgy * 16 > SPR_YL ? SPR_YL : g->sy + g->cgy * 16;
+     return 1;
+ }
+ static inline int cell0(const uint16_t *e, const Geo *g) { return ((e[2] >> 1) & 0x3FF) & ~(g->cgx - 1) & ~((g->cgy - 1) * 2); }
+@@ -335,10 +344,10 @@
+ {
+     spr_frame_list(v, buf);
+ #ifdef __sh__
+-    spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, SPR_LINES);
++    spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, SPR_YL);
+ #else
+     { static int split = -1; if (split < 0) { const char *e = getenv("RUN_SPR_SPLIT"); split = e ? atoi(e) : 112; }
+-      spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, split); spr_draw_cmds(spr_cmd, spr_ncmd, buf, split, SPR_LINES); }
++      spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, split); spr_draw_cmds(spr_cmd, spr_ncmd, buf, split, SPR_YL); }
+ #endif
+ }
+ void spr_frame_list(const V32 *v, int buf)
+@@ -404,18 +413,18 @@
+         const int hf = (attr & 0x800) != 0, vf = (attr & 0x8000) != 0, pal = attr & 15;
+         for (int cy = 0; cy < g.cgy; cy++) for (int cx = 0; cx < g.cgx; cx++) {
+             const int px = g.sx + 16 * (hf ? g.cgx - 1 - cx : cx), py = g.sy + 16 * (vf ? g.cgy - 1 - cy : cy);
+-            if (py >= SPR_LINES || py + 16 <= 0 || px >= 256 || px + 16 <= 0) continue;
++            if (py >= SPR_YL || py + 16 <= 0 || px >= 256 || px + 16 <= 0) continue;
+             spr_stat.cells++;
+ #ifdef SPR_SPLIT
+             const uint8_t *src = cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1);
+             if (src_unkept || spr_ncmd == SPR_CMDS) {   /* (a cell not kept, or the list full: what is listed now, whole) */
+-                spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, SPR_LINES); spr_ncmd = 0;
+-                if (src_unkept) { draw_cell(src, b->ovl, px, py, hf, vf, pal, 0, SPR_LINES); continue; }
++                spr_draw_cmds(spr_cmd, spr_ncmd, buf, 0, SPR_YL); spr_ncmd = 0;
++                if (src_unkept) { draw_cell(src, b->ovl, px, py, hf, vf, pal, 0, SPR_YL); continue; }
+             }
+             SprCmd *k = &spr_cmd[spr_ncmd++];
+             k->src = src; k->px = (int16_t)px; k->py = (int16_t)py; k->hv = (uint8_t)(hf | vf << 1); k->pal = (uint8_t)pal;
+ #else
+-            draw_cell(cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1), b->ovl, px, py, hf, vf, pal, 0, SPR_LINES);
++            draw_cell(cell_src(v, (unsigned)(c0 + cy * 2 + cx) & 0x1FF, buf, px & 1), b->ovl, px, py, hf, vf, pal, 0, SPR_YL);
+ #endif
+         }
+     }
+@@ -435,7 +444,7 @@
+         const int c0 = cell0(e, &g); const int hf = (e[3] & 0x800) != 0, vf = (e[3] & 0x8000) != 0;
+         for (int cy = 0; cy < g.cgy; cy++) for (int cx = 0; cx < g.cgx; cx++) {
+             const int px = g.sx + 16 * (hf ? g.cgx - 1 - cx : cx), py = g.sy + 16 * (vf ? g.cgy - 1 - cy : cy);
+-            if (py >= SPR_LINES || py + 16 <= 0 || px >= 256 || px + 16 <= 0) continue;
++            if (py >= SPR_YL || py + 16 <= 0 || px >= 256 || px + 16 <= 0) continue;
+             const unsigned c = (unsigned)(c0 + cy * 2 + cx) & 0x1FF; const uint16_t *t = &rt_marks.v[c * 4];
+             if (!VSRC_IS_CODE(tg) && (t[0] == tg || t[1] == tg || t[2] == tg || t[3] == tg)) continue;
+             int hit; (void)big_get(v, c, t, &hit);
