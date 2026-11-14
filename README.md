@@ -15,8 +15,9 @@ SD card. ares only; the cart core's ports are still to write.
 Gate of Thunder's console-proven cart core with the Arcade Card added. The card is written and equal to Mednafen's
 (`fpga/gotcore/sap_ac.sv`); the combined core runs in Gate of Thunder's bench equal to the host
 ([docs/64](docs/64_THE_COMBINED_CORE_IN_GATE_OF_THUNDERS_BENCH.md)) and **fits the EverDrive PRO's FPGA and meets timing at 50 MHz** (99 %, +0.961 ns:
-[docs/65](docs/65_THE_FIRST_FIT_KIT.md)). The ares model and the program on
-the core are still to do. The save will go into the EverDrive's battery RAM by the stack's SD-save commands; the game
+[docs/65](docs/65_THE_FIRST_FIT_KIT.md)). ares has the core as its EverDrive PRO
+`sapx` model ([docs/66](docs/66_THE_ARES_MODEL_OF_THE_CART_CORE.md): 30,000 frames from power-on equal to the PC machine);
+the program on the core is next. The save will go into the EverDrive's battery RAM by the stack's SD-save commands; the game
 does not save on the console yet.
 
 **Latest (13 Nov 2026, [docs/60](docs/60_THE_NEW_ARES_AND_ITS_TRAPS.md)):** on the owner's new ares (v1.9, with the

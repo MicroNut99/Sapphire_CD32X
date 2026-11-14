@@ -98,3 +98,4 @@ int scsi_quiet(const Hw *io);                       /* no drive, its bus free an
 void io_stuff_subchannels(Hw *io, unsigned n);      /* n sub-channel bytes at once (CD-DA run in one go) */
 extern void (*io_adpcm_hook)(int nib);               /* (docs/50: each nibble the playback decodes; -1 = reset) */
 extern void (*io_psg_hook)(unsigned reg, uint8_t v);   /* (docs/44: each PSG register write, 0-15) */
+extern void (*io_snd_hook)(unsigned code, uint8_t v);   /* (docs/66, GoT docs/54: each sound write - PSG register 0-15; 0x10 | the CD unit's $1808-$180F but $180A) */

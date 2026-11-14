@@ -6,7 +6,7 @@
  * Times are master clocks (21.48 MHz) from power-on. One machine a process (the models' state is static). */
 #pragma once
 #include <stdint.h>
-#ifdef __cplusplus
+#if defined(__cplusplus) && !defined(SAPM_CXX_NS)   /* (docs/66: ares includes it inside namespace sapx, C++ linkage - its own names) */
 extern "C" {   /* (C linkage, so a C++ host can declare it inside its own namespace: ares's board.cpp) */
 #endif
 
@@ -42,7 +42,15 @@ long sapm_run_frames(long n);                /* run n more frames (to their ends
 int64_t sapm_run_until(int64_t t);           /* run to the first instruction boundary at or after time t; returns it */
 int64_t sapm_now(void);                      /* the time of the next instruction's start */
 long sapm_frame(void);                       /* frames ended since power-on */
-unsigned sapm_pc(void);                                  /* (docs/60: the CPU's PC now) */
+unsigned sapm_pc(void);
+/* docs/66 (the ares model of the cart core, Gate of Thunder's gotm.h): the engine's reset alone (the cart's key 'GTRS': the
+   memories, the card's 2 MB, the stamps, the frame count go on; the card's registers reset); the last 512 instruction PCs
+   (*next = the oldest's index); the sound's write log (512 entries: frame's low 3 bits, 5-bit code, the byte) and its write
+   pointer; what the cart's lean Arcade Card would flag (bit 0: a feature it leaves out was used) */
+int sapm_restart(void);
+const uint16_t *sapm_pcs(unsigned *next);
+const uint16_t *sapm_snd(unsigned *wp);
+unsigned sapm_card_flags(void);                                  /* (docs/60: the CPU's PC now) */
 uint32_t sapm_hash(int with_stack);          /* tools/m3rt rt_hash: RAM, VRAM, sprite table, colours */
 void sapm_md5(uint8_t md[16]);               /* tools/m0_replay.py frame_hash's md5 (needs openssl: SAPM_MD5) */
 
@@ -56,6 +64,6 @@ uint8_t *sapm_base_ram(void); uint8_t *sapm_cd_ram(void); uint8_t *sapm_super_ra
 uint16_t *sapm_vram(void); uint16_t *sapm_sat(void); uint16_t *sapm_colors(void);
 void sapm_regs(uint16_t *bxr, uint16_t *byr, uint16_t *mwr, uint16_t *cr);
 void sapm_state_text(void);                  /* the CD unit's and video chips' hidden state, as text (trace_main.c RUN_STATE) */
-#ifdef __cplusplus
+#if defined(__cplusplus) && !defined(SAPM_CXX_NS)
 }
 #endif

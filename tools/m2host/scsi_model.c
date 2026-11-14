@@ -121,7 +121,7 @@ int scsi_pak_sector(int32_t sector, uint8_t *out)        /* 1 read, 0 failed its
     static int tried, ok; static TrackPak pk;
     if (!tried) {
         tried = 1; const char *pn = getenv("SCSI_PAK"); FILE *pf = pn ? fopen(pn, "rb") : 0;
-        if (pf) { fseek(pf, 0, SEEK_END); const long n = ftell(pf); fseek(pf, 0, SEEK_SET); uint8_t *m = malloc((size_t)n);
+        if (pf) { fseek(pf, 0, SEEK_END); const long n = ftell(pf); fseek(pf, 0, SEEK_SET); uint8_t *m = (uint8_t *)malloc((size_t)n);
             ok = m && fread(m, 1, (size_t)n, pf) == (size_t)n && !trackpak_open(&pk, m, (uint32_t)n); fclose(pf); }
         if (pn && !ok) fprintf(stderr, "SCSI_PAK: %s is not a pack\n", pn);
     }
@@ -150,8 +150,8 @@ static int read_data_sector(Hw *io, int32_t lba, uint8_t *out)   /* 2048 bytes o
             if (r >= 0) return 1; }
     }
     if (!k->t[t].f) { note(io, "data track file missing"); memset(out, 0, 2048); return 1; }
-    fseek(k->t[t].f, k->t[t].offset + (long)(lba - k->t[t].lba) * 2048, SEEK_SET);
-    if (fread(out, 1, 2048, k->t[t].f) != 2048) { note(io, "data track short"); memset(out, 0, 2048); }
+    fseek((FILE *)k->t[t].f, k->t[t].offset + (long)(lba - k->t[t].lba) * 2048, SEEK_SET);
+    if (fread(out, 1, 2048, (FILE *)k->t[t].f) != 2048) { note(io, "data track short"); memset(out, 0, 2048); }
 #endif
     return 1;
 }
@@ -175,8 +175,8 @@ static int disc_open(Hw *io, const char *cue)
             if (k->t[t].data && strcmp(a, "MODE1/2048")) { fclose(f); return 0; }   /* only these two kinds on this disc */
             k->t[t].control = k->t[t].data ? 4 : 0;
             k->t[t].f = first_in_file ? fopen(file, "rb") : 0; first_in_file = 0;
-            if (k->t[t].f) { fseek(k->t[t].f, 0, SEEK_END); k->t[t].sectors = (int32_t)(ftell(k->t[t].f) / k->t[t].sector_size); }
-            if (!k->t[t].data && k->t[t].f) { fclose(k->t[t].f); k->t[t].f = 0; }   /* audio: only its length is needed */
+            if (k->t[t].f) { fseek((FILE *)k->t[t].f, 0, SEEK_END); k->t[t].sectors = (int32_t)(ftell((FILE *)k->t[t].f) / k->t[t].sector_size); }
+            if (!k->t[t].data && k->t[t].f) { fclose((FILE *)k->t[t].f); k->t[t].f = 0; }   /* audio: only its length is needed */
         } else if (sscanf(line, " PREGAP %d:%d:%d", &m, &s, &fr) == 3) k->t[t].pregap = (m * 60 + s) * 75 + fr;
         else if (sscanf(line, " INDEX %d %d:%d:%d", &n, &m, &s, &fr) == 4 && n == 1 && (m || s || fr)) { fclose(f); return 0; }
     }

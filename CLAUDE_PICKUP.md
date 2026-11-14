@@ -297,6 +297,14 @@ Read `CLAUDE.md` first.
      Explorer, click tier: Quick access -> Gate_of_Thunder -> breadcrumb sega -> Sapphire -> fpga -> gotcore_fitN; do not
      poll the PC while Quartus builds - read `out\RESULT.txt` when he says so or when asked). **Next: the ares model of this core (GoT's docs/37 `gotx` + the card),
      the program on GoT's core, the save by the SD-save commands.**
+  61. **docs/66, the ares model of the cart core** (`sapx`: ares_android local `sapphire-ac-engine` `9064d50`, the patch
+     `fpga/ares/sapphire-on-ares-v1.9-a2e14e8.patch`): Sapphire's machine (`tools/m2host/sapm.c` + the sound log, PC ring,
+     restart, the lean card's flag) in `ares/md/cartridge/board/sapx/` by `tools/ares_sapx_sync.sh <ares tree>` (namespace
+     `ares::MegaDrive::sapx`); a `mega-pro.rbf` + `mega-pro.rbf.ares` naming `sapx` beside the launcher. Traps `[sapx TRAP]`
+     0/1 chip 1 after the start, 2 the CPU in the I/O page, 4 the card's banks not zero, 5 the lean card's flag, 6 a short
+     sector. Test: `tools/sap_files.py` (SAPFWTAB.BIN), `tools/sapx_launcher.py <work> <out> <sapm_pc SEC_LOG>` (a 68000
+     launcher feeding the sector port): **30,000 of 30,000 frames = `sapm_pc`** (`SAPX_MASKS/POKES/HASHES`, `work/sx`).
+     Rebuild ares after a sync: `ninja -C /home/claude/ares_build2 ares-headless`.
 ## 2. Where things live
 
 | What | Where | In git? |

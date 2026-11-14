@@ -360,8 +360,21 @@ int io_read(Hw *io, unsigned off, int in_block_move, uint8_t *v)
 }
 
 void (*io_psg_hook)(unsigned reg, uint8_t v);          /* (docs/44: the PSG's register writes, to a synthesizer) */
+/* docs/66 (Gate of Thunder docs/54): the sound's writes as the cart core's log has them (got_cart.sv e_sndw): the PSG's
+   registers ($0800-$0BFF: code = the low 4 bits) and the CD unit's $1808-$180F but $180A (code 0x10 | the low 4 bits);
+   the Arcade Card's $1Axx never reach here (sapm.c takes them first), as the core's ARCADE decode keeps them off the log */
+void (*io_snd_hook)(unsigned code, uint8_t v);
+static void snd_log(unsigned off, uint8_t v)
+{
+    unsigned code;
+    if ((off & 0x1C00) == 0x0800) code = off & 15;
+    else if ((off & 0x1C00) == 0x1800 && (off & 8) && (off & 7) != 2) code = 0x10 | (off & 15);
+    else return;
+    if (io_snd_hook) io_snd_hook(code, v);
+}
 int io_write(Hw *io, unsigned off, uint8_t v)
 {
+    snd_log(off, v);
     switch (off & 0x1C00) {
     case 0x0800: io->io_bus = v; if (io_psg_hook) io_psg_hook(off & 0xF, v); return 1;   /* the PSG (sound: docs/44's hook) */
     case 0x0C00: io->io_bus = v; note(io, "timer write"); return 1;

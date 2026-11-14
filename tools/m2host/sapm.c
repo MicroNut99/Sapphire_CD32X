@@ -24,9 +24,13 @@ static uint8_t base_ram[8192], cd_ram[65536], super_ram[196608], bram[2048], rom
 static Vdc vdc; static Hw hw; static Cpu cpu;
 static ArcadeCard ac; static uint8_t ac_ram[0x200000];        /* Sapphire: the Arcade Card */
 static SapmSector sector_fn; static void *sector_user;
+static uint16_t snd_ring[512]; static unsigned snd_wp;      /* (docs/66, GoT docs/54: the cart's sound log, its step 18) */
+static uint16_t pc_ring[512]; static unsigned pc_next;      /* (docs/66, GoT docs/45: the last 512 instruction PCs, as the cart's ring) */
+static unsigned ac_flags;                                    /* (docs/66: what the cart's lean card would flag - bit 0, a feature it leaves out) */
 static uint16_t pad_next; static int pad_now;                  /* pad_now: the cart's pad (sapm_pad_now), not per frame */
 static void (*frame_fn)(void *, long); static void *frame_user;   /* the frame's end, at its point (a block move part-done) */
 static long frame, frames_to;                                 /* frames ended; the run stops after frames_to */
+static void snd_hook(unsigned code, uint8_t v) { snd_ring[snd_wp++ & 511] = (uint16_t)((frame & 7) << 13 | code << 8 | v); }
 static int64_t until = -1;                                    /* sapm_run_until's time */
 static int stop;
 static uint16_t stamp[1024], snap[5];                         /* docs/101: the video window's stamps and frame snapshot */
@@ -90,7 +94,14 @@ static void model_write(uint32_t off, uint8_t v)
     if (off < 0x800) sync_access(off < 0x400 && (off & 3) == 3 && (vdc.select == 1 || vdc.select == 2));
     if (off < 0x400) vdc_write(&vdc, off, v);
     else if (off < 0x800) vce_write(&vdc, off, v);
-    else if ((off & 0x1F00) == 0x1A00) ac_write(&ac, off, v);
+    else if ((off & 0x1F00) == 0x1A00) {
+        const unsigned r = off & 0xFF;                       /* (docs/66: sap_ac.sv's lean card flags what it leaves out) */
+        if ((!(r & 0x80) && (r & 15) == 9 && (v & 0x68)) || ((r & 0xE0) == 0xE0 && (((r & 31) == 4 && (v & 8)) || ((r & 31) == 5 && (v & 15))))) {
+            if (!(ac_flags & 1) && getenv("SAPM_ACLOG")) fprintf(stderr, "sapm: the lean card's flag - $%04X = %02X at frame %ld, PC %04X\n", (unsigned)off, v, frame, cur_pc);
+            ac_flags |= 1;
+        }
+        ac_write(&ac, off, v);
+    }
     else { const int64_t t = acc_time(0); vt_run(&vdc, t); io_run(&hw, t); (void)io_write(&hw, off, v); }
 }
 
@@ -210,6 +221,7 @@ start:
       if (frame == itf) { static int once; if (!once) { once = 1; printf("mpr"); for (int i = 0; i < 8; i++) printf(" %02X", c->MPR[i]); printf("\n"); }
           printf("i %04X %02X %02X %02X %02X %02X t %lld\n", pc, c->A, c->X, c->Y, c->S, c->P, (long long)t_ins); } }
     const uint8_t op = RD_(c, pc), k = huc_class[op];
+    pc_ring[pc_next++ & 511] = pc;
     {   /* (docs/58, IFF=1: the first run of three $FF opcodes - a jump into nothing - with the 48 instructions before it) */
         static int on = -1, run; static uint16_t ring[64]; static uint8_t rb[64], ra[64]; static unsigned rn;
         if (on < 0) on = getenv("IFF") != NULL;
@@ -249,23 +261,35 @@ static const struct { uint8_t i; uint32_t v; } IO_ON[] = {
     {83, 1}, {89, 0x20}, {94, 0x400}, {96, 0xFF}, {98, 0x29D6} };
 static const struct { uint8_t i; uint32_t v; } SCSI_ON[] = { {23, 0xFFFFFFFF}, {30, 0xF381A90}, {35, 0x147B798}, {36, 0x1EC30}, {38, 1} };
 
-int sapm_power(const uint8_t *syscard, const uint8_t *bram_in, const int32_t *tab, SapmSector sector, void *user)
+/* docs/66 (GoT docs/58, the cart's key 'GTRS'): `keep` - the engine's reset alone, as the cart's `hold` makes it: the
+   memories (RAM, VRAM, the colours, the sprite table, the card's 2 MB), the stamps, the frame count and the sound log's
+   pointer go on; the card's registers reset with the engine (sap_ac's rst is the engine's). */
+static const int32_t *pw_tab;
+static int power(const uint8_t *syscard, const uint8_t *bram_in, const int32_t *tab, SapmSector sector, void *user, int keep)
 {
+    static uint16_t k_vram[0x10000], k_col[512], k_sat[256]; const long k_frame = frame;
+    if (keep) { memcpy(k_vram, vdc.vram, sizeof k_vram); memcpy(k_col, vdc.color, sizeof k_col); memcpy(k_sat, vdc.sat, sizeof k_sat); }
+    else {
     memset(base_ram, 0, sizeof base_ram); memset(cd_ram, 0, sizeof cd_ram); memset(super_ram, 0, sizeof super_ram);
-    memset(adpcm_ram, 0, sizeof adpcm_ram); memcpy(rom, syscard, sizeof rom);
+    memset(adpcm_ram, 0, sizeof adpcm_ram); if (syscard) memcpy(rom, syscard, sizeof rom);
     if (bram_in) memcpy(bram, bram_in, sizeof bram); else memset(bram, 0, sizeof bram);
-    sector_fn = sector; sector_user = user;
-    { static const uint32_t ac0[19]; memset(ac_ram, 0, sizeof ac_ram); ac_start(&ac, ac0, ac_ram); }   /* the card at power-on: all zero */
+    memset(ac_ram, 0, sizeof ac_ram);                          /* the card at power-on: all zero */
+    snd_wp = 0; pc_next = 0; ac_flags = 0;
+    }
+    sector_fn = sector ? sector : sector_fn; sector_user = sector ? user : sector_user; pw_tab = tab;
+    { static const uint32_t ac0[19] = { 0 }; ac_start(&ac, ac0, ac_ram); }   /* (the card's registers: zero at power-on and at the restart) */
+    io_snd_hook = snd_hook;
     static uint32_t r[96], q[128], o[256 + 512], toc[204];
     memset(r, 0, sizeof r); memset(q, 0, sizeof q); memset(o, 0, sizeof o); memset(toc, 0, sizeof toc);
     for (unsigned k = 0; k < sizeof VDC_ON / sizeof *VDC_ON; k++) r[VDC_ON[k].i] = VDC_ON[k].v;
     for (unsigned k = 0; k < sizeof IO_ON / sizeof *IO_ON; k++) q[IO_ON[k].i] = IO_ON[k].v;
     for (unsigned k = 0; k < sizeof SCSI_ON / sizeof *SCSI_ON; k++) o[SCSI_ON[k].i] = SCSI_ON[k].v;
     vdc_init(&vdc);
-    for (int i = 0; i < 512; i++) vdc.color[i] = ((i ^ (i >> 3)) & 1) ? 0x000 : 0x1FF;
+    if (keep) { memcpy(vdc.vram, k_vram, sizeof k_vram); memcpy(vdc.color, k_col, sizeof k_col); memcpy(vdc.sat, k_sat, sizeof k_sat); }
+    if (!keep) for (int i = 0; i < 512; i++) vdc.color[i] = ((i ^ (i >> 3)) & 1) ? 0x000 : 0x1FF;
     vdc.read_buffer = r[18]; vdc.pending_read_addr = r[22]; vdc.pending_write_addr = r[24]; vdc.pending_write_latch = r[25];
     vt_start(&vdc, r, 0);
-    vdc_vram_hook = stamp_vram; memset(stamp, 0, sizeof stamp); memset(snap, 0, sizeof snap); waiting = 0; hold_start = 0;
+    vdc_vram_hook = stamp_vram; if (!keep) { memset(stamp, 0, sizeof stamp); memset(snap, 0, sizeof snap); } waiting = 0; hold_start = 0;
     io_start(&hw, q, 0);
     hw.ram = adpcm_ram;
     toc[0] = (uint32_t)tab[0]; toc[1] = (uint32_t)tab[1];       /* the core's TOC, from the table: tracks, lead-out */
@@ -281,9 +305,14 @@ int sapm_power(const uint8_t *syscard, const uint8_t *bram_in, const int32_t *ta
     c->A = c->X = c->Y = c->S = 0; c->P = 0x04;                /* Mednafen's power-on: I set, at low speed */
     c->pc = (uint16_t)(rom[0x1FFE] | rom[0x1FFF] << 8);        /* the reset vector (MPR7 = 0: the System Card's bank 0) */
     cpu_speed = 0; c->speed = 0;
-    t_ins = 0; frame = 0; started = 0; irq_done = 0; prev_i_gate = -1; prev_set = 0; ws_counter = 0; stop = 0;
+    t_ins = 0; frame = keep ? k_frame : 0; started = 0; irq_done = 0; prev_i_gate = -1; prev_set = 0; ws_counter = 0; stop = 0;
     return 1;
 }
+int sapm_power(const uint8_t *syscard, const uint8_t *bram_in, const int32_t *tab, SapmSector sector, void *user)
+{
+    return power(syscard, bram_in, tab, sector, user, 0);
+}
+int sapm_restart(void) { return pw_tab ? power(NULL, NULL, pw_tab, NULL, NULL, 1) : 0; }
 void sapm_pad(uint16_t m) { pad_next = m; pad_now = 0; }
 void sapm_pad_now(uint8_t b) { pad_now = 1; if ((b & 0x50) == 0x50) b &= ~0x50; if ((b & 0xA0) == 0xA0) b &= ~0xA0; hw.buttons = b; }
 void sapm_feed(SapmHave have) { have_fn = have; }
@@ -306,7 +335,10 @@ long sapm_run_frames(long n) { frames_to = frame + n; until = -1; run(); return 
 int64_t sapm_run_until(int64_t t) { frames_to = 0x7FFFFFFF; until = t; run(); until = -1; return t_ins; }
 int64_t sapm_now(void) { return t_ins; }
 long sapm_frame(void) { return frame; }
-unsigned sapm_pc(void) { return cpu.pc; }                  /* (docs/60: for the stand-in's trap - the CPU in the I/O page) */
+unsigned sapm_pc(void) { return cpu.pc; }
+const uint16_t *sapm_pcs(unsigned *next) { *next = pc_next & 511; return pc_ring; }
+const uint16_t *sapm_snd(unsigned *wp) { *wp = snd_wp & 511; return snd_ring; }
+unsigned sapm_card_flags(void) { return ac_flags; }                  /* (docs/60: for the stand-in's trap - the CPU in the I/O page) */
 
 static uint32_t fnv(uint32_t h, const uint8_t *p, long n) { while (n--) { h ^= *p++; h *= 16777619u; } return h; }
 static uint32_t fnv16(uint32_t h, const uint16_t *p, long n)
