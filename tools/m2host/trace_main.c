@@ -379,6 +379,8 @@ static void frame_md5(long k)                                 /* the state as Sa
         EVP_DigestFinal_ex(y, md, &len); EVP_MD_CTX_free(y);
         printf("frame %ld md5ns ", k); for (int i = 0; i < 16; i++) printf("%02x", md[i]); printf("\n");
     }
+    if (getenv("RUN_ACDUMP") && getenv("RUN_DUMP") && atol(getenv("RUN_DUMP")) == k) {   /* (docs/64) the card's 2 MB after frame k */
+        FILE *f = fopen(getenv("RUN_ACDUMP"), "wb"); if (f) { fwrite(ac.ram, 1, 0x200000, f); fclose(f); } }
     if (getenv("RUN_STATE") && atol(getenv("RUN_STATE")) == k) {   /* the hidden state after frame k, as text */
         const Scsi *d = &hw.scsi; unsigned ah = 0; for (int i = 0; hw.ram && i < 65536; i++) ah = ah * 31 + hw.ram[i];
         printf("state port2 %u port3 %u port4 %u portB %u addr %u read_addr %u write_addr %u length %u half %d end %d playing %d "

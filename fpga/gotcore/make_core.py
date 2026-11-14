@@ -56,10 +56,14 @@ ROM = r'''	// ==== Sapphire docs/62: PSRAM chip 1 - the System Card's read, the 
 	wire rd_now = ow == 2'd1 || ow == 2'd2;
 	assign rom_req = rd_now;
 	wire r_done = rd_now && rom_gnt && !ra_new && ra_age >= ROM_LAT[3:0] - 4'd2 && rcnt >= ROM_LAT[3:0] - 4'd1;
-	wire w_now = own == 2'd3 && rom_gnt && !ra_new;
-	wire w_pulse = w_now && ra_age >= 4'd1 && ra_age <= 4'd4;
+	// (the write's own count from the clock it owns the chip: not the address' age - between accesses the address is
+	// already the card's byte, the one written, so its age does not start again; docs/64 found it, 8,192 writes lost)
+	reg [2:0] wc;
+	wire w_now = own == 2'd3 && rom_gnt;
+	wire w_pulse = w_now && wc >= 3'd1 && wc <= 3'd4;
 	assign rom_we_hi = w_pulse && !aw_i[0]; assign rom_we_lo = w_pulse && aw_i[0]; assign rom_dati = {aw_d, aw_d};
-	wire aw_done = w_now && ra_age == 4'd6;
+	wire aw_done = w_now && wc == 3'd6;
+	always @(posedge clk) wc <= own != 2'd3 ? 3'd0 : (rom_gnt && wc != 3'd7) ? wc + 3'd1 : wc;
 	assign sp_need = !f_full || f_have != sec_want[20:0];
 	reg [20:0] sp_lba; reg [10:0] sp_n;
 	always @(posedge clk) begin

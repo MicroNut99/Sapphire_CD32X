@@ -26,6 +26,10 @@ rep("        EVP_DigestUpdate(y, ns, 8192); EVP_DigestUpdate(y, zero, sizeof zer
 rep("static long frame;\nstatic void frame_md5(long k) {", "static long frame;\nstatic std::vector<uint8_t> *g_ac;   // (Sapphire docs/64: the card's RAM, the PSRAM model's)\nstatic void frame_md5(long k) {")
 rep("    EVP_DigestUpdate(x, base, 8192); EVP_DigestUpdate(x, zero, sizeof zero);\n    EVP_DigestUpdate(x, cdram, 65536); EVP_DigestUpdate(x, sup, 196608);",
     "    EVP_DigestUpdate(x, base, 8192);\n    EVP_DigestUpdate(x, cdram, 65536); EVP_DigestUpdate(x, sup, 196608); if (g_ac) EVP_DigestUpdate(x, g_ac->data(), 0x200000);")
+rep("    if (getenv(\"RUN_DUMP\") && atol(getenv(\"RUN_DUMP\")) == k) {   /* as trace_main.c: the state after frame k */",
+    "    if (getenv(\"RUN_ACDUMP\") && g_ac && getenv(\"RUN_DUMP\") && atol(getenv(\"RUN_DUMP\")) == k) {   /* (docs/64) the card's 2 MB */\n"
+    "        FILE *fa = fopen(getenv(\"RUN_ACDUMP\"), \"wb\"); if (fa) { fwrite(g_ac->data(), 1, 0x200000, fa); fclose(fa); } }\n"
+    "    if (getenv(\"RUN_DUMP\") && atol(getenv(\"RUN_DUMP\")) == k) {   /* as trace_main.c: the state after frame k */")
 # the PSRAM model: the card's RAM
 rep('    psd.assign(1882u * 2048u, 0); for (int i = 0; i < 1882; i++) scsi_sector(&hw, 3590 + i, &psd[(size_t)i * 2048]);',
     '    psd.swap(acram); g_ac = &psd;   // (Sapphire docs/64: the Arcade Card\'s RAM at rom1 offset 0, a byte an address)\n'
