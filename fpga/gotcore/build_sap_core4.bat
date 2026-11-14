@@ -1,8 +1,9 @@
 @echo off
 rem build_sap_core4.bat - Sapphire CD32X docs/65: the fourth fit of Sapphire's cart core - Gate of Thunder's console-proven
 rem core (step 20) with the Arcade Card, the sector port, the backup RAM on the battery RAM chip and the save port (ID 5A01).
-rem Fit 3 fitted (15,314 logic elements) but missed timing at 50 MHz; this kit takes the Arcade Card's index and register
-rem value a clock later, off the paths into the CPU's tick and the PSRAM's address (the bench: the same frames).
+rem Fit 3 fitted (15,314 logic elements) but missed timing at 50 MHz, every worst path inside the CPU core (T through the
+rem ALU's adder back into T). This kit gives those core-to-core paths two clocks (sap_cpu.sdc: the core changes only every
+rem 6 clocks or more, proved register by register) and takes the Arcade Card's index and register value a clock later.
 rem Double-click it in the Sapphire folder's fpga\gotcore_fit4. It needs Gate of Thunder's project in fpga_work
 rem (fpga_pro\map_got_cart) and leaves it as it is: it copies it into fpga_pro\map_sap_a and map_sap_b, GoT's mapper folder
 rem into mapper\map_sap, and this kit's files over that copy.
@@ -39,6 +40,8 @@ copy /y "%TREE%\fpga_pro\map_got_cart\topcfg.sv" "%P%\" >nul
 copy /y "%TREE%\fpga_pro\map_got_cart\got_cart.sdc" "%P%\" >nul
 copy /y "%TREE%\fpga_pro\map_got_cart\got_paths.tcl" "%P%\" >nul
 copy /y "%HERE%mapper\dx_cdfw*.hex" "%P%\" >nul
+copy /y "%HERE%sap_cpu.sdc" "%P%\" >nul
+copy /y "%HERE%sap_check.tcl" "%P%\" >nul
 for %%s in (11 3 5 7 13 17 19 23) do (
   if not exist "%OUT%\done_%V%.txt" if not exist "%OUT%\stop_%V%.txt" (
     echo ---- variant %V%, seed %%s: building, about 10 minutes ----
@@ -46,6 +49,7 @@ for %%s in (11 3 5 7 13 17 19 23) do (
     echo.>> "%P%\mega-pro.qsf"
     echo set_global_assignment -name SYSTEMVERILOG_FILE ../../mapper/map_sap/sap_ac.sv>> "%P%\mega-pro.qsf"
     echo set_global_assignment -name SYSTEMVERILOG_FILE ../../mapper/map_ssf/map_ssf.sv>> "%P%\mega-pro.qsf"
+    echo set_global_assignment -name SDC_FILE sap_cpu.sdc>> "%P%\mega-pro.qsf"
     if "%V%"=="g" echo set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT">> "%P%\mega-pro.qsf"
     if "%V%"=="g" echo set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC ON>> "%P%\mega-pro.qsf"
     if "%V%"=="g" echo set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON>> "%P%\mega-pro.qsf"
@@ -72,9 +76,10 @@ for %%s in (11 3 5 7 13 17 19 23) do (
     )
   )
 )
-if not exist "%OUT%\done_%V%.txt" if not exist "%OUT%\stop_%V%.txt" (
+if not exist "%OUT%\stop_%V%.txt" (
+  echo ---- variant %V%: what the two-clock rule covers and the worst paths, about 2 minutes ----
   pushd "%P%"
-  "%Q%\quartus_sta.exe" -t got_paths.tcl "%OUT%\paths_%V%.txt" > "%OUT%\paths_%V%.log" 2>&1
+  "%Q%\quartus_sta.exe" -t sap_check.tcl "%OUT%\check_%V%" > "%OUT%\check_%V%.log" 2>&1
   popd
 )
 exit /b 0

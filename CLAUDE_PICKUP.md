@@ -286,6 +286,17 @@ Read `CLAUDE.md` first.
      1,425 sectors. Found and fixed: the card's write timing (its own count). Builds `work/gc/b2`, outputs
      `work/gc/out`, the MiSTer core `work/gc/tg16`. **Next: the fit (.bat for the owner), then the ares model and the
      program on GoT's core.**
+  60. **docs/65, the fit kits** (`fpga/gotcore/make_fit_kit.sh <GoT> <DX> <top.v> <kit>`; the owner's PC runs
+     `Sapphire\fpga\gotcore_fitN\build_sap_coreN.bat` - copies GoT's step-20 project `fpga_work\...\fpga_pro\map_got_cart`
+     into `map_sap_<v>`, results in the kit's `out\`). Fit 1/2 did not fit; fit 3 (no battery-chip route, no save port:
+     `SAP_SAVE_DIRECT=1` keeps them; the save goes by the stack's SD-save commands) **fits, 15,314 LEs (99 %)**, every seed
+     -0.75 to -3.1 ns, all worst paths inside the MiSTer CPU core (T through the ALU into T[7]). Fit 4: `sap_cpu.sdc` (two
+     clocks core to core: `prove_core_hold.sh` proves with yosys every core register holds unless tick & CPU_CE & CPU_RDY;
+     CPU_CE 6+ ticks apart; the bench's `scart` prints the fewest clocks between steps) + the card's index registered;
+     `sap_check.tcl` writes `out\check_g_*`. **Fit 4 met timing, seed 11: 15,329 LEs (99 %), +0.961 ns** (`out\mega-pro_g.rbf`, md5 `10d6bdf7`). **The owner lets Claude start the .bat files through computer use** (File
+     Explorer, click tier: Quick access -> Gate_of_Thunder -> breadcrumb sega -> Sapphire -> fpga -> gotcore_fitN; do not
+     poll the PC while Quartus builds - read `out\RESULT.txt` when he says so or when asked). **Next: the ares model of this core (GoT's docs/37 `gotx` + the card),
+     the program on GoT's core, the save by the SD-save commands.**
 ## 2. Where things live
 
 | What | Where | In git? |

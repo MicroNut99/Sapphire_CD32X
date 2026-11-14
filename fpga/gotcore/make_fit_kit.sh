@@ -9,6 +9,6 @@ python3 "$H/make_core.py" "$G" "$S" > /dev/null
 cp "$S/map_ssf_got.sv" "$S/got_cart.sv" "$S/got_cart_sram.sv" "$H/sap_ac.sv" "$K/mapper/"
 cp "$C" "$K/mapper/got_huc6280.v"
 cp "$X/fpga/rtl/dx_vdc.sv" "$X/fpga/rtl/dx_cd.sv" "$X/fpga/rtl/dx_rv.sv" "$X/fpga/rtl/dx_io.sv" "$X/fpga/rtl/dx_cd_cfg.svh" "$X"/fpga/rtl/dx_cdfw?.hex "$K/mapper/"
-cp "$H"/build_sap_core*.bat "$K/"
+cp "$H"/build_sap_core*.bat "$H"/sap_cpu.sdc "$H"/sap_check.tcl "$K/"
 ( cd "$K" && find . -type f ! -name MD5SUMS.txt | sort | xargs md5sum > MD5SUMS.txt )
 rm -rf "$S"; echo "kit in $K"

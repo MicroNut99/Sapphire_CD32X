@@ -96,4 +96,67 @@ missed too). Gate of Thunder's step 17 missed by -0.654 ns and its step 17b met 
 address through the port mux and a 21-bit adder in one clock; the CPU's address stands 5 clocks and more before its
 byte is taken, and the card moves at an access's end, so a clock on changes nothing the game sees. The bench
 (`work/gc/b5`), 200 frames of st3_600, p1_8100 (its card writes) and t12: frame hashes **identical to the earlier build's on
-every frame**. Which paths fail is still to be read (the batch file writes them when every seed misses).
+every frame**.
+
+## Fit 3: every seed misses - inside the CPU core (13 Nov)
+
+| Seed | 11 | 3 | 5 | 7 | 13 |
+|---|---|---|---|---|---|
+| e (Gate of Thunder's settings) | -0.746 | -1.159 | -2.323 | -1.369 | -0.920 |
+| f (area, no physical synthesis) | -1.350 | -3.075 | -1.211 | -2.785 | -1.918 |
+
+Worst setup slack at 50 MHz, ns; every other clock and every hold check met. `out\paths_e.txt` / `paths_f.txt` (the last
+seed of each, `got_paths.tcl`): **all 60 worst paths start and end in the MiSTer CPU core** (`got_inst|eng|cpu|core`):
+from the T register (`n1427_q[5]`, `[6]`; two from the MPRs, `n1437_q[10]`) through the core's selectors and the ALU's
+BCD adder (`alu|addsub|add0|bin_adder`) into T's bit 7 (`n1427_q[7]`). None is the Arcade Card's, none the memory's.
+These are the paths Gate of Thunder's steps 13 and 17 missed by (its docs/34, 45: "all in the CPU core"); its step 20
+met by 0.136 ns with 225 fewer logic elements in use, and a fuller chip leaves the router less room.
+
+## Fit 4's change (kit `Sapphire\fpga\gotcore_fit4\`, `build_sap_core4.bat`)
+
+**Two clocks for paths from the CPU core's registers to the CPU core's registers** (`fpga/gotcore/sap_cpu.sdc`, added to
+the project beside Gate of Thunder's `got_cart.sdc`), with the card's registered index (above). Gate of Thunder's
+`got_cart.sdc` gives the chip's paths one clock because the engine's tick may come every clock; but inside the core a
+register changes only on the clock that takes the CPU's step, and those are at least 6 clocks apart:
+
+- **Every register of the core holds unless the tick, CPU_CE and CPU_RDY are all 1 - proved.** `fpga/gotcore/
+  prove_core_hold.sh <top.v> <dir>` takes the GHDL netlist that goes into the kit (`got_huc6280.v`, md5 `aba1fe2b`), the
+  core's modules (HUC6280_CPU, AG, ALU, microcode: 31 registers), cuts the registers and the core's seven combinational
+  latches (`addr_bus`'s parts, four in the ALU: cases whose default keeps the value) into free values, and asks yosys's
+  SAT solver, register by register, whether its next value can differ from its value when `ce` = 0, when `rdy` = 0, when
+  `clken` = 0. **ce 0: 30 of 31 hold; rdy 0: 30 of 31; clken 0: 31 of 31.** The one left is OLD_NMI_N (NMI's edge
+  detector, HUC6280_CPU.vhd:475: it loads NMI_N on every tick); it resets to 1 and `got_cart.sv` ties NMI_N to 1, so it
+  never changes. Every asynchronous reset in the core is `~rst_n`.
+- **CPU_CE comes at least 6 ticks apart.** HUC6280.vhd: CPU_CE is set on a tick when the divider is at its last count (5
+  fast, 23 slow) with WAIT_N high, and the count goes to 0 on that tick; the core takes its step on the next tick
+  (CPU_CE still 1) and CPU_CE goes back to 0 there; the count must climb to 5 again before the next. The engine gives at
+  most one tick a clock (`tk`, one bit). So between two of the core's steps there are at least 6 clocks (24 slow).
+  The bench measures it too: `scart.cpp` counts the clocks between `tk && d_cpuce && d_rdy` - st3_600 and p1_8100
+  (its card writes), 25 frames each: **2,891,474 and 2,884,821 steps, never fewer than 6 clocks apart.**
+- CPU_CE, CPU_RDY and the tick are registers outside the core: their paths into it keep one clock, so on the clock after
+  a step every register's enable is 0 on time, whatever its data is doing.
+
+So a value launched by a step has 6 clocks before any register in the core takes it; the rule asks for 2 (`-setup -end 2`,
+`-hold -end 1`). `sap_check.tcl` runs after the last seed (`out\check_g_regs.txt`: every register the rule covers - they
+must all be the core's `n*_q`, or copies the fitter made of them; `check_g_paths.txt`: the 30 worst paths left;
+`check_g_core.txt`: the core's own, now against 40 ns; `check_g_hold.txt`). One variant, g (Gate of Thunder's settings),
+seeds 11, 3, 5, 7, 13, 17, 19, 23 until one meets timing.
+
+Started 13 Nov 21:55 (the owner's desktop, by Claude through computer use: File Explorer, a double-click on the
+batch file).
+
+## Fit 4: timing met (13 Nov, seed 11)
+
+**Variant g, seed 11: 15,329 of 15,408 logic elements (99 %), 15,202 combinational functions, 5,511 registers, 397,056
+memory bits; timing met at 50 MHz - worst setup slack +0.961 ns** (slow 85 °C; 0 °C +2.008), hold +0.391 (fast 0 °C
++0.125), recovery / removal met; FCI_SCK met. The first seed, ~4 minutes. `out\mega-pro_g.rbf` (292,651 bytes, md5
+`10d6bdf7`) on the owner's PC - the core with no program for it yet: nothing to put on the cart.
+
+- **What the rule took** (`check_g_regs.txt`): 246 registers, every one the core's own - the netlist's 31 registers less
+  the four NMI ones Quartus found constant (nmi_int, OLD_NMI_N, NMI_SYNC, nmi_active: NMI_N is tied high) - and one
+  latch, `alu|n1707_o`: the ALU's carry out (HUC6280_ALU.vhd:110, a case whose default keeps the value). Its gate is
+  logic, not a clock, so its paths are unclocked in Quartus with or without this rule, as in Gate of Thunder's
+  console-proven step 20; the rule changes nothing there. No register from outside the core (no retimed or moved one).
+- **The core's own paths** (`check_g_core.txt`): the same T-to-T[7] paths, now 26.6 ns against 40 (slack +13.4): the
+  fitter used the room. A core step is 6 clocks (120 ns) at the least.
+- **The worst paths left** (`check_g_paths.txt`): the memory side - `got_cart_sram`'s `mq_a` into `ad_rd` (+0.961).

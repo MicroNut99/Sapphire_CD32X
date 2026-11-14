@@ -66,5 +66,12 @@ rep("        { auto *W = top->cart_tb->w; if (W->sec_we && W->sec_wa == 0) { con
     "        if (0) { auto *W = top->cart_tb->w; if (W->sec_we && W->sec_wa == 0) { const int32_t l = 0; lba_n++;")
 rep('      printf("PSRAM data track: %ld word reads, %ld outside it\\n", psn, psbad);',
     '      printf("PSRAM (the Arcade Card): %ld word reads, %ld outside it, %ld byte writes; the card flags (lost write, unused feature) %d\\n", psn, psbad, ac_w, (int)top->d_ac);')
+# (docs/65 fit 4) the clocks between two of the CPU core's steps (tick, CPU_CE and CPU_RDY at a clock edge): sap_cpu.sdc's ground
+s = s.replace("#define ENG (top->cart_tb->w->eng)\n", "#define ENG (top->cart_tb->w->eng)\nstatic long en_last = -1, en_gap = 1L << 60, en_n = 0;\n", 1)
+_e = "        top->clk = 1; top->eval(); clocks++; ticks += tick; steps += mce;\n"
+_i = s.index(_e, s.index('#else', s.index('#ifndef CART_SRAM', 6000)))
+s = s[:_i] + ("        { const bool en = ENG->tk && ENG->d_cpuce && ENG->d_rdy;\n"
+              "          if (en) { if (en_last >= 0 && (long)clocks - en_last < en_gap) en_gap = (long)clocks - en_last; en_last = (long)clocks; en_n++; } }\n") + s[_i:]
+rep("    return 0;\n}", "    fprintf(stderr, \"core steps %ld, fewest clocks between two: %ld\\n\", en_n, en_gap);\n    return 0;\n}")
 open(os.path.join(O, 'scart.cpp'), 'w').write(s)
 print('wrote', os.path.join(O, 'scart.cpp'))
