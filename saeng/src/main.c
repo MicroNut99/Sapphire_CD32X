@@ -54,9 +54,27 @@ volatile uint32_t gTicks = 0;
 uint32_t got_more_n;                                          /* (GoT docs/55: pictures whose list went on past bg2_frame's - the secondary's count) */
 volatile unsigned mars_pwdt_ovf_count = 0;
 volatile unsigned mars_swdt_ovf_count = 0;
+#ifdef SAP_PADVB
+/* Sapphire docs/67 (the stack's PADVB=1, ledger section 37; Dracula X's v30 on, which played on the console): the 68000's
+   vertical blank handler writes pad 1 into COMM4 once COMM6 holds 0x5056 (eng.c sets it after the start). Here, at
+   every blank of this SH2: the word now and every button pressed since eng_pad last took them - a tap between two
+   pictures is not lost, and eng_pad no longer waits for COMM0 (the 68000 on the last picture's list) to send command
+   48: 12 ms of each stage picture in ares (docs/67 section 9). COMM4 / COMM6 carry nothing else in this build */
+static volatile uint32_t padvb_on_, padvb_now_, padvb_or_, padvb_n_;
+static inline void padvb_vbi(void)
+{
+    if (!padvb_on_) return;
+    const uint16_t p = (uint16_t)MARS_SYS_COMM4;
+    if ((uint16_t)MARS_SYS_COMM6 != 0x5056) MARS_SYS_COMM6 = 0x5056;
+    if (p == 0xFFFF) return;                                  /* (the 68000 has not written it yet) */
+    padvb_now_ = p; padvb_or_ |= p; padvb_n_++;
+}
+#else
+#define padvb_vbi() ((void)0)
+#endif
 #ifdef SPR_PACE
 static void pace_vbi(void);
-void pri_vbi_handler(void) { gTicks++; pace_vbi(); }
+void pri_vbi_handler(void) { gTicks++; padvb_vbi(); pace_vbi(); }
 #else
 void pri_vbi_handler(void) { gTicks++; }
 #endif
@@ -375,6 +393,9 @@ static uint32_t __attribute__((noinline)) wdt_now(void)            /* ticks of 4
         return (c + ((f & 0x80) && w < 128)) << 8 | w;   /* (a wrap whose interrupt is not taken yet) */
     }
 }
+#ifdef SEC_TIMES
+uint32_t sap_wdt(void) { return wdt_now(); }                  /* (docs/67: for rt_spr.c's timings) */
+#endif
 static void prof_init(void)
 {
     SH2_WDT_VCR = (uint16_t)(65 << 8 | (SH2_WDT_VCR & 0xFF));     /* vector 65 (crt0: pri_irq, levels 2-3) */
@@ -836,7 +857,7 @@ static void pic_extras(const V32 *v, uint32_t num)
    (read from an SDRAM dump): [0] the game from one display start to the next, [1] waiting for the picture before to
    be shown, [2] the background's list (the master), [3] then waiting for the secondary's sprites, [4] sending the
    list, [5] pictures, [6] hook-to-hook over one refresh's ticks */
-uint32_t sec_t[10]; static uint32_t sec_last;
+uint32_t sec_t[16]; static uint32_t sec_last;
 #define SEC_T(i, a) do { const uint32_t n_ = wdt_now(); sec_t[i] += n_ - (a); (a) = n_; } while (0)
 #else
 #define SEC_T(i, a) do { } while (0)
@@ -997,6 +1018,9 @@ static void eng_prefetch(void);
 #ifndef BGX_AFTER
 #define BGX_AFTER(v, buf) ((void)0)
 #endif
+#ifdef DX_ENGINE
+static void eng_bands_send(void);                             /* (docs/67: eng.c) */
+#endif
 static void draw_hook(V32 *v)
 {
 #ifdef SEC_TIMES
@@ -1027,6 +1051,9 @@ static void draw_hook(V32 *v)
         CRUMB_M(0x51);
         LT_MARK(0);
         bg2_take();                                           /* (the commit done, the frame buffer back) */
+#ifdef DX_ENGINE
+        eng_bands_send();                                     /* (docs/67: this picture's V splits, after the one before is shown) */
+#endif
         SEC_T(1, ta);
 #else
         while ((MARS_VDP_FBCTL & MARS_VDP_FS) != pace_req || pal_go >= 0) { CDG_SPIN(0x15); }   /* (on screen, its colours in) */
@@ -1129,7 +1156,11 @@ static void draw_hook(V32 *v)
         sec_last = ta;
 #endif
         pace_req = cur ^ 1; pal_go = cur ^ 1;                 /* (the swap: pace_vbi, at the next blank) */
-        MARS_SYS_COMM6 = (short)pace_missed;
+#ifndef SAP_PADVB
+    #ifndef SAP_PADVB
+    MARS_SYS_COMM6 = (short)pace_missed;
+#endif
+#endif
         return;
     }
 #endif
@@ -1143,7 +1174,9 @@ static void draw_hook(V32 *v)
     pal_go = cur ^ 1;
     MARS_VDP_FBCTL = (uint16_t)(cur ^ 1); pace_req = cur ^ 1;
     if ((MARS_VDP_FBCTL & MARS_VDP_FS) == pace_req) pace_vbi();   /* (asked in a blank: swapped at once, after its interrupt) */
+#ifndef SAP_PADVB
     MARS_SYS_COMM6 = (short)pace_missed;
+#endif
 }
 #endif
 #endif
@@ -1249,8 +1282,8 @@ static void eng_main(void);                                   /* (src/eng.c, at 
 int main(void)
 {
 #ifdef DX_ENGINE
-#ifdef LIST_TIMES
-    prof_init();
+#if defined(LIST_TIMES) || defined(SEC_TIMES)
+    prof_init();                                              /* (docs/67: SEC_TIMES on the engine build too) */
 #endif
     eng_main();
 #endif

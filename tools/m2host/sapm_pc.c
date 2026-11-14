@@ -22,8 +22,10 @@ static long late, late_n; static int32_t ready = -1;           /* FEED_LATE: the
 static int have(void *user, int32_t lba) { (void)user; return lba == ready; }
 static void at_frame(void *user, long k);
 static FILE *track_f[101];
+static int32_t adw_lba = -1;                                   /* (docs/67: the last sector the drive took, for ADW_LOG) */
 static int sector(void *user, int32_t lba, uint8_t *out)
 {
+    adw_lba = lba;
     (void)user;
     {   /* docs/58, SEC_LOG=1: each run of sectors read - its first frame, its first LBA and its length */
         static int on = -1; static int32_t first = -1, next = -1; static long f0;
@@ -64,6 +66,16 @@ static void sl_line0(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && 
 static void sl_split(Vdc *v, int what) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) { if (what == 1) printf("split frame %ld line %d: BXR %u BYR %u CR %04X (at the match)\n", f, v->rcr_count + 1, v->BXR, v->BYR, v->CR);
         else if (what == 0) printf("split frame %ld   CR write: %04X\n", f, v->CR); } }
 static void sl_scroll(Vdc *v) { const long f = sapm_frame(); if (f >= sl_from && f < sl_to) printf("split frame %ld   scroll write: BXR %u BYR %u\n", f, v->BXR, v->BYR); }
+/* docs/67, ADW_LOG=1: ADPCM RAM's writes in runs - by the DMA from the drive (with the last sector the drive took when
+   the run began) or by the CPU's $180A - a line a run: "adw frame <k> dma <0|1> addr <a> len <n> lba <s>" */
+static int adw_dma = -1; static unsigned adw_a0, adw_n; static long adw_f; static int32_t adw_l;
+static void adw_flush(void) { if (adw_dma >= 0 && adw_n) printf("adw frame %ld dma %d addr %04X len %u lba %d\n", adw_f, adw_dma, adw_a0, adw_n, adw_l); adw_n = 0; }
+static void adw_hook(int dma, unsigned a, uint8_t v)
+{
+    (void)v;
+    if (adw_n && dma == adw_dma && ((adw_a0 + adw_n) & 0xFFFF) == (a & 0xFFFF) && adw_n < 65536) { adw_n++; return; }
+    adw_flush(); adw_dma = dma; adw_a0 = a & 0xFFFF; adw_n = 1; adw_f = sapm_frame(); adw_l = adw_lba;
+}
 int main(int argc, char **argv)
 {
     { extern int scsi_turbo; if (getenv("SCSI_TURBO")) scsi_turbo = atoi(getenv("SCSI_TURBO")); }   /* (docs/58: an experiment) */
@@ -82,6 +94,7 @@ int main(int argc, char **argv)
     const long frames = argc > 5 ? atol(argv[5]) : nm;
     if (!sapm_power(rom, br, tab, sector, NULL)) return 1;
     sapm_on_frame(at_frame, NULL); masks = m; nmasks = nm;
+    if (getenv("ADW_LOG")) io_adw_hook = adw_hook;
     if (getenv("PSG_LOG")) { psg_f = fopen(getenv("PSG_LOG"), "wb"); io_psg_hook = psg_log; }   /* Sapphire docs/54: the PSG's writes, as tools/m3_psglog.py's form */
     if (getenv("SCROLL_LOG")) { scroll_from = atol(getenv("SCROLL_LOG")); vdc_scroll_hook = scroll_log; }   /* docs/105: the scroll's writes, a line each */
     if (getenv("FEED_LATE")) {   /* docs/101: each sector given only after the machine has waited for it FEED_LATE times */
@@ -96,6 +109,7 @@ int main(int argc, char **argv)
         const int64_t step = atol(getenv("RUN_STEP"));
         while (sapm_frame() < frames) sapm_run_until(sapm_now() + step);
     } else sapm_run_frames(frames);
+    adw_flush();
     sector(NULL, -1, NULL);
     return 0;
 }

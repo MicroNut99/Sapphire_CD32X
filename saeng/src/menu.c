@@ -34,7 +34,11 @@ enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_AUTO,
 #ifdef SAP_CDFADE
        GM_MUS,
 #endif
-       GM_FX, GM_STATUS, GM_CREDITS, GM_N };
+       GM_FX,
+#ifdef BG2_X32
+       GM_COL,
+#endif
+       GM_STATUS, GM_CREDITS, GM_N };
 /* docs/60: STATUS - what the USB log told, on the screen (the owner has no USB link any more: a photograph of this
    page is the console's report). The play before the menu opened, measured by eng.c gm_stats over 4 s at a time:
    the pictures a second (tenths), the slowest picture (60ths of a second), the engine's frames a second; the
@@ -47,6 +51,10 @@ static struct { uint16_t pps10, worst, fps, xpal, xcells, xmost; uint32_t moves,
 #endif
 static uint8_t gm_open, gm_sel, gm_page, gm_wipe_n, gm_pal, gm_autofire, gm_stage = 1, gm_core, gm_banner, gm_lives = 3;
 static uint8_t gm_inf, gm_lives_on, gm_fx = 8, gm_mus = 8;    /* (Sapphire: infinite lives; the menu set the lives; the effects' and the music's levels 0-8) */
+static uint8_t gm_col;                                        /* (docs/68, COLOURS: 0 AUTO - the 32X draws a background palette the Genesis has
+                                                                 no room for while those it draws hold 256 entries of the map at most;
+                                                                 1 EXACT - any it has room for; 2 FAST - none, the nearest colours) */
+static const char *const gm_coln[3] = { "COLOURS         < AUTO >", "COLOURS         < EXACT >", "COLOURS         < FAST >" };
 static uint8_t gm_sv_bank, gm_sv_state, gm_sv_fail; static uint16_t gm_sv_ok, gm_sv_bad;   /* (docs/67, eng.c sv_*: the EverDrive's save bank
                                                                  answers; the record at the start - 1 read, 2 none there, 3 damaged,
                                                                  4 not read; the last save refused; saves taken; saves refused) */
@@ -106,7 +114,10 @@ static void gm_status(void)
         const char *w = !gm_sv_bank ? "NONE" : gm_sv_state == 1 ? "READ" : gm_sv_state == 2 ? "NEW " : gm_sv_state == 3 ? "BAD " : "?   ";
         for (int i = 0; i < 4; i++) t[9 + i] = w[i];
         gm_text(40, 192, t, GM_TXT); }
-    gm_mid(208, "B: BACK", GM_DIM);
+#ifdef SAP_ADPCM
+    {   char t[32] = "ADPCM LOADS     PAGES        "; gm_num(t + 12, ADS.loads, 3); gm_num(t + 22, eng_ad_copies, 6); gm_text(40, 202, t, GM_TXT); }   /* (docs/67) */
+#endif
+    gm_mid(214, "B: BACK", GM_DIM);
 }
 static void gm_draw(void)                                     /* the menu, whole, into the buffer drawn in */
 {
@@ -119,7 +130,7 @@ static void gm_draw(void)                                     /* the menu, whole
     }
     gm_mid(14, "SAPPHIRE CD32X", GM_TXT); gm_mid(26, "OPTIONS", GM_DIM);
     for (int i = 0; i < GM_N; i++) {
-        const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 40 + 13 * i;
+        const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 36 + 12 * i;   /* (docs/68: 12 lines apart - ten items) */
         gm_text(48, y, i == gm_sel ? ">" : " ", c);
         if (i == GM_RESUME) gm_text(64, y, "RESUME", c);
         else if (i == GM_STAGE) { char t[24] = "STAGE SELECT    < 1 >"; t[18] = (char)('0' + gm_stage); gm_text(64, y, t, c); }
@@ -130,19 +141,25 @@ static void gm_draw(void)                                     /* the menu, whole
         else if (i == GM_MUS) { char t[24] = "MUSIC VOLUME    < 8 >"; t[18] = (char)('0' + gm_mus); gm_text(64, y, t, c); }
 #endif
         else if (i == GM_FX) { char t[24] = "EFFECTS VOLUME  < 8 >"; t[18] = (char)('0' + gm_fx); gm_text(64, y, t, c); }
+#ifdef BG2_X32
+        else if (i == GM_COL) gm_text(64, y, gm_coln[gm_col % 3], c);
+#endif
         else if (i == GM_STATUS) gm_text(64, y, "STATUS", c);
         else gm_text(64, y, "CREDITS", c);
     }
     {   char t[24] = "HIGH SCORE  "; uint32_t v = gm_best * 10u;   /* (the score as the game shows it: 8 digits) */
         for (int k = 7; k >= 0; k--) { t[12 + k] = (char)(v % 10u ? '0' + v % 10u : 'O'); v /= 10u; } t[20] = 0;
-        gm_mid(156, t, GM_TXT); }
-    gm_mid(166, !gm_sv_bank ? "NOT SAVED: NO SD SAVE BANK" : gm_sv_fail ? "THE LAST SAVE FAILED" : "KEPT ON THE SD CARD", GM_DIM);   /* (docs/67) */
+        gm_mid(157, t, GM_TXT); }
+    gm_mid(167, !gm_sv_bank ? "NOT SAVED: NO SD SAVE BANK" : gm_sv_fail ? "THE LAST SAVE FAILED" : "KEPT ON THE SD CARD", GM_DIM);   /* (docs/67) */
     if (gm_msg) gm_mid(178, gm_msg, GM_HI);
     else if (gm_sel == GM_STAGE) gm_mid(178, "A: A NEW GAME AT THIS STAGE", GM_DIM);
     else if (gm_sel == GM_LIVES) gm_mid(178, gm_in_stage ? "A: SET THE SHIPS LEFT NOW" : "A NEW GAME STARTS WITH THEM", GM_DIM);
     else if (gm_sel == GM_INF) gm_mid(178, "THE SHIPS LEFT KEPT", GM_DIM);
     else if (gm_sel == GM_AUTO) gm_mid(178, "HOLD I: THE SHIP FIRES ON", GM_DIM);
     else if (gm_sel == GM_STATUS) gm_mid(178, "A: HOW THE CONSOLE RUNS IT", GM_DIM);
+#ifdef BG2_X32
+    else if (gm_sel == GM_COL) gm_mid(178, gm_col == 1 ? "EXACT: FEWER PICTURES" : gm_col == 2 ? "FAST: THE NEAREST COLOURS" : "AUTO: EXACT WHERE IT IS CHEAP", GM_DIM);
+#endif
     gm_mid(190, "UP/DOWN PICK  LEFT/RIGHT CHANGE", GM_DIM);
     gm_mid(200, "A/C/START: DO IT   B: BACK", GM_DIM);
     gm_mid(212, "PORTED BY MICRONUT99", GM_TXT);

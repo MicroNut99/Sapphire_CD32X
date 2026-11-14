@@ -18,7 +18,12 @@
 #   Gate of Thunder's kits have them since its v13 - without HWIN the status bar's V split waits behind a long list and is
 #   missed); SAVE=0 - without the SD-card save (the BootCamp sdcard/ kit merged into the copy: SDSAVE=1 SDSAVE_OUT=76
 #   SDSAVE_IN=77, EDCD_SAVE=1 - as Dracula X's v37); the stack's CDFADE=1 (command 104: MUSIC VOLUME, the game's fades);
-#   the sprites cut at the status bar (tools/sap_spr.patch, SPR_YLIM).
+#   the sprites cut at the status bar (tools/sap_spr.patch, SPR_YLIM); the entries past a smaller map let go (tools/sap_bg2.patch,
+#   docs/68: the title's hangar stayed covered after the intro).
+# docs/67 (third part): ADPCM=0 - without the ADPCM (the mirror of ADPCM RAM in bank 15 + 0x50000, SAP_ADPCM; on by
+#   default); X32=0 - without Gate of Thunder's BG2_X32 (a palette the Genesis has no room for drawn by the 32X). docs/68:
+#   on again by default, with the menu's COLOURS (AUTO: the 32X's palettes 256 entries of the map at most - the title's
+#   small ones, not stage 1's large, which cost up to 654 cells a picture; EXACT: any; FAST: none).
 set -e
 BCS=$(readlink -f "$1"); DX=$(readlink -f "$2"); GOT=$(readlink -f "$3"); W=$(readlink -f "$4"); B=$5
 DXREV=${DXREV:-8dd9b47}
@@ -33,6 +38,7 @@ cp "$B/.dx"/tools/m3rt/* "$B/tools/m3rt/"; cp "$B/.dx"/tools/m2host/* "$B/tools/
 patch -s -p1 -d "$B/tools/m3rt" < "$GOT/tools/bg2/rt_bg2.patch"
 patch -s -p1 -d "$B/tools/m3rt" < "$GOT/tools/bg2/rt_spr.patch"
 patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_spr.patch"
+patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg2.patch"
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -49,12 +55,14 @@ if [ -n "$MUSIC" ]; then
   RTX="${RTX:+$RTX }-DGOT_AUDIO"
 fi
 cd "$B"
-[ "${SND:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_SND -DSAP_NO_ADPCM"
+[ "${SND:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_SND $([ "${ADPCM:-1}" = 1 ] && echo -DSAP_ADPCM || echo -DSAP_NO_ADPCM)"
 [ "${MENU:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_MENU"
 RTX="${RTX:+$RTX }-DDX_CRUMBS -DGOT_PACKED -DSAP_CDFADE -DSPR_YLIM"
-env PACKED=1 EDCD_PACKED=1 EDCD_W0=15 GEN="$B/gen" ENG=1 MARKS=1 SPR=1 PACE=1 BG=1 SEC=2 CDR=1 RT_LEAVE_ASM=0 ${RTX:+RTX="$RTX"} \
+PV=; [ "${PADVB:-1}" = 1 ] && { PV="PADVB=1"; RTX="$RTX -DSAP_PADVB"; }   # (docs/67: the pad at every blank - COMM4 / COMM6 the stack's then,
+                                                                           #  so ares's logs have no engine frame: PADVB=0 for the comparison runs)
+env PACKED=1 EDCD_PACKED=1 EDCD_W0=15 GEN="$B/gen" ENG=1 MARKS=1 SPR=1 PACE=1 BG=1 SEC=2 CDR=1 RT_LEAVE_ASM=0 ${RTX:+RTX="$RTX"} X32=${X32:-1} \
     GAME=saeng DISC_NAME=SAPENG CART=16 M1PAGE=1 EDCD=1 FBCART=1 CDRING=1 GENPLANE=1 VSPLIT=1 FBVDP=1 STREAM=1 CARTW=1 CDFADE=1 \
-    $([ "${VSS:-1}" = 1 ] && echo VSSWAP=1 HWIN=1) $SV \
+    $([ "${VSS:-1}" = 1 ] && echo VSSWAP=1 HWIN=1) $SV $PV \
     ROOTDIR=/opt/toolchains/sega bash build.sh > "$B/build.log" 2>&1 || { tail -20 "$B/build.log"; exit 1; }
 python3 "$REPO/tools/sap_pack.py" "$B/edboot/EDCD.32X" "$B/stack/subcpu/ROMS/GAME.32X" "$W/track02.pak" "$B/saeng/cd/SAPFWTAB.BIN" \
     "$W/sys/syscard3.pce" -o "$B/edboot/SAPENG_PK.32X"

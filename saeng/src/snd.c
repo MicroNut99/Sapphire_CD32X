@@ -41,7 +41,57 @@ uint32_t snd_fader;                                           /* (Sapphire docs/
 /* the CD unit's ADPCM (docs/54): its 64 KB of RAM always hold the data track's sectors 68-99 (docs/06), which the pack puts
    at cart 0x100000 (bank 2, tools/got_pack.py); the registers as tools/m2host/io_model.c has them ($1808 / $1809 the
    address, $180D the command, $180E the rate), the chip an OKI MSM5205 (4 bits a sample, the high half first) */
+#ifdef SAP_ADPCM
+/* Sapphire docs/67: ADPCM RAM's mirror. Sapphire loads its ADPCM RAM whole, 64 KB at address 0 by the CD unit's DMA
+   from 32 sectors, 9 times in the recording (each stage's block begins with its 32; before stages 2-5 a briefing's voice
+   bank from LBA 8956 + 32 n; no byte by the CPU's $180A: sapm_pc ADW_LOG=1). The cart's core keeps ADPCM RAM to itself;
+   the master copies each sector the DMA moves (by command 101: the frame buffer into the cart) into this mirror - bank
+   15 (window 0, the program's bank) + 0x50000, past the program and its table. Which sectors: this SH2 follows the
+   loads as Dracula X's eng_ad_log does (its docs/191, Mednafen's pcecd.cpp): from the log's $1808 / $1809 / $180D the
+   write address, from $180B the DMA; a sector the drive takes while the DMA is on goes to ADPCM RAM at the write
+   address, 2,048 bytes; the sector taken just before the DMA went on is the load's first. The takes come from the master,
+   which feeds the sectors: each with the log's write pointer when it was fed (ad_sh.tq_*), so they fall between the
+   right log entries. A page (2 KB) is played once the master has copied the sector last assigned to it (seq == done) */
+#define SND_AD ((const volatile uint8_t *)0x22050000u)
+#define AD_MIR_CART 0x050000u
+typedef struct { uint16_t lba[32], seq[32], done[32], tq_pos[64]; uint32_t tq_lba[64], tq_w, tq_r, loads, drops; } AdShare;
+AdShare ad_sh;                                                /* (the master writes tq_* and done[], this SH2 the rest) */
+#define ADS (*(volatile AdShare *)((uintptr_t)&ad_sh | 0x20000000))
+static uint16_t adm_addr, adm_write; static uint8_t adm_cmd, adm_dma, adm_fresh; static uint32_t adm_take, adm_n;
+static uint32_t eng_ad_copies, eng_ad_fails;                  /* (the master's: eng.c eng_ad_copy; here for menu.c's STATUS) */
+static void adm_assign(uint32_t lba)
+{
+    /* (64 KB a load at most: Sapphire leaves the DMA on while it reads the rest of a stage's block - 724 sectors - into
+       the card, and those do not go to ADPCM RAM: sapm_pc ADW_LOG shows 65,536 bytes a load, every time) */
+    if (adm_n >= 65536) return;
+    adm_n += 2048;
+    if (!(adm_write & 2047)) { const unsigned pg = (adm_write >> 11) & 31; ADS.lba[pg] = (uint16_t)lba; ADS.seq[pg] = (uint16_t)(ADS.seq[pg] + 1);
+        if (!pg) ADS.loads = ADS.loads + 1; }
+    adm_write = (uint16_t)(adm_write + 2048);                 /* (a load not on a 2 KB edge is not mirrored: none seen) */
+}
+static void adm_reg(unsigned r, unsigned v)                   /* a CD unit register, $1808 + r */
+{
+    if (r == 8 || r == 9) { if (!(adm_cmd & 0x80)) adm_addr = r == 9 ? (uint16_t)((adm_addr & 0x00FF) | v << 8) : (uint16_t)((adm_addr & 0xFF00) | v); }
+    else if (r == 0xB) { if (!adm_dma && (v & 3)) { adm_n = 0; if (adm_fresh) adm_assign(adm_take); } adm_dma = (uint8_t)(v & 3); }
+    else if (r == 0xD) {
+        if (v & 0x80) { adm_addr = adm_write = 0; adm_cmd = 0; }
+        else { if (!(adm_cmd & 0x02) && (v & 0x02)) adm_write = (v & 1) ? adm_addr : (uint16_t)(adm_addr - 1); adm_cmd = (uint8_t)v; }
+    }
+    adm_fresh = 0;
+}
+static void adm_takes(unsigned i)                             /* the takes fed before log entry i (or at the write pointer i) */
+{
+    while (ADS.tq_r != ADS.tq_w) {
+        const unsigned q = ADS.tq_r & 63, pos = ADS.tq_pos[q];
+        if (((i - pos) & 511) >= 256) break;                  /* (pos still ahead of i) */
+        adm_take = ADS.tq_lba[q]; adm_fresh = 1;
+        if (adm_dma) adm_assign(adm_take);
+        ADS.tq_r = ADS.tq_r + 1;
+    }
+}
+#else
 #define SND_AD ((const volatile uint8_t *)0x22100000u)
+#endif
 static uint16_t ad_addr, ad_read, ad_len; static uint8_t ad_cmd, ad_play, ad_freq, ad_nib, ad_byte;
 static int16_t ad_out; static int ad_val, ad_idx; static uint32_t ad_ph;
 uint32_t snd_plays;
@@ -70,7 +120,13 @@ static void ad_tick(void)                                     /* one of the chip
 {
     if (!ad_nib) {
         if (!ad_len && !(ad_cmd & 0x10)) { if (ad_cmd & 0x40) { ad_play = 0; return; } }
-        ad_byte = SND_AD[ad_read]; ad_read++;
+#ifdef SAP_ADPCM
+        {   const unsigned pg = (ad_read >> 11) & 31;
+            ad_byte = ADS.seq[pg] == ADS.done[pg] ? SND_AD[ad_read] : 0x80; }   /* (a page not there yet: +d / -d, nothing heard) */
+#else
+        ad_byte = SND_AD[ad_read];
+#endif
+        ad_read++;
         if (ad_len && !(ad_cmd & 0x10)) ad_len--;
     }
     const unsigned n = ad_nib ? ad_byte & 15 : ad_byte >> 4;
@@ -95,6 +151,9 @@ static const uint16_t snd_db[32] = { 256, 215, 181, 152, 128, 108, 91, 76, 64, 5
 static void snd_write(unsigned code, unsigned v)
 {
     if (code == 0x1F) SND_FADER = v;                          /* (Sapphire docs/67: for eng_fade) */
+#ifdef SAP_ADPCM
+    if (code & 0x10) adm_reg(code & 15, v);                   /* (docs/67: the loads into ADPCM RAM, for the mirror) */
+#endif
 #ifdef SAP_NO_ADPCM
     if (code & 0x10) return;                                  /* (Sapphire docs/67: its ADPCM RAM changes - no copy of it yet) */
 #endif
@@ -127,14 +186,23 @@ static void snd_poll(void)
         SND_RST = 0;
         for (int i = 0; i < 6; i++) { snd_ch[i].ctrl = 0; snd_ch[i].noise = 0; snd_ch[i].dirty = 1; }
         ad_play = 0; ad_cmd = 0; ad_out = 0;
+#ifdef SAP_ADPCM
+        adm_addr = adm_write = 0; adm_cmd = adm_dma = adm_fresh = 0;
+#endif
     }
     unsigned wp = SND_LOG & 511;
     for (int k = 0; k < 4; k++) { const unsigned w2 = SND_LOG & 511; if (w2 == wp) break; wp = w2; }   /* (it moves under the read) */
     while (snd_rp != wp) {
+#ifdef SAP_ADPCM
+        adm_takes(snd_rp);
+#endif
         const unsigned e = SND_ENT(snd_rp);
         snd_rp = (snd_rp + 1) & 511;
         snd_write(e >> 8 & 31, e & 255); snd_writes++;
     }
+#ifdef SAP_ADPCM
+    adm_takes(wp);
+#endif
 }
 static void snd_set(SndCh *c, int n)
 {
@@ -160,7 +228,11 @@ static void snd_set(SndCh *c, int n)
 static void snd_mix(uint32_t *out)
 {
     int16_t *m = snd_mixb; int any = 0;
+#ifdef SAP_ADPCM_ONLY
+    for (int n = 6; n < 6; n++) {                             /* (docs/67's test: the ADPCM alone, against Mednafen's) */
+#else
     for (int n = 0; n < 6; n++) {
+#endif
         SndCh *c = &snd_ch[n];
         if (c->dirty) snd_set(c, n);
         if (!c->live) continue;

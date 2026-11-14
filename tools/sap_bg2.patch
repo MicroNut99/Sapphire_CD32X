@@ -1,0 +1,122 @@
+--- a/rt_bg2.c
++++ b/rt_bg2.c
+@@ -137,6 +137,11 @@
+    from N and leaves bg2_x32_draw when no entry is left to send (x32_leave): the 32X draws it over the plane until
+    then. */
+ uint16_t bg2_x32_draw; int bg2_x32_room;
++#ifndef X32_BUDGET
++#define X32_BUDGET 4096
++#endif
++int bg2_x32_budget = X32_BUDGET;                    /* (Sapphire docs/68: the 32X's palettes' entries on the map, at most -
++                                                     4,096 none; the engine's menu sets it, COLOURS) */
+ uint32_t bg2_x32_seq;                               /* (docs/61: one more each picture, as the choice is made - the master
+                                                      counts the pictures in which it read before it) */
+ uint32_t bg2_x32_moves;                             /* (palettes gone to the 32X and come back: counted) */
+@@ -241,6 +246,19 @@
+     }
+     return 0;
+ }
++/* Sapphire docs/68: the palettes in use, the most entries on the map first (then the most indices) - the order the pack and
++   the merge place them in. By index count alone (as before) the title's hangar, 825 of its 1,024 entries in palette 15,
++   came last: its greys and yellows shown by the mech's and the letters' colours, a fifth of the picture's pixels off */
++static int pal_order(const Bg2 *b, const V32 *v, int *ord)
++{
++    uint16_t cnt[16] = { 0 }; const int ne = map_n(v); int n = 0;
++    for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
++    for (int p = 0; p < 16; p++) if (b->used[p]) ord[n++] = p;
++    for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) {
++        const int pi = ord[i], pj = ord[j];
++        if (cnt[pj] > cnt[pi] || (cnt[pj] == cnt[pi] && popc16(b->used[pj]) > popc16(b->used[pi]))) { ord[i] = pj; ord[j] = pi; } }
++    return n;
++}
+ static int repack(Bg2 *b, const V32 *v, uint16_t *chgd)
+ {
+     ST(b->st.repacks++);
+@@ -248,9 +266,7 @@
+ #ifdef BG2_PRIV
+     memset(bg2_priv, 0, sizeof bg2_priv);
+ #endif
+-    int ord[16], n = 0;
+-    for (int p = 0; p < 16; p++) if (b->used[p]) ord[n++] = p;
+-    for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (popc16(b->used[ord[j]]) > popc16(b->used[ord[i]])) { int t = ord[i]; ord[i] = ord[j]; ord[j] = t; }
++    int ord[16]; const int n = pal_order(b, v, ord);
+     int ok = 1;
+     for (int k = 0; k < n && ok; k++) ok = place(b, ord[k], b->used[ord[k]], v, 0, chgd);
+     return ok;
+@@ -343,7 +359,8 @@
+ #endif
+         if (j && j != b->m[p][i]) { b->gref[g][b->m[p][i]]--; b->m[p][i] = (uint8_t)j; b->gref[g][j]++; b->chg[p][i] = ++b->ver[p]; chgd[p] |= B16(i); }
+     }
+-    for (int p = 0; p < 16; p++) if (b->used[p]) place_lossy(b, p, b->used[p], v, chgd);
++    {   int ord[16]; const int n = pal_order(b, v, ord);   /* (Sapphire docs/68: the most entries first) */
++        for (int k = 0; k < n; k++) place_lossy(b, ord[k], b->used[ord[k]], v, chgd); }
+ }
+ /* the colours for this picture; chgd: per palette, the indices whose slot changed (their tiles convert again) */
+ #ifdef BG2_COLB
+@@ -476,7 +493,12 @@
+     uint16_t cnt[16] = { 0 }; const int ne = map_n(v);
+     for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
+     int best = -1;
++    /* Sapphire docs/68 (bg2_x32_budget): the 32X's palettes together at most this many entries on the map - past it
++       the merge, as without BG2_X32 (stage 1's base sent 1,211 entries' palettes to the 32X, 654 cells drawn a
++       picture; the title's 15 small palettes are 200) */
++    int have = 0; for (int q = 0; q < 16; q++) if (x32_set >> q & 1) have += cnt[q];
+     for (int p = 0; p < 16; p++) { if (!b->used[p] || (x32_set >> p & 1)) continue;
++        if (have + cnt[p] > bg2_x32_budget) continue;
+         const int g = b->g[p]; int helps = g < 0;
+         if (g >= 0 && !PRIV(b, g)) { uint8_t mine[16] = { 0 };
+             for (int i = 1; i < 16; i++) if (b->m[p][i]) mine[b->m[p][i]]++;
+@@ -494,6 +516,16 @@
+         int p = 15; while (!(x32_set >> p & 1)) p--;
+         x32_back(b, p, chgd);
+     }
++    if (x32_set && bg2_x32_budget < 4096) {           /* (Sapphire docs/68: over the budget - a palette that went while it had
++                                                     few entries, and the stage scrolled more of it in: the biggest back,
++                                                     until the rest is within it; checked every BG2_MTRY pictures) */
++        uint16_t cnt[16] = { 0 }; const int ne = map_n(v);
++        for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
++        for (;;) { int have = 0, big = -1;
++            for (int q = 0; q < 16; q++) if (x32_set >> q & 1) { have += cnt[q]; if (big < 0 || cnt[q] > cnt[big]) big = q; }
++            if (have <= bg2_x32_budget || big < 0) break;
++            x32_back(b, big, chgd); }
++    }
+ #endif
+ #ifdef BG2_PRIV
+     {   int need = 0, shared = 0, flat = 1; unsigned c0 = NONE;
+@@ -1022,11 +1054,20 @@
+     for (int p = 0; p < 16; p++) if (n[p]) printf("    pal %2d: entries %4d blank %4d unsent %4d  g %d used %04X keep %04X\n", p, n[p], bl[p], none[p], b->g[p], b->used[p], x32_keep[p]);
+ }
+ #endif
++#ifdef BG2_MAPSIZE
++static int bg2_tail_hi;                            /* (Sapphire docs/68: the old map's entries from ne to here still hold their slots) */
++#endif
+ int bg2_frame(Bg2 *b, const V32 *v, int cur)
+ {
+ #ifdef BG2_MAPSIZE
+     const int ne = map_n(v);
+     if (ne != b->ne_last) {                       /* (the map's size changed: its entries counted and sent afresh) */
++        /* Sapphire docs/68: a smaller map - the entries past it are never visited again (send_entries goes to ne): their
++           dirty bits dropped here, or ndirty never reaches 0, every picture after is 'late' and the engine's hold keeps
++           the plane covered for good (the title's hangar, after the intro's 64 x 64 map); their slots let go below, or
++           the old screen keeps slots the new one needs (the title's entries stopped at 377: no slot) */
++        for (int a = ne; a < 4096; a++) if (b->dirty[a >> 3] & B8(a & 7)) { b->dirty[a >> 3] &= (uint8_t)~B8(a & 7); b->ndirty--; }
++        if (b->ne_last > bg2_tail_hi) bg2_tail_hi = b->ne_last;
+         b->ne_last = ne; recount(b, v);
+         for (int a = 0; a < ne; a++) set_dirty(b, a);
+     }
+@@ -1043,6 +1084,15 @@
+             printf("bg2 tables apart: picture %ld byte %05X: %04X / %04X\n", b->st.frames, o * 2, b->fb[0][o], b->fb[1][o]); told++; break; } }
+ #endif
+     list_word(b, 0x1001); list_word(b, 0x8F02);    /* (the VDP's increment: 2) */
++#ifdef BG2_MAPSIZE
++    /* Sapphire docs/68: the entries past a smaller map let their slots go - from the end down, 1,024 a picture at most
++       (BG2_SDRAM: the tables in SDRAM, no journal; else two table writes each, in half the journal's room); the Genesis
++       no longer shows them (the size register, kept) */
++    for (int k = 0; k < 1024 && bg2_tail_hi > ne && jroom(b, 2 + BG2_JOURNAL / 2); k++) {
++        const int a = --bg2_tail_hi; const uint16_t old = tget(b, T_GMAP(a));
++        if (old != NONE) { tset(b, S_REFS(old & 0x7FF), (uint16_t)(tget(b, S_REFS(old & 0x7FF)) - 1)); tset(b, T_GMAP(a), NONE); }
++    }
++#endif
+ #ifdef BG2_X32
+     if (!x32_zero) { x32_zero = 1;                 /* (the blank cell's 16 words, once) */
+         vram_at(b, X32_SLOT * 32); for (int k = 0; k < 8; k++) vram_word(b, 0);

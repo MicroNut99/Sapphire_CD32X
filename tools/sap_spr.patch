@@ -1,9 +1,12 @@
 --- a/rt_spr.c
 +++ b/rt_spr.c
-@@ -24,6 +24,15 @@
+@@ -24,6 +24,18 @@
  #ifdef SPR_UNDER
  void spr_under(const V32 *v, int buf, const SprBuf *b, uint16_t *dirty);   /* (Gate of Thunder docs/60) */
  #endif
++#ifdef SEC_TIMES
++uint32_t sap_wdt(void); extern uint32_t sec_t[];   /* (Sapphire docs/67: main.c's watchdog clock, the timings' sums) */
++#endif
 +#ifdef SPR_YLIM
 +/* Sapphire CD32X docs/67 (SPR_YLIM): the lines sprites show on - the picture's, cut where the game turns them off by a
 +   raster split (its status bar from line 203: CR $8C there). The program sets it each picture from the line table
@@ -16,7 +19,7 @@
  #ifdef SPR_VERIFY
  #include <stdio.h>
  #endif
-@@ -291,9 +300,9 @@
+@@ -291,9 +303,9 @@
  {
      g->sy = (e[0] & 0x3FF) - 64; g->sx = (e[1] & 0x3FF) - 32; const unsigned attr = e[3];
      g->cgx = attr & 0x100 ? 2 : 1; const int hc = (int)(attr >> 12) & 3; g->cgy = hc == 0 ? 1 : hc == 1 ? 2 : 4;
@@ -28,7 +31,7 @@
      return 1;
  }
  static inline int cell0(const uint16_t *e, const Geo *g) { return ((e[2] >> 1) & 0x3FF) & ~(g->cgx - 1) & ~((g->cgy - 1) * 2); }
-@@ -335,10 +344,10 @@
+@@ -335,10 +347,10 @@
  {
      spr_frame_list(v, buf);
  #ifdef __sh__
@@ -41,7 +44,31 @@
  #endif
  }
  void spr_frame_list(const V32 *v, int buf)
-@@ -404,18 +413,18 @@
+@@ -353,6 +365,9 @@
+     uint16_t dirty[SPR_LINES / 16] = { 0 };
+     uint8_t same[64];
+     const uint32_t conv0 = spr_stat.conv;
++#ifdef SEC_TIMES
++    uint32_t st_ = sap_wdt();                      /* (Sapphire docs/67: [2] the boxes cleared, [6] under, [15] drawn) */
++#endif
+     /* 1. each entry against this buffer's drawing before: the ones changed, gone or new have their old boxes cleared */
+     for (int i = 0; i < 64; i++) {
+         const uint16_t *e = v->sat + i * 4; Geo g; uint32_t sig = 0;
+@@ -386,7 +401,13 @@
+     /* Gate of Thunder docs/60 (SPR_UNDER): what the picture draws under the sprites - the background's cells the 32X
+        shows (goteng's spr_under: its last drawing in this buffer cleared, this picture's drawn, their squares marked
+        changed so the sprites over them are drawn again) */
++#ifdef SEC_TIMES
++    { const uint32_t n_ = sap_wdt(); sec_t[2] += n_ - st_; st_ = n_; }
++#endif
+     spr_under(v, buf, b, dirty);
++#ifdef SEC_TIMES
++    { const uint32_t n_ = sap_wdt(); sec_t[6] += n_ - st_; st_ = n_; }
++#endif
+ #endif
+     /* 2. drawn from entry 63 to 0 (0 on top): the changed ones, and any over a changed square - whose box is then
+        changed too, for the ones above it */
+@@ -404,21 +425,24 @@
          const int hf = (attr & 0x800) != 0, vf = (attr & 0x8000) != 0, pal = attr & 15;
          for (int cy = 0; cy < g.cgy; cy++) for (int cx = 0; cx < g.cgx; cx++) {
              const int px = g.sx + 16 * (hf ? g.cgx - 1 - cx : cx), py = g.sy + 16 * (vf ? g.cgy - 1 - cy : cy);
@@ -64,7 +91,13 @@
  #endif
          }
      }
-@@ -435,7 +444,7 @@
++#ifdef SEC_TIMES
++    sec_t[15] += sap_wdt() - st_;
++#endif
+     spr_stat.frames++;
+     if (spr_stat.conv - conv0 > spr_stat.conv_max) spr_stat.conv_max = spr_stat.conv - conv0;
+ }
+@@ -435,7 +459,7 @@
          const int c0 = cell0(e, &g); const int hf = (e[3] & 0x800) != 0, vf = (e[3] & 0x8000) != 0;
          for (int cy = 0; cy < g.cgy; cy++) for (int cx = 0; cx < g.cgx; cx++) {
              const int px = g.sx + 16 * (hf ? g.cgx - 1 - cx : cx), py = g.sy + 16 * (vf ? g.cgy - 1 - cy : cy);

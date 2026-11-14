@@ -118,7 +118,8 @@ int64_t io_next_event(const Hw *io)
     return n;
 }
 
-void (*io_adpcm_hook)(int nib);   /* (docs/50: each nibble the playback decodes, in order; -1 = the decoder reset) */
+void (*io_adpcm_hook)(int nib);
+void (*io_adw_hook)(int dma, unsigned addr, uint8_t v);   /* (Sapphire docs/67: each byte written into ADPCM RAM - by the DMA from the drive, or by the CPU's $180A) */   /* (docs/50: each nibble the playback decodes, in order; -1 = the decoder reset) */
 static uint8_t adpcm_byte;        /* (the byte the playback fetched last: Mednafen's ReadBuffer for the decoder) */
 static void adpcm_run(Hw *io, int64_t ch)
 {
@@ -166,6 +167,7 @@ static void adpcm_run(Hw *io, int64_t ch)
         io->half = io->length < 32768;
         if (!(io->last_cmd & 0x10) && io->length < 0xFFFF) io->length++;
         if (io->ram) io->ram[io->write_addr] = io->wp_value;
+        if (io_adw_hook) io_adw_hook(io->wp_dma, io->write_addr, io->wp_value);   /* (Sapphire docs/67: ADPCM RAM's writes) */
         io->write_addr++;
         io->write_pending = 0;
     }
@@ -173,7 +175,7 @@ static void adpcm_run(Hw *io, int64_t ch)
         if (!io->scsi.have) note(io, "ADPCM DMA from the CD (no drive)");
         else {
             scsi_run(io, io->now);
-            if (!SIG(0x002) && SIG(0x001) && SIG(0x008) && !SIG(0x040)) { io->wp_value = read_1808(io); io->write_pending = 10 * 3; }
+            if (!SIG(0x002) && SIG(0x001) && SIG(0x008) && !SIG(0x040)) { io->wp_value = read_1808(io); io->write_pending = 10 * 3; io->wp_dma = 1; }
         }
     }
     if (io->read_pending > 0 && (io->read_pending -= (int32_t)ch) <= 0) {
@@ -418,7 +420,7 @@ int io_write(Hw *io, unsigned off, uint8_t v)
             io->addr = (off & 1) ? (uint16_t)((io->addr & 0x00FF) | v << 8) : (uint16_t)((io->addr & 0xFF00) | v);
             if (io->last_cmd & 0x10) io->length = io->addr;
             return 1;
-        case 0xA: io->write_pending = 3 * 11; io->wp_value = v; return 1;
+        case 0xA: io->write_pending = 3 * 11; io->wp_value = v; io->wp_dma = 0; return 1;
         case 0xB: io->port[0xB] = v; return 1;
         case 0xD:
             if (v & 0x80) {                                                 /* ADPCM reset */

@@ -7,6 +7,14 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**The missing parts (14 Nov 2026, [docs/68](docs/68_THE_MISSING_PARTS.md)):** the owner's "list everything missing and
+then rebuild and or add it" - **the ADPCM** (the voices and effects: ADPCM RAM mirrored in the cart, 0.959 of Mednafen's
+loudness, heard in the same seconds), **stage play at ~25 pictures a second in ares** (was ~15), the status bar's bands in
+step, the pad read at every blank (no tap lost), STAGE SELECT in ~26 s; and two found on the way: **the title's hangar
+missing** in some runs (entries past a smaller map never sent: fixed) and the title's colours (the biggest palettes placed
+first, the 32X drawing the small ones - 0.6 % of the pixels off). New menu item **COLOURS** (AUTO / EXACT / FAST). The kit
+is `console_sd_v3`. Still not on a console.
+
 **The program on the cart core (14 Nov 2026, [docs/67](docs/67_THE_PROGRAM_ON_THE_CART_CORE.md)):** Gate of Thunder's engine
 program runs Sapphire on fit 4's core in ares (`sapx`): the data track fed from the cart's pack through the core's sector
 port, the options menu, the PSG on the 32X. This round: the status bar's split no longer missed (the stack's VSSWAP /

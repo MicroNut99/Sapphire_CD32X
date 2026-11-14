@@ -52,7 +52,7 @@ typedef struct Hw {
     uint8_t port[15]; int bram_on, ack; int32_t ack_delay;
     uint16_t addr, read_addr, write_addr, length;
     int half, end, playing, nibble;
-    uint8_t last_cmd, read_buf, wp_value; uint32_t freq;
+    uint8_t last_cmd, read_buf, wp_value, wp_dma; uint32_t freq;   /* (wp_dma: Sapphire docs/67, the pending write is the DMA's) */
     uint8_t *ram; int read_buf_known;        /* ADPCM RAM (64 KB) if the window's start has it */
     int32_t read_pending, write_pending;
     int64_t bigdivacc, bigdiv;               /* the ADPCM clock: 1/65536 master clocks */
@@ -97,5 +97,6 @@ int io_ad_poll(Hw *io, int m, int32_t left, int32_t *used, unsigned *reads);   /
 int scsi_quiet(const Hw *io);                       /* no drive, its bus free and not selected, or waiting for the CPU */
 void io_stuff_subchannels(Hw *io, unsigned n);      /* n sub-channel bytes at once (CD-DA run in one go) */
 extern void (*io_adpcm_hook)(int nib);               /* (docs/50: each nibble the playback decodes; -1 = reset) */
+extern void (*io_adw_hook)(int dma, unsigned addr, uint8_t v);   /* (Sapphire docs/67: each byte into ADPCM RAM) */
 extern void (*io_psg_hook)(unsigned reg, uint8_t v);   /* (docs/44: each PSG register write, 0-15) */
 extern void (*io_snd_hook)(unsigned code, uint8_t v);   /* (docs/66, GoT docs/54: each sound write - PSG register 0-15; 0x10 | the CD unit's $1808-$180F but $180A) */

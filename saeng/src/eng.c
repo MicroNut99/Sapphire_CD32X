@@ -183,7 +183,11 @@ static void sv_data(uint8_t *d)
 #else
     d[5] = 8;
 #endif
+#ifdef BG2_X32
+    d[6] = gm_fx; d[7] = gm_col; sv_put32(d + 8, gm_best);  /* (docs/68: COLOURS in the byte that was 0 - an older record is AUTO) */
+#else
     d[6] = gm_fx; d[7] = 0; sv_put32(d + 8, gm_best);
+#endif
 }
 static int sv_cmd(uint16_t cmd, uint16_t piece)               /* 76 / 77 with RV = 1: 1 done */
 {
@@ -217,6 +221,9 @@ static void sv_load(void)                                     /* at the start: t
     if (d[5] <= 8) gm_mus = d[5];
 #endif
     if (d[6] <= 8) gm_fx = d[6];
+#ifdef BG2_X32
+    if (d[7] <= 2) gm_col = d[7];
+#endif
 #ifdef GOT_SND
     SND_VOL = gm_fx;
 #endif
@@ -342,6 +349,9 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
 #ifdef SAP_CDFADE
             if (gm_sel == GM_MUS && dir) { const int v = gm_mus + dir; gm_mus = (uint8_t)(v < 0 ? 0 : v > 8 ? 8 : v); mus_level(MUS_FULL(), 0); }   /* (heard at once) */
 #endif
+#ifdef BG2_X32
+            if (gm_sel == GM_COL && (dir || ok)) gm_col = (uint8_t)((gm_col + 3 + (dir ? dir : 1)) % 3);   /* (docs/68: AUTO, EXACT, FAST) */
+#endif
             if (k & SEGA_CTRL_B) shut = 1;
             else if (ok && gm_sel == GM_RESUME) shut = 1;
             else if (ok && gm_sel == GM_CREDITS) gm_page = 1;
@@ -357,7 +367,12 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
             gm_open = 0; gm_wipe_n = 2; gm_st = 2;            /* (Start, if it shut the menu, is not a tap) */
             sv_write();                                       /* (docs/67: the settings as the menu leaves them, saved now - the game
                                                                  still paused; nothing sent when they did not change) */
-            if (shut == 3) { gm_mgo(20, f); gm_banner = 1; gm_rs_req = 1; gm_bset = 0; }
+            if (shut == 3) {                                  /* (docs/67: from the intro or the title no restart - RUN until the game
+                                                                 starts, then the stage's own block: 10-15 s sooner; from a stage, the
+                                                                 restart first, as docs/58) */
+                if (gm_in_stage) { gm_mgo(20, f); gm_rs_req = 1; } else gm_mgo(30, f);
+                gm_banner = 1; gm_bset = 0;
+            }
             else if (GM_IN_STAGE() && gm_frozen) gm_run_until = now + 12;   /* (the game let go again) */
         }
         return (int32_t)(gm_run_until - now) > 0 ? 8u : 0u;
@@ -556,9 +571,51 @@ static void eng_feed(void)
     if (again != lba) return;                                 /* (a seek in between: the next pass gives the new one) */
     const volatile uint16_t *sp = (const volatile uint16_t *)(ENG_W7 + 0x46000u);
     for (int i = 0; i < 2048; i++) (void)sp[eng_sec[i]];      /* + 0x46000 + (byte << 1): the byte, in order */
+#if defined(SAP_ADPCM) && !defined(SAP_NOTAKE)
+    {   /* (docs/67: the take, for the secondary's ADPCM loads - with the sound log's write pointer now: the machine stands
+           still while a sector is wanted, so every log entry before the take is in, none after) */
+        unsigned w = ENG_R(ENG_W7, 0x4E400) & 511;
+        for (int k = 0; k < 4; k++) { const unsigned w2 = ENG_R(ENG_W7, 0x4E400) & 511; if (w2 == w) break; w = w2; }
+        if (ADS.tq_w - ADS.tq_r < 64) { const unsigned q = ADS.tq_w & 63; ADS.tq_lba[q] = src; ADS.tq_pos[q] = (uint16_t)w; ADS.tq_w = ADS.tq_w + 1; }
+        else ADS.drops = ADS.drops + 1;
+    }
+#endif
     (void)ENG_R(ENG_W7, 0x47800);                             /* the sector's end: the CD unit may take it */
     eng_fed++;
 }
+#ifdef SAP_ADPCM
+/* docs/67: a page of ADPCM RAM's mirror a pass of the main loop, when the secondary has assigned a sector to one (snd.c
+   adm_assign): the sector made from the pack again (eng_sec, then the feed's copy marked stale), through the frame
+   buffer's list area (free between a picture's swap and the next draw_hook, as eng_restart uses it) and command 101
+   into bank 15 + 0x50000 + 2 KB x the page; the page then played (done = seq) unless another load took it meanwhile */
+static void eng_ad_copy(void)
+{
+    int pg = -1; uint16_t s = 0;
+    for (int i = 0; i < 32; i++) { s = ADS.seq[i]; if (s != ADS.done[i]) { pg = i; break; } }
+    if (pg < 0) return;
+    const uint32_t lba = ADS.lba[pg];
+    if (lba < PK_LBA0 || lba - PK_LBA0 >= pk_n) { ADS.done[pg] = s; eng_ad_fails++; return; }   /* (not track 2's) */
+    const int r = pk_sector(lba - PK_LBA0, eng_sec);
+    pk_close(); eng_ready = 0xFFFFFFFFu;                      /* (eng_sec is this sector's now) */
+    if (r < 0) return;                                        /* (not now: the next pass) */
+    if (!r) { ADS.done[pg] = s; eng_ad_fails++; return; }    /* (the pack failed: that page silent) */
+    pal_wait(0x16);
+    cdr_busy = 1;
+    bg2_take();
+    for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+    {   volatile uint32_t *d = (volatile uint32_t *)(0x24000000u + BG2_LIST); const uint32_t *q = (const uint32_t *)eng_sec;
+        for (int i = 0; i < 512; i++) d[i] = q[i]; }
+    volatile uint8_t *fm = (volatile uint8_t *)0x20004000;
+    *fm = 0x00; while (MARS_SYS_INTMSK & 0x8000) { }          /* (the frame buffer to the 68000) */
+    MARS_SYS_COMM2 = (uint16_t)(BG2_LIST >> 4); COMM8_32 = AD_MIR_CART + 2048u * (uint32_t)pg; COMM12_16 = 0xFFFF;
+    const int ok = ed_cmd(101) && COMM12_16 == 0;
+    *fm = 0x80; while (!(MARS_SYS_INTMSK & 0x8000)) { }       /* (and back) */
+    cdr_busy = 0;
+    if (!ok) { eng_ad_fails++; cd_answer_reset(); return; }
+    if (ADS.seq[pg] == s) ADS.done[pg] = s;
+    eng_ad_copies++;
+}
+#endif
 static void eng_pad(void)                                     /* the pad: Mednafen's order, a read at + 0x48000 + (b << 4) */
 {
     /* docs/51: on the console the 68000 is still on the last picture's list at nearly every picture of the game, so the
@@ -567,12 +624,29 @@ static void eng_pad(void)                                     /* the pad: Mednaf
     static uint16_t p_last;
     /* docs/53: the wait itself with cdr_busy clear - pace_vbi returns at once while it is set, and a swap's blank that
        fell into the wait lost its colours and its commit for a frame (the title's flame band torn about once a second) */
+#ifdef SEC_TIMES
+    uint32_t tp = wdt_now();                                  /* (docs/67: [13] the pad's wait for COMM0, [14] its command) */
+#endif
+#ifdef SAP_PADVB
+    uint16_t p;
+    {   /* (docs/67: the blanks' word and what was pressed since the last picture - no command, no wait) */
+        uint32_t sr; __asm__ volatile("stc sr,%0" : "=r"(sr));
+        const uint32_t m = sr | 0xF0u; __asm__ volatile("ldc %0,sr" : : "r"(m));
+        p = (uint16_t)(padvb_now_ | padvb_or_); padvb_or_ = 0;
+        __asm__ volatile("ldc %0,sr" : : "r"(sr));
+        if (!padvb_n_) p = 0;                                 /* (no blank's word yet) */
+        got_padw = p; got_padw_or |= p;
+    }
+#else
     for (uint32_t t0 = gTicks; ; ) {
         while (MARS_SYS_COMM0 != 0 && gTicks - t0 < 2) { LT_POLL(); }
         cdr_busy = 1;
         if (MARS_SYS_COMM0 == 0 || gTicks - t0 >= 2) break;   /* (else the blank's commit came in between: again) */
         cdr_busy = 0;
     }
+#ifdef SEC_TIMES
+    SEC_T(13, tp);
+#endif
     uint16_t p = p_last;
     if (MARS_SYS_COMM0 != 0) {
 #ifdef DX_PROF
@@ -584,12 +658,16 @@ static void eng_pad(void)                                     /* the pad: Mednaf
         got_padskip++; CRUMB_M(0x07);
     } else {
         p = cd_pad(0, 0); p_last = p;
+#ifdef SEC_TIMES
+        SEC_T(14, tp);
+#endif
         got_padw = p; got_padw_or |= p; got_tick = MARS_SYS_COMM10;   /* (docs/47: the word's bits ever seen; the 68000's vblank count, cmd 48's COMM10) */
 #ifdef DX_PADDIAG
         pd_reads++; pd_raw |= p; pd_tick = MARS_SYS_COMM10;
 #endif
     }
     cdr_busy = 0;
+#endif
     uint32_t b = 0;
     if (p & SEGA_CTRL_C) b |= 1;                              /* I (jump) */
     if (p & SEGA_CTRL_B) b |= 2;                              /* II (attack) */
@@ -667,6 +745,7 @@ static void bgx_assign(void)
 /* the sprites' palettes this picture, and the room told to rt_bg2.c for its choice (before the picture's job is
    given): the 32X palettes free of sprites - by their most in the last pictures, falling one every 64 - less a spare,
    BGX_ROOM at most; none with the background off */
+extern int bg2_x32_budget;                                    /* (docs/68: tools/sap_bg2.patch) */
 static void bgx_slots(uint16_t taken, int bg_on)
 {
     static uint8_t peak, fall;
@@ -677,7 +756,9 @@ static void bgx_slots(uint16_t taken, int bg_on)
     int n = 0; for (int q = 0; q < 16; q++) n += taken >> q & 1;
     if (n >= peak) { peak = (uint8_t)n; fall = 0; } else if (++fall >= 64) { fall = 0; peak--; }
     const int room = 15 - peak;
-    bg2_x32_room = room > BGX_ROOM ? BGX_ROOM : room < 0 ? 0 : room;
+    bg2_x32_room = gm_col == 2 ? 0 : room > BGX_ROOM ? BGX_ROOM : room < 0 ? 0 : room;   /* (docs/68: COLOURS FAST - none) */
+    bg2_x32_budget = gm_col == 1 ? 4096 : 256;                /* (docs/68: AUTO - the 32X's palettes 256 entries of the map at most:
+                                                                 the title's small ones, not stage 1's large; EXACT - any) */
 }
 #endif
 static void spr_prio(void)
@@ -776,6 +857,7 @@ static void eng_verify(void)
    the line changes - into command 78's list (VSPLIT: the Genesis H interrupt changes V there), sent when they change */
 static uint16_t eng_lines[224 * 2];
 static uint32_t eng_vs[16]; static int eng_nvs = -1;          /* (the bands as sent: line << 20 | V A << 10 | V B) */
+static uint32_t eng_vw[16]; static int eng_vwn;               /* (docs/67: the bands this picture wants: eng_bands_send) */
 static uint32_t eng_vs_sent;
 #ifdef BG2_X32
 /* docs/60: under the sprites (rt_spr.c's SPR_UNDER, between its clearing and its drawing) - the cells of the
@@ -855,25 +937,59 @@ static void eng_scroll_bands(void)
                                                                  command 78 in a stack built without VSPLIT: unanswered,
                                                                  it held COMM0 and eng_pad never read the pad) */
 #endif
-    uint32_t e[16]; int n = 0; unsigned last = 0xFFFF;
+    /* docs/67: V modulo the map's height (the plane is the map's size, BG2_MAPSIZE; the line table's Y has 9 bits): a
+       playfield whose Y passes 511 within the picture is one band, not two (Sapphire: a false band at line 201 in
+       most pictures of a stage, a command each) */
+    const unsigned hm = (eng_v.MWR & 0x40) ? 0x1FF : 0xFF;
+    int n = 0; unsigned last = 0xFFFF;
     for (int l = 0; l < 224 && n < 16; l++) {
-        const unsigned v = (unsigned)(eng_lines[2 * l + 1] - l) & 0x3FF;
-        if (v != last) { e[n++] = (uint32_t)l << 20 | v << 10 | v; last = v; }
+        const unsigned v = (unsigned)(eng_lines[2 * l + 1] - l) & hm;
+        if (v != last) { eng_vw[n++] = (uint32_t)l << 20 | v << 10 | v; last = v; }
     }
     if (n == 1) n = 0;                                        /* (one band: the kept part's V alone, no splits) */
+    eng_vwn = n;
 #ifdef BG2_MORE
     bg2_run_max = n ? GOT_RUN_MAX : 0xFFF;                              /* (docs/57: a picture with V splits - the list in runs of 8 words, so the
                                                                  68000 lets the splits' H interrupt in within a line) */
 #endif
+}
+/* docs/67: the bands as command 78 has them - sent from draw_hook once the picture before is shown (VSSWAP: a list
+   committed while the splits run is shown at the next swap of command 79, so the bands of picture N must come after
+   N - 1's swap; sent before it, as they were, they went out with N - 1's picture, a scroll step early). Of the two
+   lists the stack keeps, an entry goes into the one not shown, and each commit makes that the one shown at the next
+   swap: so only the entries that list does not have already are sent (in play the playfield's V alone, entry 0) */
+static uint32_t eng_vsl[2][16]; static int eng_vsc;           /* (what each list holds - 0xFFFFFFFF not known; the one the entries go to) */
+static void eng_bands_send(void)
+{
+#ifdef BG2_DRAW
+    const int n = eng_vwn;
     int same = n == eng_nvs;
-    for (int i = 0; same && i < n; i++) same = e[i] == eng_vs[i];
+    for (int i = 0; same && i < n; i++) same = eng_vw[i] == eng_vs[i];
     if (same) return;
+    static int init; if (!init) { init = 1; for (int k = 0; k < 2; k++) for (int i = 0; i < 16; i++) eng_vsl[k][i] = 0xFFFFFFFFu; }
+#ifdef SEC_TIMES
+    uint32_t tb = wdt_now();                                  /* (docs/67: [10] the wait for COMM0, [11] the commands, [12] their count) */
+#endif
     cdr_busy = 1;
     for (int k = 0; k < 4000000 && MARS_SYS_COMM0 != 0; k++) { LT_POLL(); }
-    for (int i = 0; i < n; i++) { MARS_SYS_COMM2 = (uint16_t)i; COMM8_32 = e[i]; cd_cmd(78); eng_vs[i] = e[i]; }
+#ifdef SEC_TIMES
+    SEC_T(10, tb);
+#endif
+    int sent = 0;
+    for (int i = 0; i < n; i++) {
+        if (eng_vsl[eng_vsc][i] == eng_vw[i]) continue;
+        MARS_SYS_COMM2 = (uint16_t)i; COMM8_32 = eng_vw[i]; cd_cmd(78); eng_vsl[eng_vsc][i] = eng_vw[i]; sent++;
+    }
     MARS_SYS_COMM2 = (uint16_t)(0x8000 | n); cd_cmd(78);
     cdr_busy = 0;
+    if (n) eng_vsc ^= 1;
+    else for (int k = 0; k < 2; k++) for (int i = 0; i < 16; i++) eng_vsl[k][i] = 0xFFFFFFFFu;   /* (off: what follows not known) */
+#ifdef SEC_TIMES
+    SEC_T(11, tb); sec_t[12] += (uint32_t)sent + 1;
+#endif
+    for (int i = 0; i < n; i++) eng_vs[i] = eng_vw[i];
     eng_nvs = n; eng_vs_sent++;
+#endif
 }
 /* docs/122: the next picture read during the master's wait for the secondary (draw_hook) - into staging, not eng_v,
    which the secondary is reading: the changed blocks (up to ENG_STK; the rest read the old way after), the colours,
@@ -1152,6 +1268,10 @@ static void eng_main(void)
     CRUMB_M(0x65);
     CRUMB_M(0x66);
     (void)ENG_R(ENG_W7, 0x40080);                             /* the start */
+#ifdef SAP_PADVB
+    MARS_SYS_COMM4 = (short)0xFFFF; MARS_SYS_COMM6 = 0x5056; padvb_on_ = 1;   /* (docs/67: the pad at every blank, PADVB-1:
+                                                                 0xFFFF first, then the key - ledger section 37) */
+#endif
 #ifdef GOT_MENU
     gm_core = (uint8_t)(ENG_R(ENG_W7, 0x40004) >> 8);         /* (docs/56: step 19 on says its number here; 0 before) */
 #endif
@@ -1193,6 +1313,9 @@ static void eng_main(void)
 #endif
         CRUMB_M(1);
         PF(0, eng_feed());
+#ifdef SAP_ADPCM
+        eng_ad_copy();                                        /* (docs/67: a page of ADPCM RAM's mirror, when one is due) */
+#endif
         const int stg = eng_stg.ok;                           /* (docs/122: read during the last picture's wait) */
         const uint32_t f = stg ? eng_stg.f : ENG_R(ENG_W6, 0x20E08);   /* the snapshot's frame: a new picture? */
 #ifdef DX_CONDIAG
@@ -1233,6 +1356,10 @@ static void eng_main(void)
         CDG_WHERE = 2;
 #endif
         CRUMB_M(2);
+#ifdef SEC_TIMES
+        uint32_t tm = wdt_now();                              /* (docs/67: [8] the pad, the tick and the menu; [9] the audio, the
+                                                                 fade, the picture's reads, the bands and the verify) */
+#endif
         PF(1, eng_pad());
 #ifdef GOT_MENU
         sap_tick(f);                                          /* (Sapphire docs/67: the lives, the high score) */
@@ -1240,6 +1367,9 @@ static void eng_main(void)
 #ifdef GOT_MENU
         if (gm_rs_req) { gm_rs_req = 0; eng_restart(f); }     /* (docs/58: the menu's restart) */
         gm_stats(f);                                          /* (docs/60: the STATUS page) */
+#endif
+#ifdef SEC_TIMES
+        SEC_T(8, tm);
 #endif
 #ifdef DX_CONDIAG
         CDG_WHERE = 3;
@@ -1254,6 +1384,9 @@ static void eng_main(void)
 #endif
         CRUMB_M(4);
         PF(3, if (stg) eng_apply(); else { eng_picture(f); eng_scroll(); } eng_verify());
+#ifdef SEC_TIMES
+        SEC_T(9, tm);
+#endif
 #ifdef DX_CONDIAG
         CDG_WHERE = 5;
 #endif
@@ -1284,8 +1417,10 @@ static void eng_main(void)
 #endif
             SLOG(7, eng_frames);
         }
+#ifndef SAP_PADVB
         MARS_SYS_COMM4 = (uint16_t)eng_frames;
         MARS_SYS_COMM6 = (uint16_t)f;                         /* (the engine's frame drawn last: docs/105, ares's --shots) */
+#endif
         eng_bram_check();
     }
 }

@@ -322,6 +322,19 @@ Read `CLAUDE.md` first.
      the owner's `Sapphire\console_sd_v2\` (`Sapphire_EDCD.32X` - keep this name: it is the save's folder - fit 4's
      `mega-pro.rbf`, `disc\SAPENG.cue`). **Next:** the stage's picture rate (ares ~14 a second in play, 40-45 at the
      title: `DX_PROF`), the console's word on the kit, the ADPCM.
+  63. **docs/68, the missing parts** (the owner, 14 Nov: "List everything missing and then rebuild and or add it"). The
+     ADPCM (`SAP_ADPCM`: the loads followed from the sound log by the secondary, the pages made again from the pack and
+     copied by command 101 into a mirror at bank 15 + 0x50000; `sapm_pc ADW_LOG=1`); the stage's picture rate
+     (`RTX=-DSEC_TIMES`, `sec_t[]` in SDRAM dumps); the bands sent after the swap (`eng_bands_send`); `PADVB=1`
+     (`SAP_PADVB`); STAGE SELECT from the title without the restart; **the title's hangar** (`tools/sap_bg2.patch`: the
+     entries past a smaller map dropped and their slots let go) and **colours** (`pal_order`; `BG2_X32` on by default with
+     `bg2_x32_budget`; the menu's COLOURS AUTO 256 / EXACT / FAST, saved in the record's byte 7). **Build with the BootCamp
+     at `/home/claude/repos/CD32X-BootCamp` (`main`, has command 104)** - `/home/claude/cd32x-bootcamp` is on branch
+     `tpsg` without it, and a build from it hangs at the first fade. Tests: `work/shots20.sh <tag> <build>` (the
+     recording, shots every 500 frames, SDRAM at 12,000 / 16,000), `work/refcmp.sh <run dir>` (Mednafen at each shot's
+     engine frame - the harness's `eng` field, ares local - and the comparison), `/tmp/e4c/vdpview.py` (the planes from a
+     `--dump-vdp`, whose last 16 words are now the VDP's state). The kit: the owner's `Sapphire\console_sd_v3\`
+     (launcher `d82c565e`, fit 4's rbf, v2's disc). **Next:** the console's word; the curtain before stage 4.
 ## 2. Where things live
 
 | What | Where | In git? |
