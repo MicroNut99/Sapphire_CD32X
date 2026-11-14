@@ -192,6 +192,12 @@ The README names the menu's COLOURS.
 
 - **The console**: all of it. On the console, COLOURS and STATUS's pictures a second say which mode suits it.
 - The curtain before stage 4 (docs/67 section 4): sprites over a band the game has them off in, ~10 s once a game.
+  Looked at again (`sapm_pc SPLIT_LOG`, the whole recording): frames 55,476-56,226, sprites off first from line 0 down
+  to a line moving 13 -> 58, then in a 64-line band moving down the screen (lines 44-107 at frame 55,900, 152-202 at
+  56,125). Nothing in the core's line table marks it: the scroll is continuous through the first part, and the band's
+  rows are ordinary map rows (32 of 33 columns drawn), not blank ones. A rule from blank map rows was tried on the PC
+  over 2,509 play frames: it would hide sprites wrongly in 443 and catch none of the 36 curtain frames. Only the core
+  giving each line's CR (a fit) would do; not made for 10 s once a game.
 - The rest of a stage picture: the 68000's list and the blank (~19 ms of 35 in ares). A list's length is the plane's
   changes; the console's rate is not ares's.
 - The game's input reaches the engine once a picture (now ~29 a second in ares, with no tap lost); writing it at every
