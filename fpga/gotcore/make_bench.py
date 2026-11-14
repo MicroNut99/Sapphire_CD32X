@@ -49,9 +49,11 @@ rep('''          if (ra < 0x580000u) { const uint32_t o0 = ra & ~1u;   // (docs/
 # the sector port and the battery RAM chip, each clock before the edge
 rep('        if (pt && pa_age < pt - 1) top->rom_dato ^= 0xA5C3;',
     '''        if (pt && pa_age < pt - 1) top->rom_dato ^= 0xA5C3;
+#ifdef SAP_SAVE_DIRECT   // (docs/65: the battery RAM chip's pins exist only with make_core.py's SAP_SAVE_DIRECT=1)
           top->bram_dato = brm[(top->bram_addr >> 1) & 1023];
           if (top->bram_we_hi) brm[(top->bram_addr >> 1) & 1023] = (uint16_t)((brm[(top->bram_addr >> 1) & 1023] & 0x00FF) | (top->bram_dati & 0xFF00));
           if (top->bram_we_lo) brm[(top->bram_addr >> 1) & 1023] = (uint16_t)((brm[(top->bram_addr >> 1) & 1023] & 0xFF00) | (top->bram_dati & 0x00FF));
+#endif
           // (Sapphire docs/64) the sector port: the sector wanted, from the drive model, a byte a clock; then "done"
           top->sp_rst = 0; top->sp_we = 0; top->sp_commit = 0;
           if (!booting) { if (sp_st == 0 && top->sp_need) { const int32_t l = (int32_t)top->sec_want_o; memset(sp_buf, 0, sizeof sp_buf); scsi_sector(&hw, l, sp_buf);

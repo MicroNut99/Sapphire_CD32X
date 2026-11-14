@@ -22,6 +22,6 @@ verilator --cc -O3 -Wno-fatal -Wno-lint -Wno-style -Wno-BLKSEQ --public +1364-20
 VI=/usr/share/verilator/include
 for f in vdc_model vdc_timing io_model scsi_model; do gcc -O2 -c -I"$M" "$M/$f.c" -o "$f.o"; done
 gcc -O2 -c -I"$M" "$G/tools/m2host/disc_stub.c" -o disc_stub.o 2>/dev/null || gcc -O2 -c -I"$G/tools/m2host" "$G/tools/m2host/disc_stub.c" -o disc_stub.o
-g++ -O2 -std=c++17 -DCART_SRAM -I"$VI" -I"$VI/vltstd" -Iocart -I"$M" -I"$X/fpga/fw" -o scart "$S/scart.cpp" ocart/*.cpp \
+g++ -O2 -std=c++17 -DCART_SRAM ${SAP_SAVE_DIRECT:+-DSAP_SAVE_DIRECT} -I"$VI" -I"$VI/vltstd" -Iocart -I"$M" -I"$X/fpga/fw" -o scart "$S/scart.cpp" ocart/*.cpp \
     "$VI/verilated.cpp" "$VI/verilated_threads.cpp" vdc_model.o vdc_timing.o io_model.o scsi_model.o disc_stub.o -lcrypto -lpthread 2>&1 | grep -E "error" | head -20
 [ -x scart ] && echo "built $B/scart"

@@ -66,3 +66,21 @@ size (its docs/28: 14,222 balanced, 14,110 high-performance), so they come out o
 
 Variant c: Gate of Thunder's settings (high-performance effort, physical synthesis); variant d: the same design with
 Quartus's balanced setting, to see how small it gets.
+
+## Fit 2: 1-2 LABs short (13 Nov)
+
+Both variants: **15,301 combinational functions** (c: 15,382 logic elements, the fitter needs 965 LABs of 963; d: 15,375,
+964 LABs) - the balanced setting changed nothing. Saved 495 against fit 1: the wrapper's own 370 → 195 and krikzz's
+EverDrive logic 541 → 430 (both fed the status page), the card 501 → 383, the memory side 996 → 952, the engine 989 → 960.
+Still 310 above Gate of Thunder's step 20 (which fits with 0.136 ns to spare).
+
+## Fit 3's change (kit `Sapphire\fpga\gotcore_fit3\`, `build_sap_core3.bat`)
+
+**The backup RAM's move to the battery RAM chip and the save port are out** (`make_core.py`: only with `SAP_SAVE_DIRECT=1`;
+`make_bench.py` / `run_bench.sh` follow it). The PC Engine's backup RAM is in sram again, where Gate of Thunder keeps it
+(the game never uses it: docs/62 section 5); the wrapper has no battery-chip pins and no save port. **The save goes the
+BootCamp's way** - the owner's first direction (13 Nov): the SH2 composes docs/63's record and the stack's SD-save
+commands (the `sdcard/` kit, OpenLara's EDSAVE) copy it into bank 31; the SH2 reads the score through the CD RAM peek,
+which stays. To keep the copies (both SH2s parked) out of play, the program saves when the menu closes and when the game
+goes back to the title, not 10 s after a new high score. The bench (`work/gc/b4`): st3_600 and p1_8100, 60 frames, as
+before. Variants: e Gate of Thunder's settings; f Quartus's area setting, no physical synthesis (the floor).

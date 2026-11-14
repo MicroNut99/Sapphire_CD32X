@@ -14,6 +14,9 @@ What changes (docs/62):
                     (start) / + 0x47800 (done), 'need' in the busy word's bit 1, the card's flags in bit 2-3
 """
 import sys, os
+# docs/65: the backup RAM on the battery RAM chip and the save port (docs/62-63) only with SAP_SAVE_DIRECT=1 - without it the
+# PC Engine's backup RAM stays in sram (GoT's place) and the save goes the BootCamp's way (the stack's SD-save commands)
+SAVE_DIRECT = os.environ.get('SAP_SAVE_DIRECT') == '1'
 G = os.path.join(sys.argv[1], 'fpga/quartus/mapper/map_got'); T = os.path.join(sys.argv[1], 'tools/fpga'); O = sys.argv[2]
 os.makedirs(O, exist_ok=True)
 
@@ -102,7 +105,7 @@ def rep(old, new):
     s = s.replace(old, new)
 rep("parameter [20:0] LBA0 = 21'd3590, parameter [20:0] NSEC = 21'd1882) (",
     "parameter [20:0] LBA0 = 21'd3590, parameter [20:0] NSEC = 21'd1882,\n\tparameter [22:0] AC_BASE = 23'h000000, parameter AC_FULL = 0,\n`ifdef SAP_NOREGRD\n\tparameter AC_REGRD = 0) (   // (docs/65: the fit's variant b - the ports' registers read back as $FF; the game reads none)\n`else\n\tparameter AC_REGRD = 1) (   // (Sapphire docs/62: the card's 2 MB in rom1)\n`endif")
-rep("\tMemBus             sram,\n", "\tMemBus             sram,\n\tMemBus             bram,            // (Sapphire docs/62: the backup RAM, on the chip the EverDrive's OS keeps on the SD card)\n")
+if SAVE_DIRECT: rep("\tMemBus             sram,\n", "\tMemBus             sram,\n\tMemBus             bram,            // (Sapphire docs/62: the backup RAM, on the chip the EverDrive's OS keeps on the SD card)\n")
 rep("\toutput wire        rom_req,\n", "\toutput wire        rom_req,\n\toutput wire        rom_we_hi, rom_we_lo, output wire [15:0] rom_dati,   // (Sapphire docs/62: the card's write)\n"
     "\tinput  wire        sp_rst, sp_we, sp_commit, input wire [7:0] sp_d, output wire sp_need,   // (the sector port)\n\toutput wire [1:0]  d_ac,            // ({a card write lost, the game used what the lean card leaves out})\n")
 rep("\treg f_full; reg [20:0] f_have;\n", "\treg f_full; reg [20:0] f_have;\n"
@@ -125,16 +128,16 @@ rep("\t\telse if (is_rom) m_ok = rq_v && rq_a == m_a;\n", "\t\telse if (is_rom) 
 rep("assign m_q = is_base ? bq : is_ram1 ? (m_a[0] ? ch_q : cl_q) : is_br ? mq_r : is_rom ? mr_r : 8'hFF;",
     "assign m_q = is_base ? bq : is_ram1 ? (m_a[0] ? ch_q : cl_q) : is_br ? mq_r : is_rom ? mr_r : ac_data ? aq_r : is_ac ? ac_q : 8'hFF;")
 # the backup RAM on bram: the controller's transactions at sram bytes 0x40000-0x4FFFF go to that chip's pins
-rep("\twire o_lo = own_w ? !wq_a0[0] : own_a ? !ada[0] : 1'b1;\n\twire o_hi = own_w ?  wq_a0[0] : own_a ?  ada[0] : 1'b1;\n",
-    "\twire wq_b = wq_a0[18:16] == 3'b100;                    // (Sapphire docs/62: the backup RAM's - an even byte the high half)\n"
-    "\twire o_lo = own_w ? (wq_b ? wq_a0[0] : !wq_a0[0]) : own_a ? !ada[0] : 1'b1;\n\twire o_hi = own_w ? (wq_b ? !wq_a0[0] : wq_a0[0]) : own_a ?  ada[0] : 1'b1;\n")
-rep("mq_r <= m_a[0] ? o_word[15:8] : o_word[7:0]; end", "mq_r <= m_a[0] ? o_word[7:0] : o_word[15:8]; end")
-rep("\t\tcand <= sram.dato; cand_d1 <= cand;", "\t\tcand <= pin_b ? bram.dato : sram.dato; cand_d1 <= cand;")
-rep("\tassign sram.oe    = use_w ? 1'b1 : w_lk ? w_rb : poe_r;\n\tassign sram.we_lo = we_g && w_lo;\n\tassign sram.we_hi = we_g && w_hi;\n",
-    "\twire pin_b = !use_w && (w_lk ? w_addr[18:16] == 3'b100 : pa_r[18:16] == 3'b100);   // (Sapphire docs/62: the battery RAM chip's turn)\n"
-    "\tassign sram.oe    = use_w ? 1'b1 : pin_b ? 1'b0 : w_lk ? w_rb : poe_r;\n\tassign sram.we_lo = we_g && w_lo && !pin_b;\n\tassign sram.we_hi = we_g && w_hi && !pin_b;\n"
-    "\tassign bram.addr  = {12'd0, w_lk ? w_addr[10:0] : pa_r[10:0]};\n\tassign bram.dati  = sram.dati;\n"
-    "\tassign bram.oe    = pin_b && (w_lk ? w_rb : poe_r);\n\tassign bram.we_lo = w_we && w_lo && pin_b;\n\tassign bram.we_hi = w_we && w_hi && pin_b;\n")
+if SAVE_DIRECT: rep("\twire o_lo = own_w ? !wq_a0[0] : own_a ? !ada[0] : 1'b1;\n\twire o_hi = own_w ?  wq_a0[0] : own_a ?  ada[0] : 1'b1;\n",
+        "\twire wq_b = wq_a0[18:16] == 3'b100;                    // (Sapphire docs/62: the backup RAM's - an even byte the high half)\n"
+        "\twire o_lo = own_w ? (wq_b ? wq_a0[0] : !wq_a0[0]) : own_a ? !ada[0] : 1'b1;\n\twire o_hi = own_w ? (wq_b ? !wq_a0[0] : wq_a0[0]) : own_a ?  ada[0] : 1'b1;\n")
+if SAVE_DIRECT: rep("mq_r <= m_a[0] ? o_word[15:8] : o_word[7:0]; end", "mq_r <= m_a[0] ? o_word[7:0] : o_word[15:8]; end")
+if SAVE_DIRECT: rep("\t\tcand <= sram.dato; cand_d1 <= cand;", "\t\tcand <= pin_b ? bram.dato : sram.dato; cand_d1 <= cand;")
+if SAVE_DIRECT: rep("\tassign sram.oe    = use_w ? 1'b1 : w_lk ? w_rb : poe_r;\n\tassign sram.we_lo = we_g && w_lo;\n\tassign sram.we_hi = we_g && w_hi;\n",
+        "\twire pin_b = !use_w && (w_lk ? w_addr[18:16] == 3'b100 : pa_r[18:16] == 3'b100);   // (Sapphire docs/62: the battery RAM chip's turn)\n"
+        "\tassign sram.oe    = use_w ? 1'b1 : pin_b ? 1'b0 : w_lk ? w_rb : poe_r;\n\tassign sram.we_lo = we_g && w_lo && !pin_b;\n\tassign sram.we_hi = we_g && w_hi && !pin_b;\n"
+        "\tassign bram.addr  = {12'd0, w_lk ? w_addr[10:0] : pa_r[10:0]};\n\tassign bram.dati  = sram.dati;\n"
+        "\tassign bram.oe    = pin_b && (w_lk ? w_rb : poe_r);\n\tassign bram.we_lo = w_we && w_lo && pin_b;\n\tassign bram.we_hi = w_we && w_hi && pin_b;\n")
 # ---- docs/63: the ports for the program - a write and a read of any byte through the controller (px_*, pr_*). The
 # options menu's LIVES and the score are CD RAM, behind the cache: a port write goes the CPU's own write path (the cache
 # kept right, then the queue), a port read through the controller at the lowest priority. The save area: the battery RAM
@@ -181,13 +184,13 @@ open(os.path.join(O, 'got_cart_sram.sv'), 'w').write(s)
 
 # ---- map_ssf_got.sv
 edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
-    ("\tMemBus sram(mout_got.sram, mai.sram_do);\n", "\tMemBus sram(mout_got.sram, mai.sram_do);\n\tMemBus gbram(mout_got.bram, mai.bram_do);   // (Sapphire docs/62)\n"
+    ("\tMemBus sram(mout_got.sram, mai.sram_do);\n", "\tMemBus sram(mout_got.sram, mai.sram_do);\n" + ("\tMemBus gbram(mout_got.bram, mai.bram_do);   // (Sapphire docs/62)\n" if SAVE_DIRECT else "") +
      "\twire got_we_hi, got_we_lo, sp_need; wire [15:0] got_rom_d; wire [1:0] d_ac;\n"
      "\twire sp_b_rd, sp_c_rd; reg sp_rst, sp_we, sp_commit; reg [7:0] sp_d;\n"
      "\tsync_edge sync_spb(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h46 & !cpu_oe), .sync(sp_b_rd));\n"
      "\tsync_edge sync_spc(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h47 & !cpu_oe), .sync(sp_c_rd));\n"
      "\talways @(posedge clk) begin sp_we <= sp_b_rd; sp_d <= rom_addr[8:1]; sp_rst <= sp_c_rd & !rom_addr[11]; sp_commit <= sp_c_rd & rom_addr[11]; end\n"),
-    (".hold(!got_on), .sram(sram), .rom_addr(got_rom_a), .rom_req(got_rom_req),", ".hold(!got_on), .sram(sram), .bram(gbram), .rom_addr(got_rom_a), .rom_req(got_rom_req),\n"
+    (".hold(!got_on), .sram(sram), .rom_addr(got_rom_a), .rom_req(got_rom_req),", ".hold(!got_on), .sram(sram), " + (".bram(gbram), " if SAVE_DIRECT else "") + ".rom_addr(got_rom_a), .rom_req(got_rom_req),\n"
      "\t\t.rom_we_hi(got_we_hi), .rom_we_lo(got_we_lo), .rom_dati(got_rom_d), .sp_rst(sp_rst), .sp_we(sp_we), .sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac),"),
     ("{8'h20, 7'd0, cfg_busy})", "{8'hA1, 4'd0, d_ac, sp_need, cfg_busy})"),   # (docs/65: Sapphire's core, step 1 - GoT's was 0x20)
     ("16'h6F20,", "16'h5A01,"),   # (docs/65: the status page's ID - GoT's 0x6F20)
@@ -204,8 +207,8 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\twire px_busy, pr_v; wire [7:0] pr_q;\n"
      "\tsync_edge sync_pkh(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h43 & !cpu_oe), .sync(pkh_rd));\n"
      "\tsync_edge sync_pkp(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h42 & !cpu_oe), .sync(pkp_rd));\n"
-     "\tsync_edge sync_svs(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h44 & !cpu_oe), .sync(svs_rd));\n"
-     "\tsync_edge sync_svx(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h45 & !cpu_oe), .sync(svx_rd));\n"
+     + ("\tsync_edge sync_svs(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h44 & !cpu_oe), .sync(svs_rd));\n"
+        "\tsync_edge sync_svx(.clk(clk), .ce(w28 & rom_addr[18:12] == 7'h45 & !cpu_oe), .sync(svx_rd));\n" if SAVE_DIRECT else "") +
      "\t// (docs/65) h: bit 3 = CD RAM, bits 2-0 its 8 KB bank (sram byte 0x30000 on); 0 = base RAM, GoT's port as it was\n"
      "\twire [15:0] pk_off = {pk_hi[2:0], pk_ah, rom_addr[10:9]}, pp_off = {pk_hi[2:0], pk_ah, rom_addr[2:1]};\n"
      "\talways @(posedge clk) begin\n"
@@ -213,10 +216,10 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\t\tif (got_rst || !got_on) pk_hi <= 4'd0; else if (pkh_rd) pk_hi <= rom_addr[4:1];\n"
      "\t\tif (pkd_rd && rom_addr[11] && got_on && pk_hi[3]) begin px_req <= 1'b1; px_a <= {3'b011, pk_off}; px_d <= rom_addr[8:1]; px_cache <= 1'b1; end\n"
      "\t\tif (pkp_rd && pk_hi[3]) begin pr_req <= 1'b1; pr_a <= {3'b011, pp_off}; end\n"
-     "\t\tif (svs_rd) sv_a <= rom_addr[11:1];\n"
-     "\t\tif (svx_rd) begin sv_a <= sv_a + 11'd1;\n"
-     "\t\t\tif (!rom_addr[11]) begin px_req <= got_on; px_a <= {8'h41, sv_a}; px_d <= rom_addr[8:1]; px_cache <= 1'b0; end\n"
-     "\t\t\telse begin pr_req <= got_on; pr_a <= {8'h41, sv_a}; end end\n"
+     + ("\t\tif (svs_rd) sv_a <= rom_addr[11:1];\n"
+        "\t\tif (svx_rd) begin sv_a <= sv_a + 11'd1;\n"
+        "\t\t\tif (!rom_addr[11]) begin px_req <= got_on; px_a <= {8'h41, sv_a}; px_d <= rom_addr[8:1]; px_cache <= 1'b0; end\n"
+        "\t\t\telse begin pr_req <= got_on; pr_a <= {8'h41, sv_a}; end end\n" if SAVE_DIRECT else "") +
      "\tend\n"),
     # docs/65: GoT's USB status page (MCU 0x1830000) and auto-RUN are off - no USB on the owner's console, and a USB read
     # stops the game (GoT docs/49); Quartus then drops what only fed them (its counters, the SH2's crumbs, the CPU's PC out)
@@ -228,7 +231,7 @@ edit(os.path.join(G, 'map_ssf_got.sv'), 'map_ssf_got.sv', [
      "\t\t.pr_req(pr_req), .pr_a(pr_a), .pr_q(pr_q), .pr_v(pr_v), .d_ac(d_ac),"),
     ("\t\t\t\tmout.rom1.dati  = 16'h0000;\n\t\t\t\tmout.rom1.oe    = got_rom_req;\n\t\t\t\tmout.rom1.we_lo = 0;\n\t\t\t\tmout.rom1.we_hi = 0;\n",
      "\t\t\t\tmout.rom1.dati  = got_rom_d;\n\t\t\t\tmout.rom1.oe    = got_rom_req;\n\t\t\t\tmout.rom1.we_lo = got_we_lo;\n\t\t\t\tmout.rom1.we_hi = got_we_hi;\n"
-     "\t\t\t\tmout.bram = mout_got.bram;   // (Sapphire docs/62: the battery RAM chip the engine's once it starts - the backup RAM)\n"),
+     + ("\t\t\t\tmout.bram = mout_got.bram;   // (Sapphire docs/62: the battery RAM chip the engine's once it starts - the backup RAM)\n" if SAVE_DIRECT else "")),
 ])
 
 # ---- the bench's wrapper
@@ -236,11 +239,12 @@ edit(os.path.join(T, 'cart_tb.sv'), 'cart_tb.sv', [
     ("\toutput [22:0] rom_addr, output rom_req, input rom_gnt, input [15:0] rom_dato,\n",
      "\toutput [22:0] rom_addr, output rom_req, input rom_gnt, input [15:0] rom_dato,\n"
      "\toutput rom_we_hi, rom_we_lo, output [15:0] rom_dati, input sp_rst, sp_we, sp_commit, input [7:0] sp_d, output sp_need, output [1:0] d_ac,\n"
-     "\toutput [22:0] bram_addr, output [15:0] bram_dati, input [15:0] bram_dato, output bram_oe, bram_we_lo, bram_we_hi, output [20:0] sec_want_o,\n"),
+     + ("\toutput [22:0] bram_addr, output [15:0] bram_dati, input [15:0] bram_dato, output bram_oe, bram_we_lo, bram_we_hi,\n" if SAVE_DIRECT else "")
+     + "\toutput [20:0] sec_want_o,\n"),
     ("\tMemBus sram();\n", "\tMemBus sram(); MemBus bram();\n"
      "\tassign bram_addr = bram.addr; assign bram_dati = bram.dati; assign bram.dato = bram_dato;\n"
-     "\tassign bram_oe = bram.oe; assign bram_we_lo = bram.we_lo; assign bram_we_hi = bram.we_hi;\n"),
-    (".sram(sram), .rom_addr(rom_addr),", ".sram(sram), .bram(bram), .rom_we_hi(rom_we_hi), .rom_we_lo(rom_we_lo), .rom_dati(rom_dati), .sp_rst(sp_rst), .sp_we(sp_we),\n"
+     "\tassign bram_oe = bram.oe; assign bram_we_lo = bram.we_lo; assign bram_we_hi = bram.we_hi;\n" if SAVE_DIRECT else "\tMemBus sram();\n"),
+    (".sram(sram), .rom_addr(rom_addr),", ".sram(sram), " + (".bram(bram), " if SAVE_DIRECT else "") + ".rom_we_hi(rom_we_hi), .rom_we_lo(rom_we_lo), .rom_dati(rom_dati), .sp_rst(sp_rst), .sp_we(sp_we),\n"
      "\t\t.sp_commit(sp_commit), .sp_d(sp_d), .sp_need(sp_need), .d_ac(d_ac), .sec_want_o(sec_want_o),\n"
      "\t\t.px_req(1'b0), .px_a(19'd0), .px_d(8'd0), .px_cache(1'b0), .px_busy(), .pr_req(1'b0), .pr_a(19'd0), .pr_q(), .pr_v(), .rom_addr(rom_addr),"),
 ])
