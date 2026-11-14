@@ -84,3 +84,16 @@ commands (the `sdcard/` kit, OpenLara's EDSAVE) copy it into bank 31; the SH2 re
 which stays. To keep the copies (both SH2s parked) out of play, the program saves when the menu closes and when the game
 goes back to the title, not 10 s after a new high score. The bench (`work/gc/b4`): st3_600 and p1_8100, 60 frames, as
 before. Variants: e Gate of Thunder's settings; f Quartus's area setting, no physical synthesis (the floor).
+
+## Fit 3: it fits; timing not met by seed 11 (13 Nov)
+
+Variant e, seed 11: **15,314 of 15,408 logic elements (99 %), 15,196 combinational functions**, 397,056 memory bits - it
+fits. Timing at 50 MHz: **-0.746 ns** (TNS -1.876: a few paths); the batch file goes on with seeds 3, 5, 7, 13 (seed 3
+missed too). Gate of Thunder's step 17 missed by -0.654 ns and its step 17b met with another seed.
+
+**Ready for fit 4 if no seed meets timing:** the card's index and register value a clock on (`make_core.py`: `ac_idx`,
+`ac_q` registered). Without it the card's port registers reach m_ok (which gates every CPU tick), m_q and the PSRAM's
+address through the port mux and a 21-bit adder in one clock; the CPU's address stands 5 clocks and more before its
+byte is taken, and the card moves at an access's end, so a clock on changes nothing the game sees. The bench
+(`work/gc/b5`), 200 frames of st3_600, p1_8100 (its card writes) and t12: frame hashes **identical to the earlier build's on
+every frame**. Which paths fail is still to be read (the batch file writes them when every seed misses).

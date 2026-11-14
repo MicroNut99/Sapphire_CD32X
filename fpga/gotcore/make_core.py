@@ -117,11 +117,15 @@ rep("\twire is_base = !boot_rom && bk >= 8'hF8 && bk < 8'hFC;\n", "\twire is_bas
     "\twire ac_reg = !boot_rom && bk == 8'hFF && m_a[12:8] == 5'h1A;\n"
     "\twire is_ac = ac_bank || ac_reg;\n"
     "\twire [7:0] ac_r = ac_bank ? {2'b00, bk[1:0], 4'h0} : m_a[7:0];\n"
-    "\twire ac_dat, ac_unimpl; wire [20:0] ac_idx; wire [7:0] ac_q;\n"
+    "\twire ac_dat, ac_unimpl; wire [20:0] ac_idx0; wire [7:0] ac_q0;\n"
+    "\t// (docs/65) the card's index and register value a clock on: off the paths into m_ok (the CPU's tick), m_q and the PSRAM's\n"
+    "\t// address - the CPU's address stands 5 clocks and more before its byte is taken, and the card moves at an access's end\n"
+    "\treg [20:0] ac_idx; reg [7:0] ac_q;\n"
+    "\talways @(posedge clk) begin ac_idx <= ac_idx0; ac_q <= ac_q0; end\n"
     "\twire ac_data = is_ac && ac_dat;\n"
     "\twire ac_rq = m_rd && ac_data && !aw_p && !(aq_v && aq_i == ac_idx);\n"
     "\tsap_ac #(.FULL(AC_FULL), .REGRD(AC_REGRD)) card(.clk(clk), .rst(erst), .r(ac_r), .step(ac_data && (m_we || (e_edge && m_rd))),\n"
-    "\t\t.we(m_we && is_ac && !ac_dat), .wd(m_wd), .is_data(ac_dat), .idx(ac_idx), .q(ac_q), .unimpl(ac_unimpl));\n"
+    "\t\t.we(m_we && is_ac && !ac_dat), .wd(m_wd), .is_data(ac_dat), .idx(ac_idx0), .q(ac_q0), .unimpl(ac_unimpl));\n"
     "\tassign d_ac = {aw_ovf, ac_unimpl};\n")
 rep("\t\telse if (is_rom) m_ok = rq_v && rq_a == m_a;\n", "\t\telse if (is_rom) m_ok = rq_v && rq_a == m_a;\n"
     "\t\telse if (ac_data) m_ok = aq_v && aq_i == ac_idx && !aw_p;\n")
