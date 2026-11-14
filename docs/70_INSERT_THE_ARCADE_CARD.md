@@ -13,8 +13,9 @@ after the boot.
 
 **Fix** (`fpga/gotcore/sap_ac.sv`): with `REGRD = 0` the ports' registers $1Ap2-$1Ap9 read back as $00 - what the game
 wrote and reads at its boot, and it reads none of them after (3,000 frames from power-on traced; docs/62's 75,000). No
-logic added (a constant). **Fit 6** (`fpga\gotcore_fit6\build_sap_core6.bat`, ID 5A03, busy word A3), otherwise fit 5.
+logic added (a constant). **Fit 6** (`fpga\gotcore_fit6\build_sap_core6.bat`, ID 5A03, busy word A3), otherwise fit 5: seed 11, 15,377 logic
+elements (100 %), timing met (hold +0.414 ns), `mega-pro_g.rbf` md5 `8ac45e06`.
 
 ## Kit
 
-`console_sd_v5`: fit 6's `mega-pro.rbf`, v4's launcher and disc.
+`console_sd_v5` in the owner's `Sapphire\`: fit 6's `mega-pro.rbf`, v4's launcher (`d27e349e`) and disc.

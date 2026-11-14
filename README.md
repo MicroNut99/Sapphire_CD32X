@@ -7,6 +7,9 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**The console, first run (14 Nov 2026, [docs/70](docs/70_INSERT_THE_ARCADE_CARD.md)):** stopped at "insert the Arcade Card" -
+the lean card read its port registers back as $FF; fit 6 reads them as the $00 the game wrote. Kit `console_sd_v5`.
+
 **Each line's sprites (14 Nov 2026, [docs/69](docs/69_EACH_LINES_SPRITES.md)):** the cart core's fit 5 (ID 5A02, timing met)
 tells the program on which lines the game has sprites off - the curtain before stage 4 now as the game draws it. Kit
 `console_sd_v4`.
