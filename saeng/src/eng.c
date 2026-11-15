@@ -957,6 +957,11 @@ static void eng_scroll_bands(void)
             if (!off && !on) { if (n < SPR_NRNG) { rg[n][0] = (int16_t)l; rg[n][1] = 224; n++; } on = 1; }
             else if (off && on) { rg[n - 1][1] = (int16_t)l; on = 0; }
         }
+#ifndef SAP_LNMARK
+        any = 0;       /* docs/73: the core's line marks are not used - on the console (fit 6) the intro's ship came apart in
+                          strips, screens flickered and old sprites stayed (v5-v7); ares and the PC machine showed none of
+                          it. Back to docs/67's cut at the status bar; LNMARK=1 builds with the marks */
+#endif
         if (!any) { n = 1; rg[0][0] = 0; rg[0][1] = (int16_t)spr_hud_line(); }
         if (!n) { n = 1; rg[0][0] = rg[0][1] = 0; }      /* (none: sprites nowhere) */
         int same = n == spr_nrng;
