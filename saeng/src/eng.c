@@ -397,6 +397,7 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
    the menu's count; the infinite lives; the high score (docs/63: with the pad in use in the last 10 s and no RUN in the
    last 2 s - the attract demo plays with scores) */
 static uint8_t sap_lives_was;
+static uint32_t sap_demo_lba;
 static void sap_tick(uint32_t f)
 {
     const unsigned cr = eng_v.t.CR & 0xFF;
@@ -405,6 +406,14 @@ static void sap_tick(uint32_t f)
         if (!sap_lives_was && sap_lives && gm_lives_on && !gm_mac && sap_lives != gm_lives) { sp_cdpoke(SP_LIVES_AT, gm_lives); sap_lives = gm_lives; }
         sap_lives_was = sap_lives;
         if (gm_inf && sap_lives && sap_lives != gm_lives) { sp_cdpoke(SP_LIVES_AT, gm_lives); sap_lives = gm_lives; }
+        /* docs/71 (the owner: "add CDDA to the attract mode demos"): the game plays its demos without music (Mednafen:
+           no CD-DA from the title's jingle to the next title). Base RAM $069E is 1 in a demo and 0 in a game; in a demo's
+           stage (the status bar's CR) the stage's own track is played - eng_audio takes sap_demo_lba when the game
+           plays nothing */
+        {   static const uint32_t st_lba[5] = { 11339, 29473, 47670, 65804, 83973 };   /* (the stages' tracks' starts, AUDIO_LOG) */
+            uint32_t l = 0;
+            if ((cr == 0x8C || cr == 0xCC) && gm_peek(0x069Eu) == 1) { const uint32_t st = gm_peek(SP_STAGE_AT); if (st < 5) l = st_lba[st]; }
+            sap_demo_lba = l; }
     }
     sap_in = (cr == 0x8C || cr == 0xCC) && sap_lives >= 1 && sap_lives <= 9;
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high
@@ -1089,7 +1098,9 @@ static int eng_track_of(uint32_t lba)
 static void eng_audio(void)
 {
     const uint32_t w3 = ENG_R(ENG_W7, 0x40006), w4 = ENG_R(ENG_W7, 0x40008);
-    const uint32_t a = (w3 & 0x8000 ? 1u << 31 : 0) | (w3 >> 13 & 3) << 24 | (w3 & 0x1F) << 16 | w4;
+    uint32_t a = (w3 & 0x8000 ? 1u << 31 : 0) | (w3 >> 13 & 3) << 24 | (w3 & 0x1F) << 16 | w4;
+    const int demo = !(a >> 31) && sap_demo_lba;              /* (docs/71: a demo's stage - its track, looped) */
+    if (demo) a = 1u << 31 | 3u << 24 | sap_demo_lba;
     if (a == eng_aud) return;
     if (a >> 31) eng_tlast = eng_track_of(a & 0x1FFFFF);       /* (docs/50: for GOT_AUTOSTART) */
 #ifndef GOT_AUDIO
@@ -1107,7 +1118,7 @@ static void eng_audio(void)
 #ifdef SAP_CDFADE
             mus_sent = 0x400;                                 /* (docs/67: 45 starts the track at full volume - the menu's level or the
                                                                  game's fade-out put back; cdr_busy stays set through it) */
-            mus_level(eng_fade_sent ? 0 : MUS_FULL(), 0); cdr_busy = 1;
+            mus_level(eng_fade_sent && !demo ? 0 : MUS_FULL(), 0); cdr_busy = 1;
 #endif
         }
     } else if (was) { if (eng_playing && !cd_cmd(54)) { cd_answer_reset(); eng_cdfail++; eng_cdlast = 0x5400; } eng_playing = 0; }

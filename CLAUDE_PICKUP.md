@@ -338,6 +338,12 @@ Read `CLAUDE.md` first.
   64. **docs/69, each line's sprites**: core fit 5 (`fpga/gotcore/make_core.py`: `lny` + `!w_cr[6]`, Y bit 15; ID 5A02, busy
      A2; the owner's `Sapphire\fpga\gotcore_fit5\out\mega-pro_g.rbf`, timing met), `vdc_timing.c` the same bit; the
      program's sprite ranges (`eng_scroll_bands`, `tools/sap_spr.patch`). ares `SAPX_STEP=1` = fit 4. Kit `console_sd_v4`.
+  65. **docs/70-71, the console**: fit 6 (`sap_ac.sv`: the ports' registers read back $00 - the game's boot check) - the owner
+     played the game through on the console. Demo music (`sap_demo_lba`, base RAM $069E). His videos: frames at 1 fps in
+     contact sheets (ffmpeg crop + PIL). A full ares run with a shot every 60 frames + `refcmp.sh` + `/tmp/e4c/rowprof.py`
+     finds the faults; `tools/bg2` (GoT's harness: `/tmp/bgh/build.sh` = its build.sh + `sap_bg2.patch`, DX at 8dd9b47)
+     shows the colours' merge at frames 30,500-30,716 (16 palettes, 232 colours: 10.8 % off). **Next: the merge's choice
+     of colours; the white lines (ares frame 48,060); the console's late split.**
 ## 2. Where things live
 
 | What | Where | In git? |

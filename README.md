@@ -7,6 +7,11 @@ as an **EDCD** game (the disc started from the Mega EverDrive PRO, on the
 the 32X drawing the sprites, the HuC6280 program recompiled for the SH2, Mednafen as the reference.
 **The plan: [docs/01_PLAN.md](docs/01_PLAN.md). What has been measured: [docs/02_M0_MEASURED.md](docs/02_M0_MEASURED.md).**
 
+**The console, played through (14 Nov 2026, [docs/71](docs/71_THE_CONSOLE_PLAYED_THROUGH.md)):** with fit 6 the owner played
+the game from the title to the ending on the console. Music added to the attract demos (the stage's own track). His 36
+videos gone through: the biggest fault is wrong colours for whole areas in scenes with more colours than the Genesis
+has (in ares too); a few console-only faults at the status bar's split. Kit `console_sd_v6`.
+
 **The console, first run (14 Nov 2026, [docs/70](docs/70_INSERT_THE_ARCADE_CARD.md)):** stopped at "insert the Arcade Card" -
 the lean card read its port registers back as $FF; fit 6 reads them as the $00 the game wrote. Kit `console_sd_v5`.
 
