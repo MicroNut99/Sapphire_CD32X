@@ -1,0 +1,6 @@
+v7  the demos' music without the reads v6 added (v6 was bad on the console); the version on the menu
+v6  music in the attract demos - WITHDRAWN: bad in play on the console
+v5  core fit 6: the Arcade Card answers the game's boot check - the first version to run on the console
+v4  core fit 5: sprites hidden on the lines the game hides them on
+v3  ADPCM voices, the stage's picture rate, the title's hangar and colours, COLOURS on the menu
+v2  SD saves, MUSIC VOLUME, the CD music's fades

@@ -43,7 +43,7 @@
      int ok = 1;
      for (int k = 0; k < n && ok; k++) ok = place(b, ord[k], b->used[ord[k]], v, 0, chgd);
      return ok;
-@@ -343,7 +359,8 @@
+@@ -343,8 +359,92 @@
  #endif
          if (j && j != b->m[p][i]) { b->gref[g][b->m[p][i]]--; b->m[p][i] = (uint8_t)j; b->gref[g][j]++; b->chg[p][i] = ++b->ver[p]; chgd[p] |= B16(i); }
      }
@@ -51,9 +51,93 @@
 +    {   int ord[16]; const int n = pal_order(b, v, ord);   /* (Sapphire docs/68: the most entries first) */
 +        for (int k = 0; k < n; k++) place_lossy(b, ord[k], b->used[ord[k]], v, chgd); }
  }
++#ifdef BG2_SPREAD
++/* Sapphire docs/72 (the console's videos: a grey floor yellow, a grey floor red, a blue sky dark red). The merge above
++   gives a Genesis palette's 15 slots to whoever comes first, each of its colours exactly, and those after them the
++   nearest of what is there - a scene of 16 palettes and 232 colours shows whole areas in another palette's hues.
++   A merge begun afresh instead shares the slots out: (1) the palettes, the most entries first, each to the Genesis
++   palette where it brings the fewest colours past 15 (then the fewest new, then the emptiest); (2) a Genesis palette
++   with more than 15 colours keeps the 15 most used (by distance times use, far and rare colours pushed out the dark
++   shades of the main palette: measured worse than the merge above; 15 windows of the recording, pixels off: the merge
++   above 3.24 %, by use 2.26 %, by use times distance capped at 4: 5.23 %); (3) every index to its colour's slot, or the nearest.
++   Between two fresh merges the merge above goes on as it did (new and cycled colours: the nearest). */
++#define SPN 64                                      /* (a Genesis palette's colours looked at, at most) */
++#ifdef BG2_COLB
++static uint16_t colb_v[4][16][16];
++#endif
++int bg2_spread_k = 1;                              /* (a colour's distance to the nearest kept one counts up to this) */
++static void merge_fresh(Bg2 *b, const V32 *v, uint16_t *chgd)
++{
++#if !defined(__sh__)
++    if (getenv("SPK")) bg2_spread_k = atoi(getenv("SPK"));
++#endif
++#ifdef BG2_COLB                                     /* (in BG2_COLB's scratch past BG2_QUIET's 272 words: SDRAM is full) */
++    uint16_t (*const sc)[SPN] = (uint16_t (*)[SPN])(&colb_v[0][0][0] + 272), (*const sw)[SPN] = sc + 4;
++    uint16_t *const md = &colb_v[0][0][0] + 272 + 8 * SPN;
++#else
++    static uint16_t sc[4][SPN], sw[4][SPN], md[SPN];   /* (a Genesis palette's colours, their use; the distances) */
++#endif
++    uint8_t sn[4];
++    uint16_t cnt[16] = { 0 }; const int ne = map_n(v);
++    for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
++    for (int p = 0; p < 16; p++) { for (int i = 1; i < 16; i++) unmap(b, p, i, chgd); b->g[p] = -1; chgd[p] = 0xFFFF; }
++#ifdef BG2_PRIV
++    memset(bg2_priv, 0, sizeof bg2_priv);
++#endif
++    for (int h = 0; h < 4; h++) sn[h] = 0;
++    int ord[16]; const int n = pal_order(b, v, ord);
++    for (int k = 0; k < n; k++) {
++        const int p = ord[k]; const unsigned u = b->used[p];
++        int best = 0, bo = 1 << 30, bn = 0, bs = 0;
++        for (int h = 0; h < BG2_NPAL; h++) {
++            int need = 0;
++            for (int i = 1; i < 16; i++) if (u & B16(i)) { const unsigned c = v->color[p * 16 + i] & 0x1FF; int q;
++                for (q = 0; q < sn[h]; q++) if (sc[h][q] == c) break;
++                if (q == sn[h]) { int dup = 0; for (int r = 1; r < i; r++) dup |= (u & B16(r)) && (v->color[p * 16 + r] & 0x1FF) == c; need += !dup; } }
++            const int over = sn[h] + need > 15 ? sn[h] + need - 15 : 0;
++            if (over < bo || (over == bo && (need < bn || (need == bn && sn[h] < bs)))) { bo = over; bn = need; bs = sn[h]; best = h; }
++        }
++        b->g[p] = (int8_t)best;
++        const unsigned w = cnt[p] ? cnt[p] : 1;
++        for (int i = 1; i < 16; i++) if (u & B16(i)) { const unsigned c = v->color[p * 16 + i] & 0x1FF; int q;
++            for (q = 0; q < sn[best]; q++) if (sc[best][q] == c) break;
++            if (q == sn[best]) { if (q == SPN) continue; sc[best][q] = (uint16_t)c; sw[best][q] = 0; sn[best]++; }
++            sw[best][q] = (uint16_t)(sw[best][q] + w > 60000u ? 60000u : sw[best][q] + w); }
++    }
++    for (int h = 0; h < BG2_NPAL; h++) {
++        const int m = sn[h];
++        if (m <= 15) { for (int q = 0; q < m; q++) b->gcol[h][1 + q] = sc[h][q]; continue; }
++        int first = 0; for (int q = 1; q < m; q++) if (sw[h][q] > sw[h][first]) first = q;
++        for (int q = 0; q < m; q++) md[q] = 0xFFFF;
++        int pick = first;
++        for (int j = 1; j < 16; j++) {
++            b->gcol[h][j] = sc[h][pick];
++            uint32_t bsc = 0; int nx = -1;
++            for (int q = 0; q < m; q++) { const int d = cdist(sc[h][q], sc[h][pick]); if (d < md[q]) md[q] = (uint16_t)d;
++                const uint32_t scv = (uint32_t)sw[h][q] * (md[q] > (unsigned)bg2_spread_k ? (unsigned)bg2_spread_k : md[q]); if (scv > bsc) { bsc = scv; nx = q; } }
++            if (nx < 0) { for (int r = j + 1; r < 16; r++) b->gcol[h][r] = sc[h][pick]; break; }
++            pick = nx;
++        }
++    }
++    for (int k = 0; k < n; k++) {
++        const int p = ord[k], g = b->g[p]; const unsigned u = b->used[p];
++        for (int i = 1; i < 16; i++) if (u & B16(i)) {
++            const unsigned c = v->color[p * 16 + i] & 0x1FF; int j, be = 1 << 30, bj = 1;
++            const int lim = sn[g] < 15 ? sn[g] : 15;
++            for (j = 1; j <= lim; j++) { const int e = cdist(b->gcol[g][j], c); if (e < be) { be = e; bj = j; } }
++            if (be) b->lossy[p] |= B16(i);
++            b->m[p][i] = (uint8_t)bj; b->gref[g][bj]++; b->chg[p][i] = ++b->ver[p]; chgd[p] |= B16(i);
++        }
++    }
++}
++#define MERGE_FRESH merge_fresh
++#else
++#define MERGE_FRESH merge
++#endif
  /* the colours for this picture; chgd: per palette, the indices whose slot changed (their tiles convert again) */
  #ifdef BG2_COLB
-@@ -476,7 +493,12 @@
+ /* docs/110: each slot's colours gathered in one pass over the palettes' indices (240), not a pass a slot (4 x 15 x 240:
+@@ -476,7 +576,12 @@
      uint16_t cnt[16] = { 0 }; const int ne = map_n(v);
      for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
      int best = -1;
@@ -66,7 +150,7 @@
          const int g = b->g[p]; int helps = g < 0;
          if (g >= 0 && !PRIV(b, g)) { uint8_t mine[16] = { 0 };
              for (int i = 1; i < 16; i++) if (b->m[p][i]) mine[b->m[p][i]]++;
-@@ -494,6 +516,16 @@
+@@ -494,6 +599,16 @@
          int p = 15; while (!(x32_set >> p & 1)) p--;
          x32_back(b, p, chgd);
      }
@@ -83,7 +167,25 @@
  #endif
  #ifdef BG2_PRIV
      {   int need = 0, shared = 0, flat = 1; unsigned c0 = NONE;
-@@ -1022,11 +1054,20 @@
+@@ -610,7 +725,7 @@
+     if (getenv("BG2_DBG")) { int np = 0; for (int p = 0; p < 16; p++) np += b->used[p] != 0; printf("  colours: ok %d, palettes used %d:", ok, np);
+         for (int p = 0; p < 16; p++) if (b->used[p]) printf(" %d/%04X", p, b->used[p]); printf("\n"); }
+ #endif
+-    if (!ok) { merge(b, v, chgd); b->merging = 1; b->mtry = BG2_MTRY; ST(b->st.merges++);
++    if (!ok) { MERGE_FRESH(b, v, chgd); b->merging = 1; b->mtry = BG2_MTRY; ST(b->st.merges++);
+ #ifdef BG2_QUIET
+         if (q_due) quiet_done(b, chgd, chgd0);
+ #endif
+@@ -634,7 +749,7 @@
+             int ok2 = 1;
+             for (int p = 0; p < 16 && ok2; p++) if (b->used[p] && !place(b, p, b->used[p], v, 0, chgd)) ok2 = make_room(b, p, v, chgd);
+             if (!ok2) ok2 = repack(b, v, chgd);
+-            if (!ok2) merge(b, v, chgd);
++            if (!ok2) MERGE_FRESH(b, v, chgd);
+         }
+     }
+ #endif
+@@ -1022,11 +1137,20 @@
      for (int p = 0; p < 16; p++) if (n[p]) printf("    pal %2d: entries %4d blank %4d unsent %4d  g %d used %04X keep %04X\n", p, n[p], bl[p], none[p], b->g[p], b->used[p], x32_keep[p]);
  }
  #endif
@@ -104,7 +206,7 @@
          b->ne_last = ne; recount(b, v);
          for (int a = 0; a < ne; a++) set_dirty(b, a);
      }
-@@ -1043,6 +1084,15 @@
+@@ -1043,6 +1167,15 @@
              printf("bg2 tables apart: picture %ld byte %05X: %04X / %04X\n", b->st.frames, o * 2, b->fb[0][o], b->fb[1][o]); told++; break; } }
  #endif
      list_word(b, 0x1001); list_word(b, 0x8F02);    /* (the VDP's increment: 2) */

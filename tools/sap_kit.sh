@@ -17,8 +17,13 @@ mkdir -p "$K/disc"
 cp "$B/edboot/SAPENG_PK.32X" "$K/Sapphire_EDCD.32X"
 cp "$RBF" "$K/mega-pro.rbf"
 cp "$D/SAPENG.cue" "$D/SAPENG.bin" "$K/disc/"
+# docs/72 (the owner: "we need versioning"): the kit's number is tools/VERSION - the folder console_sd_v<N>, VERSION.txt in it
+# (the number, the files' md5, what changed: tools/CHANGES.txt), the menu's title "SAPPHIRE CD32X V<N>" and STATUS's PROGRAM V.
+# The launcher's file name stays Sapphire_EDCD.32X: the SD save's folder goes by it.
+V=$(cat "$(dirname "$0")/VERSION")
+{ echo "Sapphire CD32X v$V"; echo; (cd "$K" && md5sum Sapphire_EDCD.32X mega-pro.rbf); echo; cat "$(dirname "$0")/CHANGES.txt"; } > "$K/VERSION.txt"
 cat > "$K/README.txt" << 'TXT'
-Sapphire CD32X - the cart core build (Sapphire_CD32X docs/67-69)
+Sapphire CD32X - the cart core build. Which version: VERSION.txt here, and the options menu's title in the game.
 
 1. Burn disc/SAPENG.cue (with SAPENG.bin) to a CD-R. It holds the game's CD music; the game itself is in the .32X file.
 2. Copy Sapphire_EDCD.32X and mega-pro.rbf into ONE folder on the EverDrive PRO's SD card (the rbf beside the game is the

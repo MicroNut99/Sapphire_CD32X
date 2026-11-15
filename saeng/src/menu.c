@@ -128,7 +128,8 @@ static void gm_draw(void)                                     /* the menu, whole
         gm_mid(186, "PORTED BY MICRONUT99", GM_TXT); gm_mid(204, "B: BACK", GM_DIM);
         return;
     }
-    gm_mid(14, "SAPPHIRE CD32X", GM_TXT); gm_mid(26, "OPTIONS", GM_DIM);
+    { char t[24] = "SAPPHIRE CD32X  V   "; gm_num(t + 17, GOT_VER, 2); gm_mid(14, t, GM_TXT); }   /* (docs/72: the kit's number, tools/VERSION) */
+    gm_mid(26, "OPTIONS", GM_DIM);
     for (int i = 0; i < GM_N; i++) {
         const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 36 + 12 * i;   /* (docs/68: 12 lines apart - ten items) */
         gm_text(48, y, i == gm_sel ? ">" : " ", c);

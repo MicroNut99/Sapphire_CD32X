@@ -398,6 +398,7 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
    last 2 s - the attract demo plays with scores) */
 static uint8_t sap_lives_was;
 static uint32_t sap_demo_lba;
+static uint8_t sap_stage_seen = 0xFF;                         /* (the stage whose block the game read last, less one) */
 static void sap_tick(uint32_t f)
 {
     const unsigned cr = eng_v.t.CR & 0xFF;
@@ -412,8 +413,15 @@ static void sap_tick(uint32_t f)
            plays nothing */
         {   static const uint32_t st_lba[5] = { 11339, 29473, 47670, 65804, 83973 };   /* (the stages' tracks' starts, AUDIO_LOG) */
             uint32_t l = 0;
-            if ((cr == 0x8C || cr == 0xCC) && gm_peek(0x069Eu) == 1) { const uint32_t st = gm_peek(SP_STAGE_AT); if (st < 5) l = st_lba[st]; }
-            sap_demo_lba = l; }
+            /* docs/72: v6 read base RAM $069E / $069C through the poke port here, every 30 frames of a stage - on the
+               console the game was "terrible on almost every level" (the owner; ares showed nothing). Now nothing new is
+               asked of the core: the demo is the second player's ships (CD RAM $A00D, by the read the lives have used
+               on the console since v2) with no game music; the stage is the last stage block the game read (eng_feed);
+               and a change counts only when two readings 30 frames apart agree */
+            static uint32_t was = 0xFFFFFFFFu;
+            if ((cr == 0x8C || cr == 0xCC) && sap_lives && sp_cdpeek(0xA00Du) >= 1 && sap_stage_seen < 5) l = st_lba[sap_stage_seen];
+            if (l == was) sap_demo_lba = l;
+            was = l; }
     }
     sap_in = (cr == 0x8C || cr == 0xCC) && sap_lives >= 1 && sap_lives <= 9;
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high
@@ -555,6 +563,7 @@ static void eng_feed(void)
     if (!(ENG_R(ENG_W7, 0x40004) & 2)) return;                 /* (no sector wanted, or the port has it) */
     const uint32_t lba = (uint32_t)(ENG_R(ENG_W7, 0x40002) & 0x1F) << 16 | ENG_R(ENG_W7, 0x40000);
     eng_want = lba; eng_wants++;
+    if (lba >= W_STAGE && lba < W_STAGE + 724u * 5u) sap_stage_seen = (uint8_t)((lba - W_STAGE) / 724u);
     uint32_t src = lba;                                       /* (the sector whose bytes go: the one wanted, but the stage select's) */
 #ifdef GOT_MENU
     if (gm_mac == 30 && lba == W_GAME) gm_mgo(31, eng_last);  /* (docs/58: the game's start asked - the block's turn next) */

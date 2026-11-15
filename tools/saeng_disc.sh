@@ -57,7 +57,11 @@ fi
 cd "$B"
 [ "${SND:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_SND $([ "${ADPCM:-1}" = 1 ] && echo -DSAP_ADPCM || echo -DSAP_NO_ADPCM)"
 [ "${MENU:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_MENU"
-RTX="${RTX:+$RTX }-DDX_CRUMBS -DGOT_PACKED -DSAP_CDFADE -DSPR_YLIM"
+VER=${VER:-$(cat "$REPO/tools/VERSION")}   # (docs/72: the kit's version - on the menu's title and STATUS; tools/VERSION, one more a kit)
+RTX="${RTX:+$RTX }-DDX_CRUMBS -DGOT_PACKED -DSAP_CDFADE -DSPR_YLIM -DGOT_VER=$VER"
+# SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
+# worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
+[ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"
 PV=; [ "${PADVB:-1}" = 1 ] && { PV="PADVB=1"; RTX="$RTX -DSAP_PADVB"; }   # (docs/67: the pad at every blank - COMM4 / COMM6 the stack's then,
                                                                            #  so ares's logs have no engine frame: PADVB=0 for the comparison runs)
 env PACKED=1 EDCD_PACKED=1 EDCD_W0=15 GEN="$B/gen" ENG=1 MARKS=1 SPR=1 PACE=1 BG=1 SEC=2 CDR=1 RT_LEAVE_ASM=0 ${RTX:+RTX="$RTX"} X32=${X32:-1} \
