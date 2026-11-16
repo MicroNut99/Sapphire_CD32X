@@ -40,7 +40,15 @@ frame's end, where the game writes its map: better on the console (reads there t
 | + changes 1, 2 (v11) | **1.72 %** | **53** | **61** |
 | the same with 6 tiles as the threshold | 3.02 % | 37 | 52 |
 
-Left in that window: 4 pictures over 5 % (the worst 25 %: the picture where the ship turns to fly away).
+Left in that window: 3-4 pictures over 5 % (the worst 21-25 %: the picture where the ship turns to fly away).
+
+**A fault of change 2 found by the measure and cured before the kit:** stage 1 (ares frames 9,000-9,240, every 4th)
+showed a black band growing over the background - the waiting map words were written past the list's room and dropped
+(a picture with V splits sends runs of 8 words: 1.5 list words a map word, counted as 1). Now the waiting words stop at
+the list's room and stay waiting, and the change is off in a picture with V splits (`bg2_run_max` < 448). The final
+build: the fly-in 1.64 % mean, 47 / 62 of 65 under 2 / 5 %; stage 1's window clean to the eye and 0.0 % in most
+pictures to frame 9,152 (v10: 0.8-7.8 % in a dozen); after that the run's engine frames are past the reference's end
+(the numbers there mean nothing).
 
 ## Open
 - The console. STATUS's count tells how often the game wrote under a read there.
