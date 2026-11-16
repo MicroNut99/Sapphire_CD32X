@@ -352,6 +352,9 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
             if (gm_sel == GM_MUS && dir) { const int v = gm_mus + dir; gm_mus = (uint8_t)(v < 0 ? 0 : v > 8 ? 8 : v); mus_level(MUS_FULL(), 0); }   /* (heard at once) */
 #endif
 #ifdef BG2_X32
+#ifdef SAP_SUBS
+            if (gm_sel == GM_SUB && (dir || ok)) gm_sub_on ^= 1;
+#endif
             if (gm_sel == GM_COL && (dir || ok)) gm_col = (uint8_t)((gm_col + 3 + (dir ? dir : 1)) % 3);   /* (docs/68: AUTO, EXACT, FAST) */
 #endif
             if (k & SEGA_CTRL_B) shut = 1;
@@ -400,6 +403,13 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
    last 2 s - the attract demo plays with scores) */
 static uint8_t sap_lives_was;
 static uint32_t sap_demo_lba;
+/* docs/77 (the owner: "play the CDDA for the upcoming mission" in the briefing, which the game leaves silent): the
+   briefing's own sectors are the 128 after a stage's 596 (W_BRIEF, W_BRIEF_N + 724 a stage); the feed asked for one
+   sets sap_brief_lba to that stage's track, eng_audio plays it while the game plays nothing, and the game's own start
+   of the same track (same mode, same sector) then changes nothing - the music goes on into the stage. Any play of the
+   game's own clears it */
+static uint32_t sap_brief_lba;
+static const uint32_t sap_st_lba[5] = { 11339, 29473, 47670, 65804, 83973 };   /* (the stages' tracks' starts, AUDIO_LOG) */
 static uint8_t sap_stage_seen = 0xFF;                         /* (the stage whose block the game read last, less one) */
 static void sap_tick(uint32_t f)
 {
@@ -413,7 +423,7 @@ static void sap_tick(uint32_t f)
            no CD-DA from the title's jingle to the next title). Base RAM $069E is 1 in a demo and 0 in a game; in a demo's
            stage (the status bar's CR) the stage's own track is played - eng_audio takes sap_demo_lba when the game
            plays nothing */
-        {   static const uint32_t st_lba[5] = { 11339, 29473, 47670, 65804, 83973 };   /* (the stages' tracks' starts, AUDIO_LOG) */
+        {   const uint32_t *st_lba = sap_st_lba;
             uint32_t l = 0;
             /* docs/72: v6 read base RAM $069E / $069C through the poke port here, every 30 frames of a stage - on the
                console the game was "terrible on almost every level" (the owner; ares showed nothing). Now nothing new is
@@ -426,6 +436,19 @@ static void sap_tick(uint32_t f)
             was = l; }
     }
     sap_in = (cr == 0x8C || cr == 0xCC) && sap_lives >= 1 && sap_lives <= 9;
+#ifdef SAP_SUBS
+    {   /* docs/77: a briefing's text is up - its sectors read (sap_brief_lba), the briefing's picture (CR $C8, the map 64
+           wide, no V scroll); the order on the map's left screen (BXR 0), the pilot's answer on its right (BXR $100) */
+        const char *a = 0, *b = 0;
+        if (gm_sub_on && sap_brief_lba && cr == 0xC8 && ENG_R(ENG_W6, 0x20E04) == 0x10 && ENG_R(ENG_W6, 0x20E02) == 0) {
+            int st = 0; while (st < 4 && sap_st_lba[st] != sap_brief_lba) st++;
+            const uint16_t bx = ENG_R(ENG_W6, 0x20E00);
+            if (bx == 0) { a = sap_subs_en[st][0]; b = sap_subs_en[st][1]; }
+            else if (bx == 0x100) a = sap_subs_en[st][2];
+        }
+        if (a != gm_sub1 || b != gm_sub2) { if (!a) gm_wipe_n = 2; else gm_pal = 1; gm_sub1 = a; gm_sub2 = b; }
+    }
+#endif
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high
            score saved then, never in play - a stage's CR stays 0x8C / 0xCC on the last ship too, when its count may read 0) */
         static uint16_t sv_stage_f; static uint8_t sv_end;
@@ -575,6 +598,8 @@ static void eng_feed(void)
         else if (lba >= W_STAGE + 724u * (gm_stage - 1u) + 590u && lba < W_STAGE + 724u * (gm_stage - 1u) + 596u) gm_mgo(32, eng_last);
     }
 #endif
+    if (src >= W_STAGE && src < W_STAGE + 724u * 5u && (src - W_STAGE) % 724u >= 596u)
+        sap_brief_lba = sap_st_lba[(src - W_STAGE) / 724u];   /* (docs/77: a briefing's sectors - its stage's track) */
     if (src != eng_ready) {
         const uint32_t s = src - PK_LBA0;
         const int r = src < PK_LBA0 ? 0 : pk_sector(s, eng_sec);
@@ -1147,8 +1172,11 @@ static void eng_audio(void)
 {
     const uint32_t w3 = ENG_R(ENG_W7, 0x40006), w4 = ENG_R(ENG_W7, 0x40008);
     uint32_t a = (w3 & 0x8000 ? 1u << 31 : 0) | (w3 >> 13 & 3) << 24 | (w3 & 0x1F) << 16 | w4;
-    const int demo = !(a >> 31) && sap_demo_lba;              /* (docs/71: a demo's stage - its track, looped) */
-    if (demo) a = 1u << 31 | 3u << 24 | sap_demo_lba;
+    {   static uint32_t graw;                                 /* (docs/77: a play the game begins - not one going on) */
+        if ((a >> 31) && a != graw) sap_brief_lba = 0;
+        graw = a; }
+    const int demo = !(a >> 31) && (sap_demo_lba || sap_brief_lba);   /* (docs/71: a demo's stage - its track, looped; docs/77) */
+    if (demo) a = 1u << 31 | 3u << 24 | (sap_demo_lba ? sap_demo_lba : sap_brief_lba);
     if (a == eng_aud) return;
     if (a >> 31) eng_tlast = eng_track_of(a & 0x1FFFFF);       /* (docs/50: for GOT_AUTOSTART) */
 #ifndef GOT_AUDIO

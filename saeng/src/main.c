@@ -1090,7 +1090,7 @@ static void draw_hook(V32 *v)
     SEC_FBOK = job;                                           /* (the frame buffer is the SH2s': the list may go in) */
 #if defined(DX_ENGINE) && defined(GOT_MENU)
     if (gm_wipe_n) { gm_wipe_n--; gm_wipe(cur ^ 1); }         /* (docs/56: the menu's picture off this buffer, the sprites all drawn again) */
-    if (gm_open) gm_draw(); else { spr_frame(v, cur ^ 1); BGX_AFTER(v, cur ^ 1); if (gm_banner) gm_note(); }
+    if (gm_open) gm_draw(); else { spr_frame(v, cur ^ 1); BGX_AFTER(v, cur ^ 1); if (gm_banner) gm_note(); else if (gm_sub1 || gm_sub2) gm_subs(); }
 #else
     spr_frame(v, cur ^ 1); BGX_AFTER(v, cur ^ 1);
 #endif

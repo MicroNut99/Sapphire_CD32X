@@ -40,6 +40,17 @@ patch -s -p1 -d "$B/tools/m3rt" < "$GOT/tools/bg2/rt_spr.patch"
 patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_spr.patch"
 patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_spr2.patch"   # (docs/76: two cells of a picture never share a cache slot)
 patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg2.patch"
+# docs/77: the briefing's lines in English - the work folder's subs_en.txt (15 lines: a stage's order in two lines and
+# the answer, 32 characters at most each); not in the repository. Without the file: no ENGLISH TEXT item.
+rm -f "$B/saeng/src/subs_en.h"
+[ -f "$W/subs_en.txt" ] && python3 - "$W/subs_en.txt" "$B/saeng/src/subs_en.h" <<'PYE'
+import sys
+l = [x.rstrip('\n') for x in open(sys.argv[1])][:15]
+assert len(l) == 15 and all(len(x) <= 32 and '"' not in x and '\\' not in x for x in l), 'subs_en.txt: 15 lines of 32 characters at most'
+q = lambda x: '"%s"' % x.upper() if x else '0'
+open(sys.argv[2], 'w').write('#define SAP_SUBS\nstatic const char *const sap_subs_en[5][3] = {\n' +
+    ''.join('    { %s, %s, %s },\n' % (q(l[3 * i]), q(l[3 * i + 1]), q(l[3 * i + 2])) for i in range(5)) + '};\n')
+PYE
 [ "${COW:-1}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=

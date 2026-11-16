@@ -30,6 +30,9 @@
 #define GM_HI 0x30                                            /*  3-6 - never drawn, never written by pace_vbi; 0x20 is the */
 #define GM_DIM 0x40                                           /*  picture number's in the border, left dark) */
 #define GM_BOX 0x50
+#if __has_include("subs_en.h")
+#include "subs_en.h"                                        /* (docs/77: SAP_SUBS, sap_subs_en[5][3]) */
+#endif
 enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_AUTO,
 #ifdef SAP_CDFADE
        GM_MUS,
@@ -37,6 +40,9 @@ enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_AUTO,
        GM_FX,
 #ifdef BG2_X32
        GM_COL,
+#endif
+#ifdef SAP_SUBS
+       GM_SUB,
 #endif
        GM_STATUS, GM_CREDITS, GM_N };
 /* docs/60: STATUS - what the USB log told, on the screen (the owner has no USB link any more: a photograph of this
@@ -60,6 +66,11 @@ static uint8_t gm_sv_bank, gm_sv_state, gm_sv_fail; static uint16_t gm_sv_ok, gm
                                                                  4 not read; the last save refused; saves taken; saves refused) */
 static uint32_t gm_best;                                      /* (the high score / 10, as CD RAM $A070-$A074 hold it) */
 static uint8_t gm_in_stage;                                   /* (as the menu opened: eng.c) */
+/* docs/77 (the owner: the briefing's Japanese in English, a switch in the options, "at the bottom of the screen"):
+   eng.c sets gm_sub1 / gm_sub2 (two lines of 32 characters at most) while a briefing's text is up; gm_subs draws them
+   over the game's picture as gm_note does. The lines are not in the repository (subs_en.h, made by saeng_disc.sh from
+   the work folder's subs_en.txt) */
+static uint8_t gm_sub_on = 1; static const char *gm_sub1, *gm_sub2;
 static const char *gm_msg;                                    /* (a line under the items: why not, what is going on) */
 static void gm_fill(int x0, int y0, int x1, int y1, uint8_t c)   /* (x0, x1 even) */
 {
@@ -145,6 +156,9 @@ static void gm_draw(void)                                     /* the menu, whole
 #ifdef BG2_X32
         else if (i == GM_COL) gm_text(64, y, gm_coln[gm_col % 3], c);
 #endif
+#ifdef SAP_SUBS
+        else if (i == GM_SUB) gm_text(64, y, gm_sub_on ? "ENGLISH TEXT    < ON >" : "ENGLISH TEXT    < OFF >", c);
+#endif
         else if (i == GM_STATUS) gm_text(64, y, "STATUS", c);
         else gm_text(64, y, "CREDITS", c);
     }
@@ -164,6 +178,12 @@ static void gm_draw(void)                                     /* the menu, whole
     gm_mid(190, "UP/DOWN PICK  LEFT/RIGHT CHANGE", GM_DIM);
     gm_mid(200, "A/C/START: DO IT   B: BACK", GM_DIM);
     gm_mid(212, "PORTED BY MICRONUT99", GM_TXT);
+}
+static void gm_subs(void)
+{
+    gm_fill(32, 203, 288, 224, GM_BOX);
+    if (gm_sub1) gm_mid(205, gm_sub1, GM_TXT);
+    if (gm_sub2) gm_mid(215, gm_sub2, GM_TXT);
 }
 static void gm_note(void)                                     /* (the stage select at work: a line over the game's picture) */
 {
