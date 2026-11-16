@@ -355,6 +355,7 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
 #ifdef SAP_SUBS
             if (gm_sel == GM_SUB && (dir || ok)) gm_sub_on ^= 1;
 #endif
+            if (gm_sel == GM_FLASH && (dir || ok)) gm_flash ^= 1;   /* (docs/78) */
             if (gm_sel == GM_COL && (dir || ok)) gm_col = (uint8_t)((gm_col + 3 + (dir ? dir : 1)) % 3);   /* (docs/68: AUTO, EXACT, FAST) */
 #endif
             if (k & SEGA_CTRL_B) shut = 1;
@@ -859,6 +860,31 @@ static void eng_blk_read(int k, uint16_t *d)
    last whole frame and cells half of the next. A picture that found a block under way sets eng_sync: the next 60
    pictures are read right after a frame's end (the loop waits for the frame count to change), not staged ahead.
    eng_mix: pictures that still found one, read that way */
+/* docs/78 (the owner: "Remove white flashes from sprites when they die"; the console, v13: enemies solid white or
+   orange for a second at a time): the game keeps two sprite palettes of one colour (Mednafen, every 7th frame of
+   stage 1: palette 0 all $1FF, palette 15 all $038) and gives a sprite one of them for the frames it is hit or dies -
+   every other frame on the PC Engine, held for pictures on end at 25 pictures a second. gm_flash off (the default):
+   a sprite in a palette of one colour is drawn in the palette its cell was last seen in (flash_pal, by the cell's
+   64 words); a cell never seen in another keeps it (the shots and sparks that are white by design) */
+static uint8_t flash_pal[512];
+static void eng_noflash(void)
+{
+    static uint8_t init;
+    if (!init) { init = 1; for (int i = 0; i < 512; i++) flash_pal[i] = 0xFF; }
+    if (gm_flash || !ENG_SPR_ON(eng_v.t.CR)) return;
+    unsigned one = 0;                                         /* the sprite palettes of one colour */
+    for (int p = 0; p < 16; p++) {
+        const uint16_t *c = eng_v.color + 256 + 16 * p; const uint16_t c1 = c[1] & 0x1FF; int u = c1 != 0;
+        for (int i = 2; i < 16 && u; i++) u = (c[i] & 0x1FF) == c1;
+        one |= (unsigned)u << p;
+    }
+    if (!one || one == 0xFFFF) return;                        /* (all of them: a fade to white - the game's picture) */
+    for (int i = 0; i < 64; i++) {
+        uint16_t *e = eng_v.sat + 4 * i; const unsigned k = (e[2] >> 1) & 0x1FF, pal = e[3] & 15;
+        if (one >> pal & 1) { if (flash_pal[k] != 0xFF) e[3] = (uint16_t)((e[3] & ~15u) | flash_pal[k]); }
+        else flash_pal[k] = (uint8_t)pal;
+    }
+}
 static int eng_still(void)                                    /* every stamp as the copy has it? */
 {
     const uint32_t sb = ENG_W6 + 0x20000;
@@ -890,6 +916,7 @@ static void eng_picture(uint32_t done)
        way: the Genesis' display off keeps its blank flag up, and the 68000's list waits for it to fall) */
     if (ENG_SPR_ON(eng_v.t.CR)) for (int i = 0; i < 256; i++) eng_v.sat[i] = ENG_R(ENG_W6, 0x20C00 + 2 * i);
     else for (int i = 0; i < 256; i++) eng_v.sat[i] = 0;
+    eng_noflash();
     spr_prio();
 }
 /* docs/50: the console showed blocks of the picture wrong and staying wrong (the intro's planet): a block is copied
@@ -1156,6 +1183,7 @@ static void eng_apply(void)                                   /* (eng_picture an
     eng_v.BXR = eng_stg.r[0]; eng_v.BYR = eng_stg.r[1]; eng_v.MWR = eng_stg.r[2]; eng_v.t.CR = eng_stg.r[3];
     if (ENG_SPR_ON(eng_v.t.CR)) for (int i = 0; i < 256; i++) eng_v.sat[i] = eng_stg.sat[i];
     else for (int i = 0; i < 256; i++) eng_v.sat[i] = 0;
+    eng_noflash();
     spr_prio();
     for (int i = 0; i < 224 * 2; i++) eng_lines[i] = eng_stg.lines[i];
     eng_scroll_bands();

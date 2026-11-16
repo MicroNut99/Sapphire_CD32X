@@ -44,6 +44,7 @@ enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_AUTO,
 #ifdef SAP_SUBS
        GM_SUB,
 #endif
+       GM_FLASH,
        GM_STATUS, GM_CREDITS, GM_N };
 /* docs/60: STATUS - what the USB log told, on the screen (the owner has no USB link any more: a photograph of this
    page is the console's report). The play before the menu opened, measured by eng.c gm_stats over 4 s at a time:
@@ -70,6 +71,7 @@ static uint8_t gm_in_stage;                                   /* (as the menu op
    eng.c sets gm_sub1 / gm_sub2 (two lines of 32 characters at most) while a briefing's text is up; gm_subs draws them
    over the game's picture as gm_note does. The lines are not in the repository (subs_en.h, made by saeng_disc.sh from
    the work folder's subs_en.txt) */
+static uint8_t gm_flash;                                      /* (docs/78, HIT FLASH: off - a hit sprite keeps its colours) */
 static uint8_t gm_sub_on = 1; static const char *gm_sub1, *gm_sub2;
 static const char *gm_msg;                                    /* (a line under the items: why not, what is going on) */
 static void gm_fill(int x0, int y0, int x1, int y1, uint8_t c)   /* (x0, x1 even) */
@@ -159,6 +161,7 @@ static void gm_draw(void)                                     /* the menu, whole
 #ifdef SAP_SUBS
         else if (i == GM_SUB) gm_text(64, y, gm_sub_on ? "ENGLISH TEXT    < ON >" : "ENGLISH TEXT    < OFF >", c);
 #endif
+        else if (i == GM_FLASH) gm_text(64, y, gm_flash ? "HIT FLASH       < ON >" : "HIT FLASH       < OFF >", c);
         else if (i == GM_STATUS) gm_text(64, y, "STATUS", c);
         else gm_text(64, y, "CREDITS", c);
     }
