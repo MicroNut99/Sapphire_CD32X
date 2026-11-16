@@ -1,3 +1,4 @@
+v11 measured every frame: the intro ship is background tiles - pictures re-read if the game wrote meanwhile; new tiles to spare slots, then the map
 v10 pictures read at a frame end while the game rewrites sprite cells (the intro ship: mixed cells / two poses on the console)
 v9  every changed VRAM block read twice from the cart (the intro's ship in pieces on the console)
 v8  the core's sprite line marks no longer used (v5-v7: the intro's ship in strips, flicker, stale sprites on the console); demo music as v7

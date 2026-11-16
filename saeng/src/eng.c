@@ -65,7 +65,7 @@ static uint32_t eng_chunks;
 static uint32_t eng_aud;                                      /* (docs/103: the play the Sega CD has: playing, mode, start) */
 static uint32_t eng_cdfail; static uint16_t eng_cdlast;      /* (docs/169: commands that did not answer or refused; the last: 91xx / 4500 / 5400) */
 static int eng_tlast;                                         /* (docs/50: the game's last CD-DA track asked, 0 none) */
-static int eng_sync; static uint32_t eng_mix;               /* (docs/75) */
+static uint32_t eng_mix;                                      /* (docs/76: pictures read again - the game wrote meanwhile) */
 static uint32_t eng_rd2;                                      /* (docs/74: VRAM blocks whose two readings differed) */
 static uint32_t eng_fixn;                                     /* (docs/50: VRAM blocks the verify found wrong in the copy) */
 static int eng_playing;                                       /* (docs/169: the Sega CD is playing, as far as this program has told it) */
@@ -834,9 +834,15 @@ static void eng_blk_read(int k, uint16_t *d)
    last whole frame and cells half of the next. A picture that found a block under way sets eng_sync: the next 60
    pictures are read right after a frame's end (the loop waits for the frame count to change), not staged ahead.
    eng_mix: pictures that still found one, read that way */
+static int eng_still(void)                                    /* every stamp as the copy has it? */
+{
+    const uint32_t sb = ENG_W6 + 0x20000;
+    for (int k = 0; k < 512; k++) { const uint16_t s = ENG_R(sb, 2 * k); if (s != eng_stamp[k] && (uint16_t)(s ^ 0x8000) != eng_stamp[k]) return 0; }
+    return 1;
+}
 static void eng_picture(uint32_t done)
 {
-    int uw = 0; const int synced = eng_sync > 0;
+    int uw = 0;
     /* docs/106: the engine goes on while this runs - a block written in the frame under way (its stamp past done, the
        last whole frame) may be written again in it, under the same stamp: so its copy isn't kept as that stamp's (it is
        copied again at the next picture), and its tag is one the stamp's own never is */
@@ -851,7 +857,7 @@ static void eng_picture(uint32_t done)
         const uint16_t tag = (uint16_t)(VSRC_CODE | ((under_way ? s + 0x4000 : s) & 0x7FFF));
         for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;   /* (a cell, 4 units of 16 words) */
     }
-    if (uw) { if (synced) eng_mix++; eng_sync = 60; }
+    (void)uw;
     for (int i = 0; i < 512; i++) eng_v.color[i] = ENG_R(ENG_W6, 0x20800 + 2 * i);
     eng_v.BXR = ENG_R(ENG_W6, 0x20E00); eng_v.BYR = ENG_R(ENG_W6, 0x20E02); eng_v.MWR = ENG_R(ENG_W6, 0x20E04);
     eng_v.t.CR = ENG_R(ENG_W6, 0x20E06);
@@ -1069,7 +1075,6 @@ static uint32_t eng_stg_used, eng_stg_more;
 static void eng_prefetch(void)
 {
     eng_stg.ok = 0;
-    if (eng_sync) return;                                     /* (docs/75: the next picture read at a frame's end) */
     const uint32_t f = ENG_R(ENG_W6, 0x20E08);
     if (f == eng_last) return;                                /* (no newer frame yet) */
     eng_stg.r[0] = ENG_R(ENG_W6, 0x20E00); eng_stg.r[1] = ENG_R(ENG_W6, 0x20E02); eng_stg.r[2] = ENG_R(ENG_W6, 0x20E04);
@@ -1084,10 +1089,17 @@ static void eng_prefetch(void)
         eng_stg.blk[nb] = (uint16_t)k; eng_stg.st[nb] = s;
         eng_blk_read(k, eng_stg.data[nb]);
         nb++;
-        if ((int16_t)(s - (uint16_t)f) > 0) { eng_sync = 60; return; }   /* (docs/75: a block under way - not this staging) */
     }
     for (int i = 0; i < 512; i++) eng_stg.color[i] = ENG_R(ENG_W6, 0x20800 + 2 * i);
     if (ENG_SPR_ON(eng_stg.r[3])) for (int i = 0; i < 256; i++) eng_stg.sat[i] = ENG_R(ENG_W6, 0x20C00 + 2 * i);
+    {   /* docs/76: the stamps again - one that moved since: the game wrote while this was read, the staging not used */
+        int n = 0;
+        for (int k = 0; k < 512; k++) {
+            const uint16_t s = ENG_R(sb, 2 * k);
+            if (n < nb && eng_stg.blk[n] == k) { if (s != eng_stg.st[n]) { eng_mix++; return; } n++; }
+            else if (s != eng_stamp[k] && !more) { eng_mix++; return; }
+        }
+    }
     eng_stg.f = f; eng_stg.nb = nb; eng_stg.more = more; eng_stg.ok = 1;
 }
 static void eng_apply(void)                                   /* (eng_picture and eng_scroll, from the staging) */
@@ -1449,13 +1461,17 @@ static void eng_main(void)
 #endif
         CRUMB_M(4);
         PF(3, if (stg) eng_apply(); else {
+            /* docs/76: the picture's VRAM is read while the game goes on. Read, then look at the stamps again: one that
+               moved means the game wrote meanwhile (the map half of one pose, half of the next) - the changed blocks are
+               read again, with the frame that is whole by then, up to four times */
             uint32_t g = f;
-            if (eng_sync) {                                   /* (docs/75: from a frame's end) */
-                eng_sync--;
-                for (int n = 0; n < 60000 && ENG_R(ENG_W6, 0x20E08) == g; n++) { }
+            for (int t = 0; t < 4; t++) {
+                eng_picture(g);
+                if (eng_still()) break;
+                eng_mix++;
                 g = ENG_R(ENG_W6, 0x20E08); eng_last = g;
             }
-            eng_picture(g); eng_scroll(); } eng_verify());
+            eng_scroll(); } eng_verify());
 #ifdef SEC_TIMES
         SEC_T(9, tm);
 #endif

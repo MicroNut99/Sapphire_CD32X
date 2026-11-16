@@ -38,7 +38,9 @@ cp "$B/.dx"/tools/m3rt/* "$B/tools/m3rt/"; cp "$B/.dx"/tools/m2host/* "$B/tools/
 patch -s -p1 -d "$B/tools/m3rt" < "$GOT/tools/bg2/rt_bg2.patch"
 patch -s -p1 -d "$B/tools/m3rt" < "$GOT/tools/bg2/rt_spr.patch"
 patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_spr.patch"
+patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_spr2.patch"   # (docs/76: two cells of a picture never share a cache slot)
 patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg2.patch"
+[ "${COW:-1}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then

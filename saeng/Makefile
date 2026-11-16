@@ -106,7 +106,7 @@ endif
 # and the cells' files are empty stand-ins (the engine's stamps are the cells' tags); the stack built with M1PAGE (command
 # 68), FBCART (101) and CDRING (91); the disc's SYSCARD.BIN, DXFWTAB.BIN and DXTRACK.TRK (tools/eng_files.py)
 ifeq ($(ENG),1)
-CCFLAGS += -DDX_ENGINE -DBG2_LINES -DBG2_REMERGE -DBG2_MAPSIZE -DSPR_BIGCACHE -DSPR_BC=236 -DBG2_SDRAM -DBG2_COLB
+CCFLAGS += -DDX_ENGINE -DBG2_LINES -DBG2_REMERGE -DBG2_MAPSIZE -DSPR_BIGCACHE -DSPR_BC=230 -DBG2_SDRAM -DBG2_COLB
 # (Gate of Thunder docs/55, tools/bg2/rt_bg2.patch on Dracula X's rt_bg2.c: BG2_PRIV - four palettes or fewer on the plane, each
 # its own Genesis palette, so a fade places nothing again; BG2_MORE - a new screen's list goes on past bg2_frame's; BG2_SAMEMAP -
 # a palette placed again as it was converts nothing. PLANE=0: without)

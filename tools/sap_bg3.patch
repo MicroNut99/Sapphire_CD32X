@@ -1,0 +1,114 @@
+--- a/rt_bg2.c	2026-11-15 17:55:11.784023337 -0800
++++ b/rt_bg2.c	2026-11-15 17:56:11.075114803 -0800
+@@ -50,6 +50,7 @@
+ #define T_TAG(t) (BG2_T_TAG + 2 * (t))
+ #define T_PRIM(t) (BG2_T_PRIM + 2 * (t))
+ #define T_GMAP(a) (BG2_T_GMAP + 2 * (a))
++static uint8_t cow_now, pm_bits[512]; static int pm_n, pm_w, pm_prev;   /* (Sapphire docs/76, below) */
+ #define S_KEY(s) (BG2_T_SLOT + 8 * (s))
+ #define S_CVER(s) (BG2_T_SLOT + 8 * (s) + 2)
+ #define S_TAG(s) (BG2_T_SLOT + 8 * (s) + 4)
+@@ -788,6 +789,7 @@
+     for (unsigned o = BG2_T_MASK; o < BG2_T_END; o += 2) f[o >> 1] = 0;
+     for (int t = 0; t < 2048; t++) { f[T_TAG(t) >> 1] = NONE; f[T_PRIM(t) >> 1] = NONE; }
+     for (int a = 0; a < 4096; a++) f[T_GMAP(a) >> 1] = NONE;
++        pm_n = pm_w = 0; cow_now = 0; pm_prev = -2; memset(pm_bits, 0, sizeof pm_bits);
+     for (int s = 0; s < BG2_SLOTS; s++) { f[S_KEY(s) >> 1] = NONE; f[S_REFS(s) >> 1] = 0; }
+     for (int h = 0; h < BG2_OVF_N; h++) f[T_OVF(h) >> 1] = NONE;
+     for (int t = 0; t < 2048; t++) f[T_HASH(t) >> 1] = 0;
+@@ -1061,12 +1063,44 @@
+ #endif
+ /* 4. the entries to send: each its tile converted for its palette's map (kept by (tile, palette)), its word - while the
+    list has room */
+-static void send_entries(Bg2 *b, const V32 *v, int ne, int room)
++/* Sapphire docs/76 (BG2_COW): the intro's ship is the background - ~100 tiles and the map written anew every 2 frames,
++   in two tile areas by turns. Converted in place, tile after tile as the 68000 runs the list, the plane showed tiles of
++   two poses side by side (and at 25 pictures a second the same area's next pose over the one on screen). While many of
++   the plane's tiles change (cow_now, set by bg2_frame: 24 or more in a picture, and 8 pictures on):
++   - a changed tile whose slot the plane shows gets ANOTHER slot (the old one keeps its pixels until no entry names it);
++   - the map's words wait (pm_*) until the picture's tiles are all in the list: the tiles first, then the map at once,
++     as the game does it. They are sent when no entry is left, at the end of bg2_more's part, or when 512 wait. */
++static uint8_t cow_now;
++/* (pm_bits: the waiting entries, a bit each - their words are T_GMAP's) */
++static void pm_flush(Bg2 *b)
++{
++    for (int a = 0; a < 4096 && pm_n; a++) {
++        if (!pm_bits[a >> 3]) { a |= 7; continue; }
++        if (!(pm_bits[a >> 3] & B8(a & 7))) continue;
++        pm_bits[a >> 3] &= (uint8_t)~B8(a & 7); pm_n--;
++        vram_at(b, BG2_PLANE_A + 2 * (unsigned)a); vram_word(b, tget(b, T_GMAP(a)));
++    }
++    pm_n = pm_w = 0; pm_prev = -2;
++}
++static void slot_detach(Bg2 *b, unsigned s)
++{
++    const unsigned old = tget(b, S_KEY(s));
++    if (old == NONE) return;
++    if (tget(b, T_PRIM(old >> 4)) == s) tset(b, T_PRIM(old >> 4), NONE); else ovf_drop(b, old, s);
++    tset(b, S_KEY(s), NONE);
++}
++static void send_entries_(Bg2 *b, const V32 *v, int ne, int room);
++static void send_entries(Bg2 *b, const V32 *v, int ne, int room, int last)
++{
++    send_entries_(b, v, ne, room);
++    if (pm_n && (last || !b->ndirty || !cow_now)) pm_flush(b);
++}
++static void send_entries_(Bg2 *b, const V32 *v, int ne, int room)
+ {
+     for (int a = 0; a < ne && b->ndirty; a++) {
+         if (!b->dirty[a >> 3]) { a |= 7; continue; }   /* (docs/111: eight clean entries at a time) */
+         if (!(b->dirty[a >> 3] & B8(a & 7))) continue;
+-        if (!jroom(b, 12) || b->ln + 40 > room) break;
++        if (!jroom(b, 12) || b->ln + 40 + pm_w > room) break;
+         const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF; const int p = e >> 12;
+         if (tget(b, T_TAG(t)) != rt_marks.v[t] && tget(b, T_TAG(t)) != (uint16_t)~rt_marks.v[t]) { ST(b->st.unseen++); continue; }   /* (its tile not looked at yet: later; a copy under way is looked at each picture) */
+         const unsigned u0 = tget(b, T_MASK(t)), u = u0 & ~1u;
+@@ -1088,6 +1122,7 @@
+         const unsigned gp = b->g[p] < 0 ? 0 : (unsigned)b->g[p];
+         unsigned s = find_slot(b, t, p);
+         if (s == NONE || !good(b, s, t, p, v)) {
++            if (s != NONE && cow_now && tget(b, S_REFS(s))) { slot_detach(b, s); s = NONE; }   /* (docs/76: shown - another slot) */
+             if (s == NONE) { s = new_slot(b, t, p); if (s == NONE) { ST(b->st.noslot++); break; } }
+             convert(b, v, t, p, s); ST(b->st.tiles++); tset(b, S_CVER(s), b->ver[p]); tset(b, S_TAG(s), tget(b, T_HASH(t)));
+         }
+@@ -1095,7 +1130,9 @@
+         if (old != ge) {
+             if (old != NONE) tset(b, S_REFS(old & 0x7FF), (uint16_t)(tget(b, S_REFS(old & 0x7FF)) - 1));
+             tset(b, S_REFS(s), (uint16_t)(tget(b, S_REFS(s)) + 1)); tset(b, T_GMAP(a), ge);
+-            vram_at(b, BG2_PLANE_A + 2 * (unsigned)a); vram_word(b, ge); ST(b->st.map++);
++            if (cow_now) { pm_w += pm_prev + 1 == a ? 1 : 5; pm_prev = a; if (!(pm_bits[a >> 3] & B8(a & 7))) { pm_bits[a >> 3] |= B8(a & 7); pm_n++; } }
++            else { vram_at(b, BG2_PLANE_A + 2 * (unsigned)a); vram_word(b, ge); }
++            ST(b->st.map++);
+         }
+         b->dirty[a >> 3] &= (uint8_t)~B8(a & 7); b->ndirty--;
+     }
+@@ -1114,9 +1151,9 @@
+     b->fb[b->cur] = fb; b->ln--; b->run_open = 0; list_max = words + 60;
+     list_word(b, 0x1001); list_word(b, 0x8F02);    /* (the increment: 2) */
+ #ifdef BG2_MAPSIZE
+-    send_entries(b, v, b->ne_last, words);
++    send_entries(b, v, b->ne_last, words, 1);
+ #else
+-    send_entries(b, v, 4096, words);
++    send_entries(b, v, 4096, words, 1);
+ #endif
+     run_close(b); list_word(b, 0);
+     b->fb[b->cur] = own; list_max = BG2_LIST_WORDS + 14;
+@@ -1221,6 +1258,7 @@
+         for (int a = t * 16; a < t * 16 + 16; a++) { const uint16_t e = v->vram[a]; set_dirty(b, a); up |= B16(e >> 12);
+             b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; }
+         b->upal[t] = up; }
++    if (ntchg >= 24) cow_now = 8; else if (cow_now) cow_now--;   /* (docs/76) */
+     if (ntchg) ST(b->st.scan_t++);
+     if (ntchg) for (int a = 0; a < ne; a++) { const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF;
+         if (tchg[t >> 3] & B8(t & 7)) { set_dirty(b, a); b->used[e >> 12] |= tget(b, T_MASK(t)) & ~1u; } }
+@@ -1277,7 +1315,8 @@
+ #ifndef __sh__
+     bg2_dbg_any = any; bg2_dbg_nd0 = b->ndirty;   /* (bg2_host: the colours placed again this picture; the entries to send) */
+ #endif
+-    send_entries(b, v, ne, LROOM);
++    if (pm_n) pm_flush(b);                         /* (docs/76: words a picture left waiting) */
++    send_entries(b, v, ne, LROOM, 0);
+ #ifdef SPR_HUD
+     hud_frame(b, v, 0);                           /* (docs/83: the HUD's changed tiles, as data runs) */
+ #endif

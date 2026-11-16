@@ -1,0 +1,29 @@
+--- a/rt_spr.c	2026-11-15 17:49:53.053146757 -0800
++++ b/rt_spr.c	2026-11-15 17:49:53.067946516 -0800
+@@ -131,6 +131,12 @@
+ #endif
+ static uint32_t big_cells[SPR_BC][SPR_CELL / 4];
+ static struct { uint16_t cell, t[4]; } big_key[SPR_BC];
++/* Sapphire docs/76: the cache is direct-mapped by the cell's number modulo SPR_BC, and SPR_BC (236) is less than the
++   512 cells: cells c and c + SPR_BC share a slot. A picture that uses both (the intro's ship when it is large) had the
++   second take the slot the first one's list entry points at - the first drawn with the second's pixels. big_pic: the
++   picture a slot was last given out in; a different cell asking for it in that picture is converted and drawn at once
++   (the SPLIT's unkept path), the slot left alone */
++static uint16_t big_pic[SPR_BC];
+ #endif
+ 
+ void spr_init(const uint8_t *cells)
+@@ -236,7 +242,12 @@
+         }
+     }
+ #ifdef SPR_BIGCACHE
+-    {   int hit; const uint8_t *p = big_get(r, c, t, &hit);
++    {   const unsigned bj = c % SPR_BC; const uint16_t pic = (uint16_t)(spr_stat.frames + 1);
++#ifdef SPR_SPLIT
++        if (big_pic[bj] == pic && big_key[bj].cell != c) { spr_stat.under_way++; convert(r, c); src_unkept = 1; return (const uint8_t *)tmp; }
++#endif
++        big_pic[bj] = pic;
++        int hit; const uint8_t *p = big_get(r, c, t, &hit);
+         if (hit) { spr_stat.hits++; *kind = 1; }
+         (void)buf; (void)odd;
+         return p;
