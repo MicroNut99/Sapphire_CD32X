@@ -179,11 +179,20 @@ static void gm_draw(void)                                     /* the menu, whole
     gm_mid(200, "A/C/START: DO IT   B: BACK", GM_DIM);
     gm_mid(212, "PORTED BY MICRONUT99", GM_TXT);
 }
-static void gm_subs(void)
+static void gm_text_on(int y, const char *t)                  /* white letters alone, centred: the picture shows between them */
 {
-    gm_fill(32, 203, 288, 224, GM_BOX);
-    if (gm_sub1) gm_mid(205, gm_sub1, GM_TXT);
-    if (gm_sub2) gm_mid(215, gm_sub2, GM_TXT);
+    volatile uint8_t *fb = (volatile uint8_t *)(FB + 0x100);
+    int x = (160 - 4 * gm_len(t)) & ~1;
+    for (; *t; t++, x += 8) {
+        int ch = (uint8_t)*t; if (ch < 32 || ch > 127) ch = '?';
+        const unsigned char *g = font8x8[ch - 32];
+        for (int r = 0; r < 8; r++) for (int b = 0; b < 8; b++) if (g[r] & (0x80 >> b)) fb[(y + r) * 320 + x + b] = GM_TXT;
+    }
+}
+static void gm_subs(void)                                     /* (the owner, of v12: under the text box, "just as white txt") */
+{
+    if (gm_sub1) gm_text_on(gm_sub2 ? 84 : 90, gm_sub1);
+    if (gm_sub2) gm_text_on(96, gm_sub2);
 }
 static void gm_note(void)                                     /* (the stage select at work: a line over the game's picture) */
 {

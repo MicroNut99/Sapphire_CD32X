@@ -27,3 +27,8 @@ ares: stage 1's order shown under the briefing's picture. Not seen yet: the answ
 
 ## Also here
 `work/dense.sh` and docs/76's v11 are in this kit unchanged.
+
+## v13 (the owner, of v12's picture: "move the subtitles and just as white txt")
+`menu.c gm_text_on`: the letters' pixels alone, by bytes into the frame buffer (no box: the picture shows between
+them), centred, at y 84 / 96 (one line: 90) - the band under the text box the owner marked. Any change of the lines
+wipes the buffer twice (`gm_wipe_n`). ares: the order's two lines and the answer's line both seen (frames 7,900-8,500).

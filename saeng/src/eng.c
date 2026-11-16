@@ -446,7 +446,7 @@ static void sap_tick(uint32_t f)
             if (bx == 0) { a = sap_subs_en[st][0]; b = sap_subs_en[st][1]; }
             else if (bx == 0x100) a = sap_subs_en[st][2];
         }
-        if (a != gm_sub1 || b != gm_sub2) { if (!a) gm_wipe_n = 2; else gm_pal = 1; gm_sub1 = a; gm_sub2 = b; }
+        if (a != gm_sub1 || b != gm_sub2) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; }
     }
 #endif
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high
