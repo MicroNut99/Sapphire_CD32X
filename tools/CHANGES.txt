@@ -1,3 +1,4 @@
+v9  every changed VRAM block read twice from the cart (the intro's ship in pieces on the console)
 v8  the core's sprite line marks no longer used (v5-v7: the intro's ship in strips, flicker, stale sprites on the console); demo music as v7
 v7  the demos' music without the reads v6 added (v6 was bad on the console); the version on the menu
 v6  music in the attract demos - WITHDRAWN: bad in play on the console

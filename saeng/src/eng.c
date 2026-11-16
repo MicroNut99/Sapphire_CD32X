@@ -65,6 +65,7 @@ static uint32_t eng_chunks;
 static uint32_t eng_aud;                                      /* (docs/103: the play the Sega CD has: playing, mode, start) */
 static uint32_t eng_cdfail; static uint16_t eng_cdlast;      /* (docs/169: commands that did not answer or refused; the last: 91xx / 4500 / 5400) */
 static int eng_tlast;                                         /* (docs/50: the game's last CD-DA track asked, 0 none) */
+static uint32_t eng_rd2;                                      /* (docs/74: VRAM blocks whose two readings differed) */
 static uint32_t eng_fixn;                                     /* (docs/50: VRAM blocks the verify found wrong in the copy) */
 static int eng_playing;                                       /* (docs/169: the Sega CD is playing, as far as this program has told it) */
 static uint32_t eng_plays, eng_audio_seen;                    /* (the plays sent; the engine's audio words seen changing) */
@@ -308,7 +309,7 @@ static void gm_stats(uint32_t f)
 #ifdef BG2_MORE
         gm_stv.more = *(volatile uint32_t *)((uintptr_t)&got_more_n | 0x20000000);
 #endif
-        gm_stv.fix = eng_fixn; gm_stv.over = *(volatile uint32_t *)((uintptr_t)&bg2_over | 0x20000000);
+        gm_stv.fix = eng_fixn + eng_rd2; gm_stv.over = *(volatile uint32_t *)((uintptr_t)&bg2_over | 0x20000000);
         t0 = now; f0 = f; n = 0; worst = 0; most = 0;
     }
 }
@@ -810,6 +811,21 @@ static void spr_prio(void)
     for (int i = 0; i < 64; i++) { uint16_t *s = eng_v.sat + 4 * i;
         if (!(s[3] & 0x80) && to[s[3] & 15] != (s[3] & 15)) s[3] = (uint16_t)((s[3] & ~15) | to[s[3] & 15]); }
 }
+/* docs/74: a block of VRAM from the cart's window, read until two readings in a row agree (four at most). The console
+   reads the window wrong now and then (docs/50: eng_verify mends a block later, eight blocks a picture); where the game
+   writes new patterns every frame - the intro's ship growing - a wrong block was drawn before it was mended: the ship in
+   pieces on the console (v5-v8), whole in ares, whose window never reads wrong. eng_rd2: the blocks read again */
+static void eng_blk_read(int k, uint16_t *d)
+{
+    const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
+    for (int i = 0; i < 64; i++) d[i] = src[i];
+    for (int t = 0; t < 3; t++) {
+        int diff = 0;
+        for (int i = 0; i < 64; i++) { const uint16_t w = src[i]; if (w != d[i]) { d[i] = w; diff = 1; } }
+        if (!diff) return;
+        eng_rd2++;
+    }
+}
 /* the picture the engine has now: VRAM's changed blocks (each block's stamp: the frame of its last write), the colours,
    the sprite table, the snapshot's registers; the stamps as the sprite cells' tags (VSRC_CODE | the frame) */
 static void eng_picture(uint32_t done)
@@ -823,9 +839,7 @@ static void eng_picture(uint32_t done)
         if (s == eng_stamp[k]) continue;
         const int under_way = (int16_t)(s - (uint16_t)done) > 0;
         eng_stamp[k] = under_way ? (uint16_t)(s ^ 0x8000) : s;
-        const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
-        uint16_t *d = eng_v.vram + 64 * k;
-        for (int i = 0; i < 64; i++) d[i] = src[i];
+        eng_blk_read(k, eng_v.vram + 64 * k);
         const uint16_t tag = (uint16_t)(VSRC_CODE | ((under_way ? s + 0x4000 : s) & 0x7FFF));
         for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;   /* (a cell, 4 units of 16 words) */
     }
@@ -1058,8 +1072,7 @@ static void eng_prefetch(void)
         if (s == eng_stamp[k]) continue;
         if (nb == ENG_STK) { more = 1; break; }
         eng_stg.blk[nb] = (uint16_t)k; eng_stg.st[nb] = s;
-        const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
-        for (int i = 0; i < 64; i++) eng_stg.data[nb][i] = src[i];
+        eng_blk_read(k, eng_stg.data[nb]);
         nb++;
     }
     for (int i = 0; i < 512; i++) eng_stg.color[i] = ENG_R(ENG_W6, 0x20800 + 2 * i);
@@ -1086,9 +1099,7 @@ static void eng_apply(void)                                   /* (eng_picture an
             if (s == eng_stamp[k]) continue;
             const int under_way = (int16_t)(s - (uint16_t)done) > 0;
             eng_stamp[k] = under_way ? (uint16_t)(s ^ 0x8000) : s;
-            const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
-            uint16_t *d = eng_v.vram + 64 * k;
-            for (int i = 0; i < 64; i++) d[i] = src[i];
+            eng_blk_read(k, eng_v.vram + 64 * k);
             const uint16_t tag = (uint16_t)(VSRC_CODE | ((under_way ? s + 0x4000 : s) & 0x7FFF));
             for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;
         }
