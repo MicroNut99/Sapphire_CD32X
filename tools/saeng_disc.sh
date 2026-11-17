@@ -91,12 +91,12 @@ cd "$B"
 [ "${MENU:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_MENU"
 VER=${VER:-$(cat "$REPO/tools/VERSION")}   # (docs/72: the kit's version - on the menu's title and STATUS; tools/VERSION, one more a kit)
 RTX="${RTX:+$RTX }-DDX_CRUMBS -DGOT_PACKED -DSAP_CDFADE -DSPR_YLIM -DGOT_VER=$VER"
-# docs/79 (the owner, 16 Nov: "You can control of the stack now"; in the build's copy only, VSWRAP=1 with it - off: it did not cure the jump, docs/79): VSPLIT's
+# docs/79 (the owner, 16 Nov: "You can control of the stack now"; in the build's copy only, VSWRAP=0 without; with docs/80's VSTOP it cures the jump): VSPLIT's
 # hint_vs puts the top entry's V back at the H interrupt of line 224. When that interrupt is taken after the next
 # picture's first lines began (the vertical blank's work at level 6 ran past the blank), the top was never put back:
 # the whole playfield at the status bar's V for one picture (ares: 1-2 in 600 frames of stage 1; the console: one in
 # 20-30 s). Now a line number lower than the last one seen = a picture begun without that service: the top entry then.
-[ "${VSWRAP:-0}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+[ "${VSWRAP:-1}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
 import sys
 p = sys.argv[1]; s = open(p).read()
 def rep(a, b):
@@ -127,7 +127,40 @@ rep("""        .long   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0     | list
 .endif                                      | DX-VSPLIT end""")
 open(p, 'w').write(s)
 PYE
-[ "${VSWRAP:-0}" = 1 ] && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
+# docs/80 (VSTOP=0 without; the build's copy of the stack only): fb_vrun - the swap's kept runs at the vertical blank -
+# reads VSRAM 0 / 1 back after them and makes that the shown list's top entry (DX's VSSWAP). When the kept runs held no
+# VSRAM write (the playfield's V unchanged: most pictures) and hint_vs had not yet put the top back (its line-224
+# interrupt behind the blank's, or fb_vrun late via fb_overdue), what it read was the status bar's V: the next picture
+# whole at that V (ares: the playfield jumps for a frame, 1-2 in 600 frames of stage 1). Now the shown top is written
+# to VSRAM first, so the read-back is the top or what the kept runs wrote, never a split's V.
+[ "${VSTOP:-1}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+import sys
+p = sys.argv[1]; s = open(p).read()
+a = """fb_vrun:
+        movem.l d0-d1/a0-a2,-(sp)
+        lea     fb_armed(pc),a0
+        clr.w   (a0)
+"""
+assert s.count(a) == 1
+s = s.replace(a, a + """        lea     vs_vars(pc),a0          | (Sapphire docs/80) splits running: the shown top into VSRAM before the kept
+        tst.w   (a0)                    | runs, so the read-back after them is never a split's V
+        beq.b   18f
+        move.w  4(a0),d0
+        move.l  8(a0,d0.w),d1
+        move.w  #0x8F02,0xC00004
+        move.l  #0x40000010,0xC00004
+        move.l  d1,d0
+        lsr.l   #8,d0
+        lsr.l   #2,d0
+        andi.w  #0x3FF,d0
+        move.w  d0,0xC00000
+        andi.w  #0x3FF,d1
+        move.w  d1,0xC00000
+18:
+""")
+open(p, 'w').write(s)
+PYE
+{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
 # SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"
