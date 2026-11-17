@@ -43,6 +43,25 @@ patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg2.patch"
 # docs/77: the briefing's lines in English - the work folder's subs_en.txt (15 lines: a stage's order in two lines and
 # the answer, 32 characters at most each); not in the repository. Without the file: no ENGLISH TEXT item.
 rm -f "$B/saeng/src/subs_en.h"
+# docs/79: the between-stage dialogue's 112 lines in English (the work folder's subs_dlg.txt, a line each, 64 characters at
+# most: split in two at a space) - sap_dlg_en[112][2]; not in the repository
+rm -f "$B/saeng/src/subs_dlg.h"
+[ -f "$W/subs_dlg.txt" ] && python3 - "$W/subs_dlg.txt" "$B/saeng/src/subs_dlg.h" <<'PYE'
+import sys
+l = [x.rstrip('\n') for x in open(sys.argv[1])][:112]
+assert len(l) == 112, 'subs_dlg.txt: 112 lines'
+def split(t):
+    t = t.upper()
+    assert len(t) <= 64 and '"' not in t and '\\' not in t, t
+    if len(t) <= 32: return t, None
+    sp = [i for i, c in enumerate(t) if c == ' ' and i <= 32 and len(t) - i - 1 <= 32]
+    assert sp, t
+    i = min(sp, key=lambda i: abs(len(t) / 2 - i))   # (the space nearest the middle: two lines of like length)
+    return t[:i], t[i + 1:]
+q = lambda x: '"%s"' % x if x else '0'
+open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][2] = {\n' +
+    ''.join('    { %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
+PYE
 [ -f "$W/subs_en.txt" ] && python3 - "$W/subs_en.txt" "$B/saeng/src/subs_en.h" <<'PYE'
 import sys
 l = [x.rstrip('\n') for x in open(sys.argv[1])][:15]
@@ -72,6 +91,43 @@ cd "$B"
 [ "${MENU:-1}" = 1 ] && RTX="${RTX:+$RTX }-DGOT_MENU"
 VER=${VER:-$(cat "$REPO/tools/VERSION")}   # (docs/72: the kit's version - on the menu's title and STATUS; tools/VERSION, one more a kit)
 RTX="${RTX:+$RTX }-DDX_CRUMBS -DGOT_PACKED -DSAP_CDFADE -DSPR_YLIM -DGOT_VER=$VER"
+# docs/79 (the owner, 16 Nov: "You can control of the stack now"; in the build's copy only, VSWRAP=1 with it - off: it did not cure the jump, docs/79): VSPLIT's
+# hint_vs puts the top entry's V back at the H interrupt of line 224. When that interrupt is taken after the next
+# picture's first lines began (the vertical blank's work at level 6 ran past the blank), the top was never put back:
+# the whole playfield at the status bar's V for one picture (ares: 1-2 in 600 frames of stage 1; the console: one in
+# 20-30 s). Now a line number lower than the last one seen = a picture begun without that service: the top entry then.
+[ "${VSWRAP:-0}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+import sys
+p = sys.argv[1]; s = open(p).read()
+def rep(a, b):
+    global s
+    assert s.count(a) == 1, a
+    s = s.replace(a, b)
+rep("""2:
+        move.w  #1,2(a1)                | back to the top entry
+        moveq   #0,d2
+        bra.b   3f
+1:
+        move.w  2(a1),d2                | vs_pos
+""", """2:
+        clr.w   136(a1)                 | (Sapphire docs/79: vs_last - no line of the next picture seen yet)
+22:
+        move.w  #1,2(a1)                | back to the top entry
+        moveq   #0,d2
+        bra.b   3f
+1:
+        cmp.w   136(a1),d0              | (Sapphire docs/79) a line before the last one seen: a new picture, and the
+        move.w  d0,136(a1)              | interrupt of line 224 was not taken in the blank - the top entry now
+        blo.b   22b
+        move.w  2(a1),d2                | vs_pos
+""")
+rep("""        .long   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0     | list 1
+.endif                                      | DX-VSPLIT end""", """        .long   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0     | list 1
+        .word   0, 0                    | (Sapphire docs/79: vs_last, at 136)
+.endif                                      | DX-VSPLIT end""")
+open(p, 'w').write(s)
+PYE
+[ "${VSWRAP:-0}" = 1 ] && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
 # SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"

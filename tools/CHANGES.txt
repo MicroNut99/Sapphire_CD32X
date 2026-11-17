@@ -1,3 +1,4 @@
+v15 English subtitles for the between-stage dialogue (one player), under ENGLISH TEXT
 v14 HIT FLASH (options, off by default): hit and dying sprites keep their colours; the English lines drawn last (letters were wiped on the console)
 v13 the English lines moved under the text box, white letters with no box behind them
 v12 the briefing plays the coming stage's CD track (the game leaves it silent); the music goes on into the stage

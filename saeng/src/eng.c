@@ -447,6 +447,24 @@ static void sap_tick(uint32_t f)
             if (bx == 0) { a = sap_subs_en[st][0]; b = sap_subs_en[st][1]; }
             else if (bx == 0x100) a = sap_subs_en[st][2];
         }
+        int y = 84;
+#ifdef SAP_DLG
+        /* docs/79 (the owner: "cutscenes with missing subtitles"): after stages 1-4, one of 112 lines (the data track's
+           sectors 3,663-3,665; the game reads it from the Arcade Card, its port 0 at $010E00: a table of 113 offsets,
+           then the text). One player: line pilot x 4 + the stage less one - the pilot base RAM $06A7 (0-3: measured,
+           one to three presses of right on the select screen). The scene: CR $CC, the map 64 x 32 (MWR $10), BXR and
+           BYR 0 - read once as it begins (the poke port), the stage the one last played. Two players (CD RAM $A00D):
+           two lines, the second pilot not known - nothing shown */
+        {   static uint8_t was, pil, play_st = 0xFF;
+            const uint16_t mw = ENG_R(ENG_W6, 0x20E04), bx = ENG_R(ENG_W6, 0x20E00), by = ENG_R(ENG_W6, 0x20E02);
+            const int dlg = cr == 0xCC && mw == 0x10 && bx == 0 && by == 0;
+            if (sap_in && mw == 0x20) play_st = sap_stage_seen;
+            if (dlg && !was) pil = (uint8_t)(gm_sub_on && play_st < 4 && sp_cdpeek(0xA00Du) == 0 ? gm_peek(0x06A7) : 0xFF);
+            was = (uint8_t)dlg;
+            if (dlg && gm_sub_on && pil < 4 && play_st < 4) { a = sap_dlg_en[pil * 4 + play_st][0]; b = sap_dlg_en[pil * 4 + play_st][1]; y = 38; }
+        }
+#endif
+        gm_sub_y = y;
         if (a != gm_sub1 || b != gm_sub2) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; }
     }
 #endif

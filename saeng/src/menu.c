@@ -30,6 +30,9 @@
 #define GM_HI 0x30                                            /*  3-6 - never drawn, never written by pace_vbi; 0x20 is the */
 #define GM_DIM 0x40                                           /*  picture number's in the border, left dark) */
 #define GM_BOX 0x50
+#if __has_include("subs_dlg.h")
+#include "subs_dlg.h"                                       /* (docs/79: SAP_DLG, sap_dlg_en[112][2]) */
+#endif
 #if __has_include("subs_en.h")
 #include "subs_en.h"                                        /* (docs/77: SAP_SUBS, sap_subs_en[5][3]) */
 #endif
@@ -192,10 +195,11 @@ static void gm_text_on(int y, const char *t)                  /* white letters a
         for (int r = 0; r < 8; r++) for (int b = 0; b < 8; b++) if (g[r] & (0x80 >> b)) fb[(y + r) * 320 + x + b] = GM_TXT;
     }
 }
+static int gm_sub_y = 84;                                     /* (docs/79: the briefing's band 84-104; the dialogue's 38-58, over the grid above the pilot (ares: at 128 the portrait covered letters)) */
 static void gm_subs(void)                                     /* (the owner, of v12: under the text box, "just as white txt") */
 {
-    if (gm_sub1) gm_text_on(gm_sub2 ? 84 : 90, gm_sub1);
-    if (gm_sub2) gm_text_on(96, gm_sub2);
+    if (gm_sub1) gm_text_on(gm_sub2 ? gm_sub_y : gm_sub_y + 6, gm_sub1);
+    if (gm_sub2) gm_text_on(gm_sub_y + 12, gm_sub2);
 }
 static void gm_note(void)                                     /* (the stage select at work: a line over the game's picture) */
 {
