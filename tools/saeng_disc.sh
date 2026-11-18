@@ -26,6 +26,9 @@
 #   small ones, not stage 1's large, which cost up to 654 cells a picture; EXACT: any; FAST: none).
 set -e
 BCS=$(readlink -f "$1"); DX=$(readlink -f "$2"); GOT=$(readlink -f "$3"); W=$(readlink -f "$4"); B=$5
+# (docs/84: v19's first kit was built from a BootCamp without command 104 - /home/claude/cd32x-bootcamp, branch tpsg -
+#  and hung at the title in ares; the pickup's checkout is /home/claude/repos/CD32X-BootCamp. Refuse such a BootCamp)
+git -C "$BCS" grep -q CDFADE HEAD -- stack/subcpu/main.c || { echo "saeng_disc.sh: $BCS has no command 104 (CDFADE) at HEAD: use /home/claude/repos/CD32X-BootCamp (main)"; exit 1; }
 DXREV=${DXREV:-8dd9b47}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 rm -rf "$B"; mkdir -p "$B"; B=$(readlink -f "$B")
@@ -172,6 +175,7 @@ PYE
 # ares only. V10PIC=0: v16's.
 [ "${V10PIC:-1}" = 1 ] && RTX="$RTX -DSAP_V10PIC"
 [ -n "${SLOW:-}" ] && RTX="$RTX -DSAP_SLOW=$SLOW"
+[ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
 [ "${QUIET:-0}" = 1 ] && RTX="$RTX -DSAP_QUIET"   # (docs/82: tried, no gain measured - off)   # (docs/82: test builds - the console's pace in ares; never in a kit)

@@ -57,6 +57,21 @@ void spr_draw_rng(const SprCmd *k, int n, int buf, int ya, int yb);   /* (docs/6
 #endif
 
 volatile uint32_t gTicks = 0;
+#ifdef SAP_TRACE
+/* docs/84 (diagnostic builds only, TRACE=1): each picture's steps with their time, through SDRAM past the cache (both
+   SH2s and the blank write it): 64 entries of {step | blank count << 8, value, watchdog ticks}; ares's --dump-sdram */
+uint32_t sap_tr[192]; uint32_t sap_trn;
+static uint32_t __attribute__((noinline)) wdt_now(void);
+void sap_trace(uint32_t a, uint32_t b)
+{
+    volatile uint32_t *t = (volatile uint32_t *)((uintptr_t)sap_tr | 0x20000000), *n = (volatile uint32_t *)((uintptr_t)&sap_trn | 0x20000000);
+    const uint32_t i = *n & 63; *n = *n + 1;
+    t[3 * i] = a | *(volatile uint32_t *)((uintptr_t)&gTicks | 0x20000000) << 8; t[3 * i + 1] = b; t[3 * i + 2] = wdt_now();
+}
+#define TR(a, b) sap_trace((a), (uint32_t)(b))
+#else
+#define TR(a, b)
+#endif
 uint32_t got_more_n;                                          /* (GoT docs/55: pictures whose list went on past bg2_frame's - the secondary's count) */
 volatile unsigned mars_pwdt_ovf_count = 0;
 volatile unsigned mars_swdt_ovf_count = 0;
@@ -215,7 +230,9 @@ void secondary(void)
                                                                  model and the tags past the cache) */
 #ifdef SEC_BG
 #ifdef SEC_EARLY
+        TR(10, j);
         { int n = sec_bg_job(SEC_V, (int)(j & 1));
+          TR(11, n);
           if (n & 0x3FFF) { sec_list_copy(j, n & 0x3FFF);
 #ifdef BG2_MORE
               n = sec_bg_more(SEC_V, n);                      /* (GoT docs/55: a new screen's entries, the list continued) */
@@ -380,7 +397,7 @@ static SDTEXT void conv_frame(Rt *r)
     for (int i = 0; i < CONV_CELLS; i++) conv_cell(v + 0x4000 + 64 * ((i * 11 + (int)r->frame) & 127), conv_out);
 }
 #endif
-#if defined(PROF_LOG) || defined(SEC_TIMES) || defined(LIST_TIMES)
+#if defined(PROF_LOG) || defined(SEC_TIMES) || defined(LIST_TIMES) || defined(SAP_TRACE)
 /* DIAG (docs/62, make RTX=-DPROF_LOG): each PC Engine frame's time, its drawing's time, the sprite cells drawn and the
    sprites left as they were, 4 words a frame in the frame buffer's spare part (the speed test draws into one buffer
    and never swaps); copied at the end to SDRAM 0x0600B000 (over the hot code, run no more) for ares's --dump-sdram
@@ -637,7 +654,9 @@ static int sec_bg_more(const V32 *v, int n)
     if (bg2.ndirty <= 64) { in_run = 0; return n; }
     if (!in_run) { in_run = 1; t_run = now; }
     else if (!free_run && now - t_run > GOT_MORE_RUN) { in_run = 0; in_rest = 1; t_rest = now; return n; }
+    TR(7, bg2.ndirty);
     const int m = bg2_more(&bg2, v, (uint16_t *)0x24000000, GOT_MORE_WORDS);
+    TR(8, m);
     (*(volatile uint32_t *)((uintptr_t)&got_more_n | 0x20000000))++;
     return (m & 0x3FFF) | (bg2.late ? 0x4000 : 0);
 }
@@ -776,6 +795,7 @@ static void pal_wait(int where)
 static void pace_vbi(void)
 {
     if (pal_go < 0 || (MARS_VDP_FBCTL & MARS_VDP_FS) != pal_go) return;
+    TR(6, pal_go);
     volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
     for (int i = 1; i < 256; i++) if ((i & 15) && cram_pend[i] != cram_shadow[i]) cram[i] = cram_shadow[i] = cram_pend[i];
     pal_go = -1;
@@ -1068,6 +1088,7 @@ static void draw_hook(V32 *v)
 #ifdef BG2_DRAW
         CRUMB_M(0x11);
         pal_wait(0x11);                                       /* (on screen, its colours in: pace_vbi saw the swap) */
+        TR(3, 0);
         CRUMB_M(0x51);
         LT_MARK(0);
         bg2_take();                                           /* (the commit done, the frame buffer back) */
@@ -1105,6 +1126,9 @@ static void draw_hook(V32 *v)
 #if defined(DX_ENGINE) && defined(GOT_MENU)
     if (gm_wipe_n) { gm_wipe_n--; gm_wipe(cur ^ 1); }         /* (docs/56: the menu's picture off this buffer, the sprites all drawn again) */
     if (gm_open) gm_draw(); else { spr_frame(v, cur ^ 1); BGX_AFTER(v, cur ^ 1); if (gm_banner) gm_note(); }
+#if defined(SAP_TRACE) && defined(BG2_X32)
+    { extern uint32_t bgx_cells; TR(9, bgx_cells); }
+#endif
 #else
     spr_frame(v, cur ^ 1); BGX_AFTER(v, cur ^ 1);
 #endif
@@ -1142,6 +1166,7 @@ static void draw_hook(V32 *v)
         while (SEC_DONE != job) { CDG_SPIN(0x12); for (int i = 0; i < 64; i++) __asm__ volatile(""); }   /* (the list made; docs/116: the
                                                      SDRAM read past the cache each 64 steps - the bus the secondary's) */
 #ifdef DX_ENGINE
+        TR(4, SEC_N);
         const int n = SEC_N & 0x3FFF; bg2_pairs = (SEC_N & 0x8000) != 0;
         {   /* docs/115: after the background was off (a new screen loaded meanwhile), the plane stays covered - the
                32X's colour 0 opaque, the PC Engine's 0x100 - until a picture's list is all of it: the screen comes
@@ -1169,6 +1194,7 @@ static void draw_hook(V32 *v)
         SEC_T(3, ta);
         bg2_sent++; bg2_words += (uint32_t)n;
         bg2_send(BG2_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
+        TR(5, n);
 #ifdef LIST_TIMES
         lt_w = (uint32_t)n; lt_d = 0; lt_s = wdt_now();
 #endif
@@ -1303,7 +1329,7 @@ static void eng_main(void);                                   /* (src/eng.c, at 
 int main(void)
 {
 #ifdef DX_ENGINE
-#if defined(LIST_TIMES) || defined(SEC_TIMES)
+#if defined(LIST_TIMES) || defined(SEC_TIMES) || defined(SAP_TRACE)
     prof_init();                                              /* (docs/67: SEC_TIMES on the engine build too) */
 #endif
     eng_main();

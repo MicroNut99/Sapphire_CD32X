@@ -1037,8 +1037,14 @@ void spr_under(const V32 *v, int buf, const SprBuf *b, uint16_t *dirty)
             if (c < 15 && (m >> (c + 1) & 1)) { spr_clear(row + 16 * c, 16, 16); c++; }
             else spr_clear(row + 16 * c, 8, 16); }
     }
+#ifdef SAP_TRACE
+    { extern void sap_trace(uint32_t, uint32_t); sap_trace(12, 0); }
+#endif
     if (!bgx_set || !(v->t.CR & 0x80)) { bgx_cells = 0; return; }
     bgx_cells = (uint32_t)bgx_draw(v->vram, v->MWR, eng_lines, bgx_set, bgx_base, b->ovl, sq);
+#ifdef SAP_TRACE
+    { extern void sap_trace(uint32_t, uint32_t); sap_trace(13, bgx_cells); }
+#endif
     for (int r = 0; r < 14; r++) dirty[r] |= sq[r];
 }
 /* docs/60: after the sprites - a sprite behind the background (its palette shown through, spr_thr) that lies over
@@ -1555,6 +1561,9 @@ static void eng_main(void)
 #endif
         if (f == eng_last) continue;
         eng_last = f;
+#ifdef SAP_TRACE
+        { extern void sap_trace(uint32_t, uint32_t); sap_trace(1, f); }
+#endif
 
 #ifdef DX_CONDIAG
         CDG_WHERE = 2;
@@ -1636,6 +1645,9 @@ static void eng_main(void)
             }
 #endif
             eng_scroll(); } eng_verify());
+#ifdef SAP_TRACE
+        { extern void sap_trace(uint32_t, uint32_t); sap_trace(2, eng_last); }
+#endif
 #ifdef SEC_TIMES
         SEC_T(9, tm);
 #endif
