@@ -66,6 +66,9 @@ static uint32_t eng_aud;                                      /* (docs/103: the 
 static uint32_t eng_cdfail; static uint16_t eng_cdlast;      /* (docs/169: commands that did not answer or refused; the last: 91xx / 4500 / 5400) */
 static int eng_tlast;                                         /* (docs/50: the game's last CD-DA track asked, 0 none) */
 static uint32_t eng_mix;                                      /* (docs/76: pictures read again - the game wrote meanwhile) */
+#ifdef SAP_V10PIC
+static int eng_sync;                                          /* (docs/81: v10's picture reading back - docs/75) */
+#endif
 static uint32_t eng_rd2;                                      /* (docs/74: VRAM blocks whose two readings differed) */
 static uint32_t eng_fixn;                                     /* (docs/50: VRAM blocks the verify found wrong in the copy) */
 static int eng_playing;                                       /* (docs/169: the Sega CD is playing, as far as this program has told it) */
@@ -926,7 +929,11 @@ static void eng_picture(uint32_t done)
         const uint16_t tag = (uint16_t)(VSRC_CODE | ((under_way ? s + 0x4000 : s) & 0x7FFF));
         for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;   /* (a cell, 4 units of 16 words) */
     }
+#ifdef SAP_V10PIC
+    if (uw && !ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) eng_sync = 60;        /* (docs/75, back in docs/81: pictures with no sprites - the intro) */
+#else
     (void)uw;
+#endif
     for (int i = 0; i < 512; i++) eng_v.color[i] = ENG_R(ENG_W6, 0x20800 + 2 * i);
     eng_v.BXR = ENG_R(ENG_W6, 0x20E00); eng_v.BYR = ENG_R(ENG_W6, 0x20E02); eng_v.MWR = ENG_R(ENG_W6, 0x20E04);
     eng_v.t.CR = ENG_R(ENG_W6, 0x20E06);
@@ -1145,6 +1152,9 @@ static uint32_t eng_stg_used, eng_stg_more;
 static void eng_prefetch(void)
 {
     eng_stg.ok = 0;
+#ifdef SAP_V10PIC
+    if (eng_sync) return;
+#endif
     const uint32_t f = ENG_R(ENG_W6, 0x20E08);
     if (f == eng_last) return;                                /* (no newer frame yet) */
     eng_stg.r[0] = ENG_R(ENG_W6, 0x20E00); eng_stg.r[1] = ENG_R(ENG_W6, 0x20E02); eng_stg.r[2] = ENG_R(ENG_W6, 0x20E04);
@@ -1159,6 +1169,9 @@ static void eng_prefetch(void)
         eng_stg.blk[nb] = (uint16_t)k; eng_stg.st[nb] = s;
         eng_blk_read(k, eng_stg.data[nb]);
         nb++;
+#ifdef SAP_V10PIC
+        if ((int16_t)(s - (uint16_t)f) > 0 && !ENG_SPR_ON(eng_stg.r[3])) { eng_sync = 60; return; }
+#endif
     }
     for (int i = 0; i < 512; i++) eng_stg.color[i] = ENG_R(ENG_W6, 0x20800 + 2 * i);
     if (ENG_SPR_ON(eng_stg.r[3])) for (int i = 0; i < 256; i++) eng_stg.sat[i] = ENG_R(ENG_W6, 0x20C00 + 2 * i);
@@ -1539,12 +1552,30 @@ static void eng_main(void)
                moved means the game wrote meanwhile (the map half of one pose, half of the next) - the changed blocks are
                read again, with the frame that is whole by then, up to four times */
             uint32_t g = f;
+#ifdef SAP_V10PIC
+            /* docs/81 (the owner, of v16: "go back to the first one that looked good" - v10's intro on the console):
+               v10's reading - a picture that found a block under way makes the next 60 wait for a frame's end */
+            if (ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) eng_sync = 0;   /* (a stage: v16's reading - ares, v10's: tiles scrambled) */
+            if (eng_sync) {
+                eng_sync--;
+                for (int n = 0; n < 60000 && ENG_R(ENG_W6, 0x20E08) == g; n++) { }
+                g = ENG_R(ENG_W6, 0x20E08); eng_last = g;
+            }
+            if (eng_sync || !ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) eng_picture(g);
+            else for (int t = 0; t < 4; t++) {
+                eng_picture(g);
+                if (eng_still()) break;
+                eng_mix++;
+                g = ENG_R(ENG_W6, 0x20E08); eng_last = g;
+            }
+#else
             for (int t = 0; t < 4; t++) {
                 eng_picture(g);
                 if (eng_still()) break;
                 eng_mix++;
                 g = ENG_R(ENG_W6, 0x20E08); eng_last = g;
             }
+#endif
             eng_scroll(); } eng_verify());
 #ifdef SEC_TIMES
         SEC_T(9, tm);

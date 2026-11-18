@@ -70,7 +70,7 @@ q = lambda x: '"%s"' % x.upper() if x else '0'
 open(sys.argv[2], 'w').write('#define SAP_SUBS\nstatic const char *const sap_subs_en[5][3] = {\n' +
     ''.join('    { %s, %s, %s },\n' % (q(l[3 * i]), q(l[3 * i + 1]), q(l[3 * i + 2])) for i in range(5)) + '};\n')
 PYE
-[ "${COW:-1}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
+[ "${COW:-$([ "${V10PIC:-1}" = 1 ] && echo 0 || echo 1)}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -165,6 +165,10 @@ PYE
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"
 [ "${LNMARK:-0}" = 1 ] && RTX="$RTX -DSAP_LNMARK"   # (docs/73: the core's sprite line marks - off: bad on the console)
+# V10PIC=1 (the default from v17, docs/81): v10's picture reading (eng_sync) and no copy-on-write of the plane's tiles
+# (sap_bg3.patch off): the owner saw v10's intro on the console as the best; v11-v16's changes there measured better in
+# ares only. V10PIC=0: v16's.
+[ "${V10PIC:-1}" = 1 ] && RTX="$RTX -DSAP_V10PIC"
 PV=; [ "${PADVB:-1}" = 1 ] && { PV="PADVB=1"; RTX="$RTX -DSAP_PADVB"; }   # (docs/67: the pad at every blank - COMM4 / COMM6 the stack's then,
                                                                            #  so ares's logs have no engine frame: PADVB=0 for the comparison runs)
 env PACKED=1 EDCD_PACKED=1 EDCD_W0=15 GEN="$B/gen" ENG=1 MARKS=1 SPR=1 PACE=1 BG=1 SEC=2 CDR=1 RT_LEAVE_ASM=0 ${RTX:+RTX="$RTX"} X32=${X32:-1} \
