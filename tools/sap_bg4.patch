@@ -1,0 +1,61 @@
+--- a/rt_bg2.c	2026-11-18 08:57:48.554005128 -0800
++++ b/rt_bg2.c	2026-11-18 09:22:46.717590380 -0800
+@@ -137,6 +137,10 @@
+    from N and leaves bg2_x32_draw when no entry is left to send (x32_leave): the 32X draws it over the plane until
+    then. */
+ uint16_t bg2_x32_draw; int bg2_x32_room;
++int bg2_x32_all, bg2_x32_allow;  /* (allow: eng.c, no sprite on the screen; all: while the plane changes a lot too) */
++static uint8_t x32_heavy;                                   /* (Sapphire docs/82: every palette on the map to the 32X - its frame buffer is
++                                                     swapped whole, so a picture is never seen half sent; eng.c sets it for the
++                                                     pictures with no sprites, the intro's) */
+ #ifndef X32_BUDGET
+ #define X32_BUDGET 4096
+ #endif
+@@ -599,7 +603,7 @@
+         int p = 15; while (!(x32_set >> p & 1)) p--;
+         x32_back(b, p, chgd);
+     }
+-    if (x32_set && bg2_x32_budget < 4096) {           /* (Sapphire docs/68: over the budget - a palette that went while it had
++    if (x32_set && bg2_x32_budget < 4096 && !bg2_x32_all) {           /* (Sapphire docs/68: over the budget - a palette that went while it had
+                                                      few entries, and the stage scrolled more of it in: the biggest back,
+                                                      until the rest is within it; checked every BG2_MTRY pictures) */
+         uint16_t cnt[16] = { 0 }; const int ne = map_n(v);
+@@ -669,6 +673,10 @@
+     uint16_t chgd0[16];
+     if (q_due) quiet_keep(b, chgd, chgd0);
+ #endif
++#ifdef BG2_X32
++    if (bg2_x32_all)                                /* (Sapphire docs/82: all of them to the 32X, as its room allows) */
++        for (int p = 0; p < 16; p++) if (b->used[p] && popc16(x32_set) < bg2_x32_room) x32_go(b, p, chgd);
++#endif
+     int ok = 1;
+     for (int p = 0; p < 16 && ok; p++) if (b->used[p] && b->g[p] >= 0) ok = place(b, p, b->used[p], v, 0, chgd);
+     if (ok) for (int p = 0; p < 16 && ok; p++) if (b->used[p] && b->g[p] < 0) ok = place(b, p, b->used[p], v, 0, chgd);
+@@ -694,7 +702,7 @@
+         ok = 1;
+         for (int p = 0; p < 16 && ok; p++) if (b->used[p] && !place(b, p, b->used[p], v, 0, chgd)) ok = make_room(b, p, v, chgd);
+     }
+-    if (ok && x32_set && x32_due) {                 /* (every BG2_MTRY pictures: what is no longer on the map let go, and a
++    if (ok && x32_set && x32_due && !bg2_x32_all) {                 /* (every BG2_MTRY pictures: what is no longer on the map let go, and a
+                                                      palette that fits again without moving another comes back) */
+         x32_due = 0;
+         RECOUNT(b, v);
+@@ -1221,6 +1229,8 @@
+         for (int a = t * 16; a < t * 16 + 16; a++) { const uint16_t e = v->vram[a]; set_dirty(b, a); up |= B16(e >> 12);
+             b->used[e >> 12] |= tget(b, T_MASK(e & 0x7FF)) & ~1u; }
+         b->upal[t] = up; }
++    if (ntchg >= 24) x32_heavy = 30; else if (x32_heavy) x32_heavy--;   /* (Sapphire docs/82) */
++    bg2_x32_all = bg2_x32_allow && x32_heavy;
+     if (ntchg) ST(b->st.scan_t++);
+     if (ntchg) for (int a = 0; a < ne; a++) { const uint16_t e = v->vram[a]; const unsigned t = e & 0x7FF;
+         if (tchg[t >> 3] & B8(t & 7)) { set_dirty(b, a); b->used[e >> 12] |= tget(b, T_MASK(t)) & ~1u; } }
+@@ -1254,6 +1264,9 @@
+         if (x32_try) x32_try--; else { x32_try = BG2_MTRY; x32_due = 1; ch ^= 2; }
+         if (popc16(x32_set) > bg2_x32_room) { ch ^= 4; b->hold = 0; }
+     }
++    if (bg2_x32_all) { int any = 0; for (int p = 0; p < 16; p++) any |= b->used[p] != 0;   /* (docs/82: one still on the plane) */
++        if (any) { ch ^= 8; b->hold = 0; } }
++    {   static int was; if (was && !bg2_x32_all) { ch ^= 16; b->hold = 0; x32_due = 1; } was = bg2_x32_all; }   /* (all back) */
+ #endif
+     if (ch == b->colhash) ok = b->col_ok;
+     else if (b->hold) { b->hold--; ok = b->col_ok; ch = b->colhash; }

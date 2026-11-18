@@ -813,6 +813,9 @@ static void bgx_assign(void)
    given): the 32X palettes free of sprites - by their most in the last pictures, falling one every 64 - less a spare,
    BGX_ROOM at most; none with the background off */
 extern int bg2_x32_budget;                                    /* (docs/68: tools/sap_bg2.patch) */
+#ifdef SAP_X32ALL
+extern int bg2_x32_all, bg2_x32_allow;
+#endif
 static void bgx_slots(uint16_t taken, int bg_on)
 {
     static uint8_t peak, fall;
@@ -824,6 +827,16 @@ static void bgx_slots(uint16_t taken, int bg_on)
     if (n >= peak) { peak = (uint8_t)n; fall = 0; } else if (++fall >= 64) { fall = 0; peak--; }
     const int room = 15 - peak;
     bg2_x32_room = gm_col == 2 ? 0 : room > BGX_ROOM ? BGX_ROOM : room < 0 ? 0 : room;   /* (docs/68: COLOURS FAST - none) */
+#ifdef SAP_X32ALL
+    /* docs/82: a picture with no sprites (the intro: its ship is all background, a pose every 2 frames) - every palette
+       on the map to the 32X, whose frame buffer is swapped whole: no picture seen half sent to the plane (the console's
+       blocks, two poses at once). Room: all 16 then (no sprite needs a 32X palette) */
+    {   int none = 1;                                         /* (no sprite on the screen: CR's sprite bit is on in the intro) */
+        for (int i = 0; i < 64 && none; i++) { const int y = eng_v.sat[4 * i] & 0x3FF, x = eng_v.sat[4 * i + 1] & 0x3FF;
+            if (y > 0 && y < 64 + 240 && x > 0 && x < 32 + 256 + 32) none = 0; }
+        bg2_x32_allow = bg_on && none && gm_col != 2; }
+    if (bg2_x32_allow) bg2_x32_room = 15;
+#endif
     bg2_x32_budget = gm_col == 1 ? 4096 : 256;                /* (docs/68: AUTO - the 32X's palettes 256 entries of the map at most:
                                                                  the title's small ones, not stage 1's large; EXACT - any) */
 }
@@ -865,6 +878,9 @@ static void spr_prio(void)
    pieces on the console (v5-v8), whole in ares, whose window never reads wrong. eng_rd2: the blocks read again */
 static void eng_blk_read(int k, uint16_t *d)
 {
+#ifdef SAP_SLOW
+    for (volatile uint32_t n = SAP_SLOW; n; n--) { }
+#endif
     const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
     for (int i = 0; i < 64; i++) d[i] = src[i];
     for (int t = 0; t < 3; t++) {
@@ -906,6 +922,27 @@ static void eng_noflash(void)
         else flash_pal[k] = (uint8_t)pal;
     }
 }
+#ifdef SAP_QUIET
+/* docs/82: the game rewrites the intro's ship (about 100 tile blocks, then the map) just after each frame begins, and
+   is idle the rest of the frame. A picture read while it writes has two poses mixed - on the console a picture's reads
+   begin anywhere in a frame (in ares, slowed to the console's pace: 7.9 % of pixels off; read at once after each
+   frame's end: none). Here: wait for the next frame to begin, then for the stamps to stand still (the game's writes for
+   that frame done), and read then */
+static uint32_t eng_quiet(uint32_t g)
+{
+    const uint32_t sb = ENG_W6 + 0x20000;
+    for (uint32_t n = 0; n < 400000u && ENG_R(ENG_W6, 0x20E08) == g; n++) { }
+    g = ENG_R(ENG_W6, 0x20E08);
+    uint32_t h0 = 0;
+    for (int still = 0, n = 0; still < 2 && n < 64; n++) {
+        uint32_t h = 2166136261u;
+        for (int k = 0; k < 512; k++) h = (h ^ ENG_R(sb, 2 * k)) * 16777619u;
+        still = h == h0 ? still + 1 : 0; h0 = h;
+        if (ENG_R(ENG_W6, 0x20E08) != g) { g = ENG_R(ENG_W6, 0x20E08); still = 0; }
+    }
+    return g;
+}
+#endif
 static int eng_still(void)                                    /* every stamp as the copy has it? */
 {
     const uint32_t sb = ENG_W6 + 0x20000;
@@ -1154,6 +1191,9 @@ static void eng_prefetch(void)
     eng_stg.ok = 0;
 #ifdef SAP_V10PIC
     if (eng_sync) return;
+#endif
+#ifdef SAP_QUIET
+    if (!ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) return;          /* (docs/82: such pictures read when the game is idle) */
 #endif
     const uint32_t f = ENG_R(ENG_W6, 0x20E08);
     if (f == eng_last) return;                                /* (no newer frame yet) */
@@ -1552,6 +1592,25 @@ static void eng_main(void)
                moved means the game wrote meanwhile (the map half of one pose, half of the next) - the changed blocks are
                read again, with the frame that is whole by then, up to four times */
             uint32_t g = f;
+#ifdef SAP_SLOW
+            /* docs/82 (test builds only, SLOW=<n>): the console's pace in ares - its pictures came 25.8 a second (v9's
+               STATUS), ares' near 60, each read just after a frame's end. Here a picture's reads wait a random spin first
+               (they begin anywhere in a frame, as the console's) and each VRAM block read costs SAP_SLOW spins */
+            {   static uint32_t rnd = 12345;
+                rnd = rnd * 1103515245u + 12345u;
+                for (volatile uint32_t n = (rnd >> 16) % 30000u; n; n--) { }
+            }
+#endif
+#ifdef SAP_QUIET
+            if (!ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) {
+                for (int t = 0; t < 4; t++) {
+                    g = eng_quiet(g); eng_last = g;
+                    eng_picture(g);
+                    if (eng_still()) break;
+                    eng_mix++;
+                }
+            } else
+#endif
 #ifdef SAP_V10PIC
             /* docs/81 (the owner, of v16: "go back to the first one that looked good" - v10's intro on the console):
                v10's reading - a picture that found a block under way makes the next 60 wait for a frame's end */

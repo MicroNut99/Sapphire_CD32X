@@ -615,14 +615,28 @@ static int sec_bg_job(const V32 *v, int buf) {
 #define GOT_MORE_WORDS 16000
 #define GOT_MORE_RUN 90
 #define GOT_MORE_REST 60
+/* Sapphire docs/82: a picture with no sprite on the screen (the intro's ship is all background; its CR has the sprite
+   bit on all the same) */
+static int sap_nospr(const V32 *v)
+{
+    for (int i = 0; i < 64; i++) {
+        const int y = v->sat[4 * i] & 0x3FF, x = v->sat[4 * i + 1] & 0x3FF;
+        if (y > 0 && y < 64 + 240 && x > 0 && x < 32 + 256 + 32) return 0;
+    }
+    return 1;
+}
 static int sec_bg_more(const V32 *v, int n)
 {
     static uint32_t t_run, t_rest; static uint8_t in_run, in_rest;
     const uint32_t now = *(volatile uint32_t *)((uintptr_t)&gTicks | 0x20000000);
-    if (in_rest) { if (now - t_rest < GOT_MORE_REST) return n; in_rest = 0; }
+    /* (Sapphire docs/82: no sprite on the screen - nothing played to slow, so no run limit and no rest: the intro's ship
+       changes the whole screen for over 1.5 s, and in the rest that followed the plane fell 15-20 frames behind, half
+       sent - the console's blocks and two poses at once) */
+    const int free_run = sap_nospr(v);
+    if (in_rest && !free_run) { if (now - t_rest < GOT_MORE_REST) return n; in_rest = 0; }
     if (bg2.ndirty <= 64) { in_run = 0; return n; }
     if (!in_run) { in_run = 1; t_run = now; }
-    else if (now - t_run > GOT_MORE_RUN) { in_run = 0; in_rest = 1; t_rest = now; return n; }
+    else if (!free_run && now - t_run > GOT_MORE_RUN) { in_run = 0; in_rest = 1; t_rest = now; return n; }
     const int m = bg2_more(&bg2, v, (uint16_t *)0x24000000, GOT_MORE_WORDS);
     (*(volatile uint32_t *)((uintptr_t)&got_more_n | 0x20000000))++;
     return (m & 0x3FFF) | (bg2.late ? 0x4000 : 0);

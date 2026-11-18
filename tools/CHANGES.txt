@@ -1,3 +1,4 @@
+v18 the intro ship drawn by the 32X while the screen changes a lot (no blocks, no two poses); long background lists not rationed when no sprite is on screen
 v17 the intro ship read as in v10 (the owner saw v10 as the best intro on the console); the rest of v16 kept
 v16 the background no longer jumps for a frame (the stack read the status bar's scroll back as the top one at the swap)
 v15 English subtitles for the between-stage dialogue (one player), under ENGLISH TEXT
