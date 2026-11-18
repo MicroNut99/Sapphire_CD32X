@@ -1,0 +1,39 @@
+--- a/rt_bg2.c	2026-11-18 12:11:01.599738884 -0800
++++ b/rt_bg2.c	2026-11-18 12:18:00.656504858 -0800
+@@ -1290,6 +1290,36 @@
+ #ifndef __sh__
+     bg2_dbg_any = any; bg2_dbg_nd0 = b->ndirty;   /* (bg2_host: the colours placed again this picture; the entries to send) */
+ #endif
++#ifdef SAP_COLNOW
++    /* Sapphire docs/83: a new screen (64 entries or more to send) - its colours now, before its entries, not kept for
++       the swap: the kept runs land a picture later (the Genesis's commit at the 32X's swap), and for that picture the
++       new entries showed in the old screen's colours (the end of NOW LOADING: the black screen's 1,024 entries of one
++       tile in the loading text's colours - a frame of white and orange stripes; the original is black) */
++#ifdef BG2_X32
++    /* (not while the 32X draws palettes, or a palette goes back to the plane: those entries change with the 32X's
++       picture, at the swap - with the colours now, the ship's old entries showed in the new colours, black, for the
++       3 frames before the 32X's picture came: ares 1716-1718, the small ship gone) */
++    if (b->ndirty >= 64 && !x32_set && !x32_leave && !x32_enter && !x32_wait && !bg2_x32_draw) {
++#else
++    if (b->ndirty >= 64) {
++#endif
++        run_close(b);
++        for (int c0 = 1; c0 < 64; ) {
++            const int g0 = c0 >> 4, j0 = c0 & 15;
++            if (!j0 || !b->gref[g0][j0] || b->cram[g0][j0] == b->gcol[g0][j0]) { c0++; continue; }
++            int c1 = c0; while (c1 + 1 < 64 && ((c1 + 1) & 15) && b->gref[(c1 + 1) >> 4][(c1 + 1) & 15]) c1++;
++            const int n = c1 - c0 + 1;
++            if (b->ln + 6 + n > BG2_LIST_WORDS) break;
++            list_word(b, 0x1002); list_word(b, (uint16_t)(0xC000 | 2 * c0)); list_word(b, 0); list_word(b, (uint16_t)(0x2000 | n));
++            for (int c = c0; c <= c1; c++) { const unsigned v9 = b->gcol[c >> 4][c & 15];
++                list_word(b, (uint16_t)((v9 & 7) << 9 | (v9 >> 6 & 7) << 5 | (v9 >> 3 & 7) << 1));
++                if (b->cram[c >> 4][c & 15] != b->gcol[c >> 4][c & 15]) ST(b->st.cols++);
++                b->cram[c >> 4][c & 15] = b->gcol[c >> 4][c & 15]; }
++            c0 = c1 + 1;
++        }
++        b->run_addr = 0xFFFFFFFFu;   /* (the VDP's address is CRAM's now: the next entry run sets its own) */
++    }
++#endif
+     send_entries(b, v, ne, LROOM);
+ #ifdef SPR_HUD
+     hud_frame(b, v, 0);                           /* (docs/83: the HUD's changed tiles, as data runs) */

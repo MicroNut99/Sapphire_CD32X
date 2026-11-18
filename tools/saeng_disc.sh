@@ -72,6 +72,7 @@ open(sys.argv[2], 'w').write('#define SAP_SUBS\nstatic const char *const sap_sub
 PYE
 [ "${COW:-$([ "${V10PIC:-1}" = 1 ] && echo 0 || echo 1)}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 [ "${X32ALL:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg4.patch"; RTX_X32ALL=1; }   # (docs/82: the intro drawn whole by the 32X; X32ALL=0 without)
+[ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -172,6 +173,7 @@ PYE
 [ "${V10PIC:-1}" = 1 ] && RTX="$RTX -DSAP_V10PIC"
 [ -n "${SLOW:-}" ] && RTX="$RTX -DSAP_SLOW=$SLOW"
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
+[ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
 [ "${QUIET:-0}" = 1 ] && RTX="$RTX -DSAP_QUIET"   # (docs/82: tried, no gain measured - off)   # (docs/82: test builds - the console's pace in ares; never in a kit)
 PV=; [ "${PADVB:-1}" = 1 ] && { PV="PADVB=1"; RTX="$RTX -DSAP_PADVB"; }   # (docs/67: the pad at every blank - COMM4 / COMM6 the stack's then,
                                                                            #  so ares's logs have no engine frame: PADVB=0 for the comparison runs)
