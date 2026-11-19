@@ -1,5 +1,5 @@
 --- a/rt_bg2.c	2026-11-18 12:11:01.599738884 -0800
-+++ b/rt_bg2.c	2026-11-19 07:04:34.767650587 -0800
++++ b/rt_bg2.c	2026-11-19 12:00:03.247898476 -0800
 @@ -137,6 +137,24 @@
     from N and leaves bg2_x32_draw when no entry is left to send (x32_leave): the 32X draws it over the plane until
     then. */
@@ -7,7 +7,7 @@
 +#ifdef SAP_REPL
 +int bg2_replaced;
 +#endif
-+uint32_t bg2_sap_covers;
++uint32_t bg2_sap_covers, bg2_sap_uncov, bg2_sap_why[4];   /* (covers made; big moves not covered - no room, or the 32X moved too) */ int bg2_x32_free = 16;   /* (eng.c bgx_slots: the 32X palettes no sprite takes now) */
 +#ifdef SAP_COVER
 +/* Sapphire docs/86: palettes placed again with many entries to send - the 32X draws them over the plane while it is
 +   rewritten. The pack found at picture N is put back; N's job tells the 32X (bg2_x32_draw) and the master draws those
@@ -34,7 +34,7 @@
  #endif
      return b->ln;
  }
-@@ -1148,6 +1166,48 @@
+@@ -1148,6 +1166,68 @@
  #ifdef BG2_MAPSIZE
  static int bg2_tail_hi;                            /* (Sapphire docs/68: the old map's entries from ne to here still hold their slots) */
  #endif
@@ -42,7 +42,7 @@
 +static int colours(Bg2 *b, const V32 *v, uint16_t *chgd) __attribute__((noinline));   /* (stays in SDRAM: the fit's work, often) */
 +/* (in the ROM with the read-only data, not with the rest of this file in SDRAM: SDRAM is full - the master's stack -
 +   and this runs only when the colours change) */
-+static int __attribute__((noinline, section(".rodata.sap_cover"))) sap_cover_colours(Bg2 *b, const V32 *v, uint16_t *chgd, int ne, uint32_t *chp)
++static int __attribute__((noinline, section(".rodata.sap_cover"))) sap_cover_colours(Bg2 *b, const V32 *v, uint16_t *chgd, int ne, int nbat, uint32_t *chp)
 +{
 +    int ok; uint32_t ch = *chp;
 +    /* (the colours as they stand - gcol to cram in one block: gcol gref g m chg ver; then used and lossy - kept in the
@@ -54,24 +54,44 @@
 +    uint8_t s_merging, s_mtry;
 +    s_merging = b->merging; s_mtry = b->mtry;
 +#ifdef BG2_X32
-+    const uint16_t s_x32 = x32_set;   /* (x32_go and x32_back both change it: a move to or from the 32X - left as it is) */
++    /* (the 32X's palettes as they stand too: docs/87 - a palette sent back from the 32X, or to it, in the same call
++       was left uncovered; put back with the rest, the move comes again at N + 2, under the cover) */
++    uint16_t s_x[21]; s_x[0] = x32_set; s_x[1] = x32_blank; s_x[2] = x32_leave; s_x[3] = x32_enter; s_x[4] = x32_wait;
++    memcpy(s_x + 5, x32_keep, 32);
++    const uint8_t s_xt = x32_try, s_xd = x32_due, s_xz = x32_zero;
 +#endif
 +    ok = colours(b, v, chgd);
 +    uint16_t mv = 0; for (int p = 0; p < 16; p++) if (chgd[p] && s_g[p] >= 0) mv |= B16(p);
 +    int nmv = 0;
 +    /* (not for a new screen - its entries to send already, the colours sent first: docs/83's NOW LOADING stripes came back
 +       under a cover of black cells - nor while every palette is the 32X's, docs/82) */
-+    if (mv && !sap_cover && b->ndirty < 400
++    if (mv && !sap_cover && b->ndirty < 400 && nbat < 16   /* (docs/87: and not with a quarter of the map's entries rewritten
++                                                     this picture - NOW LOADING's end had fewer than 400 left to send, its stripes came back) */
 +#ifdef SAP_X32ALL
 +        && !bg2_x32_all
 +#endif
 +#ifdef BG2_X32
-+        && x32_set == s_x32 && popc16(x32_set | x32_leave | mv) <= bg2_x32_room
++        && popc16(x32_set | x32_leave | mv) <= bg2_x32_free - 1
 +#endif
 +       ) for (int a = 0; a < ne; a++) nmv += mv >> (v->vram[a] >> 12) & 1;
++    if (nmv < SAP_COVER_MIN && mv && !sap_cover) {   /* (counted: a big move the cover could not take) */
++        int all = 0; for (int a = 0; a < ne; a++) all += mv >> (v->vram[a] >> 12) & 1;
++        if (all >= SAP_COVER_MIN) { bg2_sap_uncov++;
++            if (b->ndirty >= 400 || nbat >= 16) bg2_sap_why[0]++;
++#ifdef SAP_X32ALL
++            else if (bg2_x32_all) bg2_sap_why[1]++;
++#endif
++#ifdef BG2_X32
++            else if (popc16(x32_set | x32_leave | mv) > bg2_x32_free - 1) bg2_sap_why[2]++;
++#endif
++            else bg2_sap_why[3]++; } }
 +    if (nmv >= SAP_COVER_MIN) {               /* (picture N: the pack put back, the 32X told) */
 +        memcpy(b->gcol, sn, c_n); memcpy(b->used, sn + c_n, 32); memcpy(b->lossy, sn + c_n + 32, 32);
 +        b->merging = s_merging; b->mtry = s_mtry;
++#ifdef BG2_X32
++        x32_set = s_x[0]; x32_blank = s_x[1]; x32_leave = s_x[2]; x32_enter = s_x[3]; x32_wait = s_x[4];
++        memcpy(x32_keep, s_x + 5, 32); x32_try = s_xt; x32_due = s_xd; x32_zero = s_xz;
++#endif
 +        for (int p = 0; p < 16; p++) chgd[p] = 0;
 +        ok = b->col_ok; ch = b->colhash;          /* (the colours as they were: tried again at N + 2) */
 +        sap_cover = mv; sap_cover_wait = 1; bg2_sap_covers++;
@@ -83,13 +103,13 @@
  int bg2_frame(Bg2 *b, const V32 *v, int cur)
  {
  #ifdef BG2_MAPSIZE
-@@ -1270,14 +1330,19 @@
+@@ -1270,14 +1350,19 @@
  #endif
      if (ch == b->colhash) ok = b->col_ok;
      else if (b->hold) { b->hold--; ok = b->col_ok; ch = b->colhash; }
 +#ifdef SAP_COVER
 +    else if (sap_cover_wait) { sap_cover_wait--; ok = b->col_ok; ch = b->colhash; }   /* (N + 1: the 32X's cells first) */
-+    else ok = sap_cover_colours(b, v, chgd, ne, &ch);
++    else ok = sap_cover_colours(b, v, chgd, ne, nbat, &ch);
 +#else
      else { ok = colours(b, v, chgd); b->fails = ok ? 0 : b->fails + 1; if (b->fails >= BG2_FAILS) { b->hold = BG2_HOLD; b->fails = 0; } }
 +#endif
@@ -104,7 +124,7 @@
      }
  #endif
      int any = 0; for (int p = 0; p < 16; p++) any |= chgd[p];
-@@ -1290,6 +1355,36 @@
+@@ -1290,6 +1375,36 @@
  #ifndef __sh__
      bg2_dbg_any = any; bg2_dbg_nd0 = b->ndirty;   /* (bg2_host: the colours placed again this picture; the entries to send) */
  #endif
@@ -141,7 +161,7 @@
      send_entries(b, v, ne, LROOM);
  #ifdef SPR_HUD
      hud_frame(b, v, 0);                           /* (docs/83: the HUD's changed tiles, as data runs) */
-@@ -1406,7 +1501,7 @@
+@@ -1406,7 +1521,7 @@
  #endif
  #ifdef BG2_X32
      if (!b->ndirty) x32_leave = 0;                 /* (come back, and every entry sent: the 32X draws it no more) */
@@ -150,7 +170,7 @@
  #endif
  #ifndef __sh__
      b->st.frames++; b->st.behind += b->late;
-@@ -1414,6 +1509,41 @@
+@@ -1414,6 +1529,41 @@
      if (b->ln > b->st.list_max) b->st.list_max = b->ln;
      b->st.words += b->ln;
  #endif

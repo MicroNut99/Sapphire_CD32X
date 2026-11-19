@@ -1,3 +1,4 @@
+v22 the 32X cover reaches more of the colour moves (the sprites' free 32X palettes now; moves to and from the 32X put back too; not over a screen being rewritten); in a stage the sprites keep room for 9 palettes (stage 1's orange city at its start)
 v21 INFINITE CREDIT in the options (the credits kept at 9, the game's most); the background's palettes moved by the merge are drawn by the 32X while the plane is rewritten (the wrong-colour walls)
 v20 the white screen before the title is black (the game fades to white there; the owner asked for it gone)
 v19 the white and orange stripes for one frame as NOW LOADING ends are gone (a new screen's colours now sent before its tiles)

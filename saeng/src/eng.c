@@ -836,8 +836,23 @@ static void bgx_slots(uint16_t taken, int bg_on)
         bgx_seq0 = bgx_seq1 = now; }                          /* (before this picture's job is given) */
     bgx_taken = bg_on ? taken : 0xFFFF;
     int n = 0; for (int q = 0; q < 16; q++) n += taken >> q & 1;
+#ifdef SAP_COVER
+    {   extern int bg2_x32_free;                              /* (docs/87: the cover's room - the 32X palettes the sprites take now,
+                                                     not by their peak: bgx_assign gives the 32X's palettes by what they take now) */
+        bg2_x32_free = bg_on ? 16 - n : 0; }
+#endif
     if (n >= peak) { peak = (uint8_t)n; fall = 0; } else if (++fall >= 64) { fall = 0; peak--; }
-    const int room = 15 - peak;
+#ifndef SAP_PEAK_MIN
+#define SAP_PEAK_MIN 9
+#endif
+    /* docs/87 (v21 on the console: stage 1's city orange, spreading for 0.3 s, as the stage begins): the room fell as
+       the sprites came (the briefing had none: the peak had fallen), a palette had to leave the 32X, the merge placed
+       every palette again - 16,000 list words, ~16 frames of new tiles in old colours. The sprites are given at least
+       SAP_PEAK_MIN palettes' room: stage 1 shows 3-7 sprite palettes, 8 at times, 10 once (the PC machine, every 20th
+       frame of 11,700) - the room falls in play no more. In a stage only (sap_in): at the title and the briefings the
+       floor made the engine ~600 frames late by stage 1 (ares: the 32X's fewer palettes, more merging, the CD fed later) */
+    const int room = 15 - (sap_in && peak < SAP_PEAK_MIN ? SAP_PEAK_MIN : peak);   /* (in a stage only: the title's and the
+                                                     briefings' palettes need the room - with it there, they ran slower) */
     bg2_x32_room = gm_col == 2 ? 0 : room > BGX_ROOM ? BGX_ROOM : room < 0 ? 0 : room;   /* (docs/68: COLOURS FAST - none) */
 #ifdef SAP_X32ALL
     /* docs/82: a picture with no sprites (the intro: its ship is all background, a pose every 2 frames) - every palette
