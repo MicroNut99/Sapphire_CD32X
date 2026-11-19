@@ -1,3 +1,4 @@
+v20 the white screen before the title is black (the game fades to white there; the owner asked for it gone)
 v19 the white and orange stripes for one frame as NOW LOADING ends are gone (a new screen's colours now sent before its tiles)
 v18 the intro ship drawn by the 32X while the screen changes a lot (no blocks, no two poses); long background lists not rationed when no sprite is on screen
 v17 the intro ship read as in v10 (the owner saw v10 as the best intro on the console); the rest of v16 kept

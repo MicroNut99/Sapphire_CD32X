@@ -922,6 +922,23 @@ static void eng_noflash(void)
         else flash_pal[k] = (uint8_t)pal;
     }
 }
+/* docs/85 (the owner, v19: "The Main title also looks great except for a white flash. If that's part of the design
+   then please remove it"): it is the game's - before the title (START / CONFIG) it fades every colour to white and
+   holds it (Mednafen, recording playL: frames 6,516-6,576, colour 0 grey $049 -> $1FF, 33-262 colours white), and the
+   new screen's first pictures take longer on the 32X, so the white stayed ~1.2 s. Such a picture (colour 0 a grey,
+   not black, and 8 colours or more white: the fade's first step, 6,513, has 16) is shown black. No other picture in the
+   recording's 75,000 frames (every 15th) is one:
+   colour 0 is otherwise black, a dark blue ($001 / $002 / $010 / $082) or, for a frame at a time, $1FC (a flash in
+   play, not grey); the one other white backdrop (frames 4,545-4,575) has 4 white colours */
+static void eng_nowhite(void)
+{
+    const unsigned c0 = eng_v.color[0] & 0x1FF;
+    if (!c0 || (c0 & 7) != (c0 >> 3 & 7) || (c0 & 7) != (c0 >> 6 & 7)) return;
+    int nw = 0;
+    for (int i = 0; i < 512; i++) nw += (eng_v.color[i] & 0x1FF) == 0x1FF;
+    if (nw < 8) return;
+    for (int i = 0; i < 512; i++) eng_v.color[i] = 0;
+}
 #ifdef SAP_QUIET
 /* docs/82: the game rewrites the intro's ship (about 100 tile blocks, then the map) just after each frame begins, and
    is idle the rest of the frame. A picture read while it writes has two poses mixed - on the console a picture's reads
@@ -978,7 +995,7 @@ static void eng_picture(uint32_t done)
        way: the Genesis' display off keeps its blank flag up, and the 68000's list waits for it to fall) */
     if (ENG_SPR_ON(eng_v.t.CR)) for (int i = 0; i < 256; i++) eng_v.sat[i] = ENG_R(ENG_W6, 0x20C00 + 2 * i);
     else for (int i = 0; i < 256; i++) eng_v.sat[i] = 0;
-    eng_noflash();
+    eng_noflash(); eng_nowhite();
     spr_prio();
 }
 /* docs/50: the console showed blocks of the picture wrong and staying wrong (the intro's planet): a block is copied
@@ -1260,7 +1277,7 @@ static void eng_apply(void)                                   /* (eng_picture an
     eng_v.BXR = eng_stg.r[0]; eng_v.BYR = eng_stg.r[1]; eng_v.MWR = eng_stg.r[2]; eng_v.t.CR = eng_stg.r[3];
     if (ENG_SPR_ON(eng_v.t.CR)) for (int i = 0; i < 256; i++) eng_v.sat[i] = eng_stg.sat[i];
     else for (int i = 0; i < 256; i++) eng_v.sat[i] = 0;
-    eng_noflash();
+    eng_noflash(); eng_nowhite();
     spr_prio();
     for (int i = 0; i < 224 * 2; i++) eng_lines[i] = eng_stg.lines[i];
     eng_scroll_bands();
