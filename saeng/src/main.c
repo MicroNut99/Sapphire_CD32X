@@ -649,9 +649,18 @@ static int sec_bg_more(const V32 *v, int n)
     /* (Sapphire docs/82: no sprite on the screen - nothing played to slow, so no run limit and no rest: the intro's ship
        changes the whole screen for over 1.5 s, and in the rest that followed the plane fell 15-20 frames behind, half
        sent - the console's blocks and two poses at once) */
+#ifdef SAP_REPL
+    /* (docs/86: palettes placed again - the rest of their entries now, whatever the pace: on the console the rest went a
+       picture at a time, the new tiles in the old colours or the old in the new, ~8 frames of orange and white walls) */
+    extern int bg2_replaced;
+    const int free_run = sap_nospr(v) || bg2_replaced;
+    if (in_rest && !free_run) { if (now - t_rest < GOT_MORE_REST) return n; in_rest = 0; }
+    if (bg2.ndirty <= (bg2_replaced ? 0 : 64)) { in_run = 0; return n; }
+#else
     const int free_run = sap_nospr(v);
     if (in_rest && !free_run) { if (now - t_rest < GOT_MORE_REST) return n; in_rest = 0; }
     if (bg2.ndirty <= 64) { in_run = 0; return n; }
+#endif
     if (!in_run) { in_run = 1; t_run = now; }
     else if (!free_run && now - t_run > GOT_MORE_RUN) { in_run = 0; in_rest = 1; t_rest = now; return n; }
     TR(7, bg2.ndirty);

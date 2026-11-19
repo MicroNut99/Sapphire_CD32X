@@ -178,6 +178,8 @@ PYE
 [ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
+[ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_COVER"   # (docs/86: palettes placed again drawn by the 32X while the plane is rewritten; COVER=0 without)
+[ "${REPL:-0}" = 1 ] && RTX="$RTX -DSAP_REPL"   # (docs/86: a re-placement's rest at once, not paced - tried, not needed in ares; REPL=1 to have it)
 [ "${QUIET:-0}" = 1 ] && RTX="$RTX -DSAP_QUIET"   # (docs/82: tried, no gain measured - off)   # (docs/82: test builds - the console's pace in ares; never in a kit)
 PV=; [ "${PADVB:-1}" = 1 ] && { PV="PADVB=1"; RTX="$RTX -DSAP_PADVB"; }   # (docs/67: the pad at every blank - COMM4 / COMM6 the stack's then,
                                                                            #  so ares's logs have no engine frame: PADVB=0 for the comparison runs)

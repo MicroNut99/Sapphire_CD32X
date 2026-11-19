@@ -36,7 +36,7 @@
 #if __has_include("subs_en.h")
 #include "subs_en.h"                                        /* (docs/77: SAP_SUBS, sap_subs_en[5][3]) */
 #endif
-enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_AUTO,
+enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_INFCR, GM_AUTO,
 #ifdef SAP_CDFADE
        GM_MUS,
 #endif
@@ -74,6 +74,7 @@ static uint8_t gm_in_stage;                                   /* (as the menu op
    eng.c sets gm_sub1 / gm_sub2 (two lines of 32 characters at most) while a briefing's text is up; gm_subs draws them
    over the game's picture as gm_note does. The lines are not in the repository (subs_en.h, made by saeng_disc.sh from
    the work folder's subs_en.txt) */
+static uint8_t gm_infcr;                                      /* (docs/86, INFINITE CREDIT: base RAM $06BD kept at 9) */
 static uint8_t gm_flash;                                      /* (docs/78, HIT FLASH: off - a hit sprite keeps its colours) */
 static uint8_t gm_sub_on = 1; static const char *gm_sub1, *gm_sub2;
 static const char *gm_msg;                                    /* (a line under the items: why not, what is going on) */
@@ -145,14 +146,15 @@ static void gm_draw(void)                                     /* the menu, whole
         return;
     }
     { char t[24] = "SAPPHIRE CD32X  V   "; gm_num(t + 17, GOT_VER, 2); gm_mid(14, t, GM_TXT); }   /* (docs/72: the kit's number, tools/VERSION) */
-    gm_mid(26, "OPTIONS", GM_DIM);
+    gm_mid(24, "OPTIONS", GM_DIM);
     for (int i = 0; i < GM_N; i++) {
-        const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 36 + 12 * i;   /* (docs/68: 12 lines apart - ten items) */
+        const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 34 + 10 * i;   /* (docs/68: ten items 12 lines apart; docs/86: thirteen, 10 - the high score no longer over STATUS) */
         gm_text(48, y, i == gm_sel ? ">" : " ", c);
         if (i == GM_RESUME) gm_text(64, y, "RESUME", c);
         else if (i == GM_STAGE) { char t[24] = "STAGE SELECT    < 1 >"; t[18] = (char)('0' + gm_stage); gm_text(64, y, t, c); }
         else if (i == GM_LIVES) { char t[24] = "LIVES           < 3 >"; t[18] = (char)('0' + gm_lives); gm_text(64, y, t, c); }
         else if (i == GM_INF) gm_text(64, y, gm_inf ? "INFINITE LIVES  < ON >" : "INFINITE LIVES  < OFF >", c);
+        else if (i == GM_INFCR) gm_text(64, y, gm_infcr ? "INFINITE CREDIT < ON >" : "INFINITE CREDIT < OFF >", c);
         else if (i == GM_AUTO) gm_text(64, y, gm_autofire ? "AUTOFIRE        < ON >" : "AUTOFIRE        < OFF >", c);
 #ifdef SAP_CDFADE
         else if (i == GM_MUS) { char t[24] = "MUSIC VOLUME    < 8 >"; t[18] = (char)('0' + gm_mus); gm_text(64, y, t, c); }
@@ -170,20 +172,21 @@ static void gm_draw(void)                                     /* the menu, whole
     }
     {   char t[24] = "HIGH SCORE  "; uint32_t v = gm_best * 10u;   /* (the score as the game shows it: 8 digits) */
         for (int k = 7; k >= 0; k--) { t[12 + k] = (char)(v % 10u ? '0' + v % 10u : 'O'); v /= 10u; } t[20] = 0;
-        gm_mid(157, t, GM_TXT); }
-    gm_mid(167, !gm_sv_bank ? "NOT SAVED: NO SD SAVE BANK" : gm_sv_fail ? "THE LAST SAVE FAILED" : "KEPT ON THE SD CARD", GM_DIM);   /* (docs/67) */
-    if (gm_msg) gm_mid(178, gm_msg, GM_HI);
-    else if (gm_sel == GM_STAGE) gm_mid(178, "A: A NEW GAME AT THIS STAGE", GM_DIM);
-    else if (gm_sel == GM_LIVES) gm_mid(178, gm_in_stage ? "A: SET THE SHIPS LEFT NOW" : "A NEW GAME STARTS WITH THEM", GM_DIM);
-    else if (gm_sel == GM_INF) gm_mid(178, "THE SHIPS LEFT KEPT", GM_DIM);
-    else if (gm_sel == GM_AUTO) gm_mid(178, "HOLD I: THE SHIP FIRES ON", GM_DIM);
-    else if (gm_sel == GM_STATUS) gm_mid(178, "A: HOW THE CONSOLE RUNS IT", GM_DIM);
+        gm_mid(164, t, GM_TXT); }
+    gm_mid(174, !gm_sv_bank ? "NOT SAVED: NO SD SAVE BANK" : gm_sv_fail ? "THE LAST SAVE FAILED" : "KEPT ON THE SD CARD", GM_DIM);   /* (docs/67) */
+    if (gm_msg) gm_mid(184, gm_msg, GM_HI);
+    else if (gm_sel == GM_STAGE) gm_mid(184, "A: A NEW GAME AT THIS STAGE", GM_DIM);
+    else if (gm_sel == GM_LIVES) gm_mid(184, gm_in_stage ? "A: SET THE SHIPS LEFT NOW" : "A NEW GAME STARTS WITH THEM", GM_DIM);
+    else if (gm_sel == GM_INF) gm_mid(184, "THE SHIPS LEFT KEPT", GM_DIM);
+    else if (gm_sel == GM_INFCR) gm_mid(184, "THE CREDITS KEPT AT 9", GM_DIM);
+    else if (gm_sel == GM_AUTO) gm_mid(184, "HOLD I: THE SHIP FIRES ON", GM_DIM);
+    else if (gm_sel == GM_STATUS) gm_mid(184, "A: HOW THE CONSOLE RUNS IT", GM_DIM);
 #ifdef BG2_X32
-    else if (gm_sel == GM_COL) gm_mid(178, gm_col == 1 ? "EXACT: FEWER PICTURES" : gm_col == 2 ? "FAST: THE NEAREST COLOURS" : "AUTO: EXACT WHERE IT IS CHEAP", GM_DIM);
+    else if (gm_sel == GM_COL) gm_mid(184, gm_col == 1 ? "EXACT: FEWER PICTURES" : gm_col == 2 ? "FAST: THE NEAREST COLOURS" : "AUTO: EXACT WHERE IT IS CHEAP", GM_DIM);
 #endif
-    gm_mid(190, "UP/DOWN PICK  LEFT/RIGHT CHANGE", GM_DIM);
-    gm_mid(200, "A/C/START: DO IT   B: BACK", GM_DIM);
-    gm_mid(212, "PORTED BY MICRONUT99", GM_TXT);
+    gm_mid(194, "UP/DOWN PICK  LEFT/RIGHT CHANGE", GM_DIM);
+    gm_mid(204, "A/C/START: DO IT   B: BACK", GM_DIM);
+    gm_mid(214, "PORTED BY MICRONUT99", GM_TXT);
 }
 static void gm_text_on(int y, const char *t)                  /* white letters alone, centred: the picture shows between them */
 {

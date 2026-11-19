@@ -1,6 +1,110 @@
 --- a/rt_bg2.c	2026-11-18 12:11:01.599738884 -0800
-+++ b/rt_bg2.c	2026-11-19 04:50:44.001617613 -0800
-@@ -1290,6 +1290,36 @@
++++ b/rt_bg2.c	2026-11-19 07:04:34.767650587 -0800
+@@ -137,6 +137,24 @@
+    from N and leaves bg2_x32_draw when no entry is left to send (x32_leave): the 32X draws it over the plane until
+    then. */
+ uint16_t bg2_x32_draw; int bg2_x32_room;
++#ifdef SAP_REPL
++int bg2_replaced;
++#endif
++uint32_t bg2_sap_covers;
++#ifdef SAP_COVER
++/* Sapphire docs/86: palettes placed again with many entries to send - the 32X draws them over the plane while it is
++   rewritten. The pack found at picture N is put back; N's job tells the 32X (bg2_x32_draw) and the master draws those
++   palettes' cells from picture N + 1 (its swap shows them); N + 1 tries no pack; N + 2 packs again and sends - its list
++   runs under the 32X's cells (on the console ~1,000 words a frame: a 5,000-word list took 6 frames, the new tiles in
++   the old colours meanwhile - the walls orange, then white, spreading); the cover goes once no entry is left */
++static uint16_t sap_cover; static uint8_t sap_cover_wait;
++#ifndef SAP_COVER_MIN
++#define SAP_COVER_MIN 256                 /* (entries of the moved palettes on the map: a quarter of a screen or more - fewer were 1 in 4 pictures of stage 1, 12 % fewer pictures) */
++#endif
++#define SAP_COVER_MASK sap_cover
++#else
++#define SAP_COVER_MASK 0
++#endif   /* (Sapphire docs/86: palettes placed again, their entries not all sent yet: main.c sends the rest at once) */
+ int bg2_x32_all, bg2_x32_allow;  /* (allow: eng.c, no sprite on the screen; all: while the plane changes a lot too) */
+ static uint8_t x32_heavy;                                   /* (Sapphire docs/82: every palette on the map to the 32X - its frame buffer is
+                                                      swapped whole, so a picture is never seen half sent; eng.c sets it for the
+@@ -1131,7 +1149,7 @@
+     b->late = b->ndirty != 0 || bg2_behind;
+ #ifdef BG2_X32
+     if (!b->ndirty) x32_leave = 0;
+-    bg2_x32_draw = x32_set | x32_leave;
++    bg2_x32_draw = x32_set | x32_leave | SAP_COVER_MASK;
+ #endif
+     return b->ln;
+ }
+@@ -1148,6 +1166,48 @@
+ #ifdef BG2_MAPSIZE
+ static int bg2_tail_hi;                            /* (Sapphire docs/68: the old map's entries from ne to here still hold their slots) */
+ #endif
++#ifdef SAP_COVER
++static int colours(Bg2 *b, const V32 *v, uint16_t *chgd) __attribute__((noinline));   /* (stays in SDRAM: the fit's work, often) */
++/* (in the ROM with the read-only data, not with the rest of this file in SDRAM: SDRAM is full - the master's stack -
++   and this runs only when the colours change) */
++static int __attribute__((noinline, section(".rodata.sap_cover"))) sap_cover_colours(Bg2 *b, const V32 *v, uint16_t *chgd, int ne, uint32_t *chp)
++{
++    int ok; uint32_t ch = *chp;
++    /* (the colours as they stand - gcol to cram in one block: gcol gref g m chg ver; then used and lossy - kept in the
++       list buffer's far end: nothing of this picture's list is there yet, and SDRAM has no room left for them) */
++    const unsigned c_n = (unsigned)((uint8_t *)b->cram - (uint8_t *)b->gcol);
++    uint8_t *const sn = (uint8_t *)(b->fb[b->cur] + (BG2_LIST >> 1) + BG2_LIST_WORDS) - ((c_n + 64 + 15) & ~15u);
++    memcpy(sn, b->gcol, c_n); memcpy(sn + c_n, b->used, 32); memcpy(sn + c_n + 32, b->lossy, 32);
++    int8_t s_g[16]; memcpy(s_g, b->g, 16);
++    uint8_t s_merging, s_mtry;
++    s_merging = b->merging; s_mtry = b->mtry;
++#ifdef BG2_X32
++    const uint16_t s_x32 = x32_set;   /* (x32_go and x32_back both change it: a move to or from the 32X - left as it is) */
++#endif
++    ok = colours(b, v, chgd);
++    uint16_t mv = 0; for (int p = 0; p < 16; p++) if (chgd[p] && s_g[p] >= 0) mv |= B16(p);
++    int nmv = 0;
++    /* (not for a new screen - its entries to send already, the colours sent first: docs/83's NOW LOADING stripes came back
++       under a cover of black cells - nor while every palette is the 32X's, docs/82) */
++    if (mv && !sap_cover && b->ndirty < 400
++#ifdef SAP_X32ALL
++        && !bg2_x32_all
++#endif
++#ifdef BG2_X32
++        && x32_set == s_x32 && popc16(x32_set | x32_leave | mv) <= bg2_x32_room
++#endif
++       ) for (int a = 0; a < ne; a++) nmv += mv >> (v->vram[a] >> 12) & 1;
++    if (nmv >= SAP_COVER_MIN) {               /* (picture N: the pack put back, the 32X told) */
++        memcpy(b->gcol, sn, c_n); memcpy(b->used, sn + c_n, 32); memcpy(b->lossy, sn + c_n + 32, 32);
++        b->merging = s_merging; b->mtry = s_mtry;
++        for (int p = 0; p < 16; p++) chgd[p] = 0;
++        ok = b->col_ok; ch = b->colhash;          /* (the colours as they were: tried again at N + 2) */
++        sap_cover = mv; sap_cover_wait = 1; bg2_sap_covers++;
++    } else { b->fails = ok ? 0 : b->fails + 1; if (b->fails >= BG2_FAILS) { b->hold = BG2_HOLD; b->fails = 0; } }
++    *chp = ch;
++    return ok;
++}
++#endif
+ int bg2_frame(Bg2 *b, const V32 *v, int cur)
+ {
+ #ifdef BG2_MAPSIZE
+@@ -1270,14 +1330,19 @@
+ #endif
+     if (ch == b->colhash) ok = b->col_ok;
+     else if (b->hold) { b->hold--; ok = b->col_ok; ch = b->colhash; }
++#ifdef SAP_COVER
++    else if (sap_cover_wait) { sap_cover_wait--; ok = b->col_ok; ch = b->colhash; }   /* (N + 1: the 32X's cells first) */
++    else ok = sap_cover_colours(b, v, chgd, ne, &ch);
++#else
+     else { ok = colours(b, v, chgd); b->fails = ok ? 0 : b->fails + 1; if (b->fails >= BG2_FAILS) { b->hold = BG2_HOLD; b->fails = 0; } }
++#endif
+     b->colhash = ch; b->col_ok = ok;
+     if (!ok) ST(b->st.misfit++);
+ #ifdef BG2_X32
+     {   const uint16_t now = x32_wait & x32_set;    /* (gone to the 32X the picture before: blank from this one) */
+         x32_wait = x32_enter; x32_enter = 0;
+         for (int p = 0; p < 16; p++) if (now >> p & 1) { x32_blank |= B16(p); chgd[p] = 0xFFFF; }
+-        bg2_x32_draw = x32_set | x32_leave; bg2_x32_seq++;
++        bg2_x32_draw = x32_set | x32_leave | SAP_COVER_MASK; bg2_x32_seq++;
+     }
+ #endif
+     int any = 0; for (int p = 0; p < 16; p++) any |= chgd[p];
+@@ -1290,6 +1355,36 @@
  #ifndef __sh__
      bg2_dbg_any = any; bg2_dbg_nd0 = b->ndirty;   /* (bg2_host: the colours placed again this picture; the entries to send) */
  #endif
@@ -37,7 +141,16 @@
      send_entries(b, v, ne, LROOM);
  #ifdef SPR_HUD
      hud_frame(b, v, 0);                           /* (docs/83: the HUD's changed tiles, as data runs) */
-@@ -1414,6 +1444,26 @@
+@@ -1406,7 +1501,7 @@
+ #endif
+ #ifdef BG2_X32
+     if (!b->ndirty) x32_leave = 0;                 /* (come back, and every entry sent: the 32X draws it no more) */
+-    bg2_x32_draw = x32_set | x32_leave;
++    bg2_x32_draw = x32_set | x32_leave | SAP_COVER_MASK;
+ #endif
+ #ifndef __sh__
+     b->st.frames++; b->st.behind += b->late;
+@@ -1414,6 +1509,41 @@
      if (b->ln > b->st.list_max) b->st.list_max = b->ln;
      b->st.words += b->ln;
  #endif
@@ -48,6 +161,21 @@
 +        sap_trace(15, (uint32_t)x32_set | (uint32_t)bg2_x32_all << 16 | (uint32_t)x32_heavy << 24);
 +#endif
 +        sap_trace(16, (uint32_t)b->ndirty | (uint32_t)b->ln << 16); }
++#endif
++#ifdef SAP_COVER
++    if (sap_cover && !sap_cover_wait && !b->ndirty && !b->late) sap_cover = 0;   /* (no entry left: the plane is whole) */
++#endif
++#ifdef SAP_REPL
++    {   /* Sapphire docs/86 (the console's wrong-colour frames, v19 / v20: stage 2's walls orange, then white, spreading
++           over ~8 frames): the merge placed palettes again (a palette's Genesis slot or its colours' order changed);
++           their tiles and entries are sent again - and a long list's rest waits out GOT_MORE_REST, a picture at a time,
++           while the colours change at the first picture's swap. Flagged until the last of those entries is sent */
++        static int8_t rp_g[16]; static uint16_t rp_ver[16]; static uint8_t rp_init;
++        int moved = 0;
++        for (int p = 0; p < 16; p++) { if (rp_init && (rp_g[p] != b->g[p] || rp_ver[p] != b->ver[p])) moved = 1; rp_g[p] = b->g[p]; rp_ver[p] = b->ver[p]; }
++        rp_init = 1;
++        if (moved && b->ndirty) bg2_replaced = 1; else if (!b->ndirty) bg2_replaced = 0;
++    }
 +#endif
 +#ifdef SAP_TRACE
 +    {   extern void sap_trace(uint32_t, uint32_t);     /* (Sapphire docs/85: diagnostic builds only) */

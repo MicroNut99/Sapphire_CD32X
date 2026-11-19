@@ -120,6 +120,10 @@ static uint32_t sp_cdpeek(uint32_t a)
     sp_h(0);
     return w >> 8 & 0xFF;
 }
+#define SP_CREDITS_AT 0x06BDu                                 /* (base RAM: the credits left - 4 at the title, 3 once a game
+                                                                 starts; the game's CONFIGURATION sets 1-9. docs/86: found by the
+                                                                 PC machine's RAM, 4 -> 3 at a game's start; poked 9, the player
+                                                                 select read CREDITS 8 in ares) */
 #define SP_LIVES_AT 0xA00Cu                                   /* (CD RAM: the ships left - the old route's poke, docs/58) */
 #define SP_STAGE_AT 0x069Cu                                   /* (base RAM: the stage, less one - docs/58) */
 #define SP_SCORE_AT 0xA070u                                   /* (CD RAM: the score / 10, its bytes at $A070, $A072, $A074 - docs/63) */
@@ -182,7 +186,7 @@ static void sv_put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] =
 static uint32_t sv_get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 static void sv_data(uint8_t *d)
 {
-    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = gm_autofire;
+    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1);   /* (docs/86: INFINITE CREDIT in bit 1) */
 #ifdef SAP_CDFADE
     d[5] = gm_mus;
 #else
@@ -221,7 +225,7 @@ static void sv_load(void)                                     /* at the start: t
     const uint32_t h = sv_get32(r + 8);
     if (sv_get32(r + 4) != SV_LEN || sv_get32(r + 12) != ~h || sv_fnv(d, SV_LEN) != h || d[0] != SV_VER) { gm_sv_state = 3; return; }
     if (d[1] >= 1 && d[1] <= 9) gm_lives = d[1];
-    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] != 0;
+    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1;
 #ifdef SAP_CDFADE
     if (d[5] <= 8) gm_mus = d[5];
 #endif
@@ -347,6 +351,7 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
             if (gm_sel == GM_STAGE && dir) gm_stage = (uint8_t)((gm_stage + 4 + dir) % 5 + 1);
             if (gm_sel == GM_LIVES && dir) { gm_lives = (uint8_t)((gm_lives + 8 + dir) % 9 + 1); gm_lives_on = 1; }
             if (gm_sel == GM_INF && (dir || ok)) { gm_inf ^= 1; if (gm_inf) gm_lives_on = 1; }
+            if (gm_sel == GM_INFCR && (dir || ok)) gm_infcr ^= 1;   /* (docs/86) */
             if (gm_sel == GM_AUTO && (dir || ok)) gm_autofire ^= 1;
 #ifdef GOT_SND
             if (gm_sel == GM_FX && dir) { const int v = gm_fx + dir; gm_fx = (uint8_t)(v < 0 ? 0 : v > 8 ? 8 : v); SND_VOL = gm_fx; }
@@ -423,6 +428,13 @@ static void sap_tick(uint32_t f)
         if (!sap_lives_was && sap_lives && gm_lives_on && !gm_mac && sap_lives != gm_lives) { sp_cdpoke(SP_LIVES_AT, gm_lives); sap_lives = gm_lives; }
         sap_lives_was = sap_lives;
         if (gm_inf && sap_lives && sap_lives != gm_lives) { sp_cdpoke(SP_LIVES_AT, gm_lives); sap_lives = gm_lives; }
+        /* docs/86 (the owner: 99 credits; the game's own CONFIGURATION gives 9 at most): INFINITE CREDIT - the credits
+           set to 9 as a stage begins and as the last ship goes, never read (docs/72: base RAM read through the poke port
+           in play slowed the game on the console; a write now and then, as LIVES and the stage select do) */
+        {   static uint8_t lw = 0xFF, in_was;
+            const int in_now = (cr == 0x8C || cr == 0xCC) && sap_lives >= 1 && sap_lives <= 9;
+            if (gm_infcr && ((in_now && !in_was) || (sap_lives != lw && (sap_lives == 0 || sap_lives == 0xFF)))) gm_poke(SP_CREDITS_AT, 9);
+            in_was = (uint8_t)in_now; lw = sap_lives; }
         /* docs/71 (the owner: "add CDDA to the attract mode demos"): the game plays its demos without music (Mednafen:
            no CD-DA from the title's jingle to the next title). Base RAM $069E is 1 in a demo and 0 in a game; in a demo's
            stage (the status bar's CR) the stage's own track is played - eng_audio takes sap_demo_lba when the game
