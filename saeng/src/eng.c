@@ -186,7 +186,7 @@ static void sv_put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] =
 static uint32_t sv_get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 static void sv_data(uint8_t *d)
 {
-    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1);   /* (docs/86: INFINITE CREDIT in bit 1) */
+    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1 | (gm_steady ^ 1) << 2);   /* (docs/91: bit 2 = STEADY BLINK off: older saves keep it on) */   /* (docs/86: INFINITE CREDIT in bit 1) */
 #ifdef SAP_CDFADE
     d[5] = gm_mus;
 #else
@@ -225,7 +225,7 @@ static void sv_load(void)                                     /* at the start: t
     const uint32_t h = sv_get32(r + 8);
     if (sv_get32(r + 4) != SV_LEN || sv_get32(r + 12) != ~h || sv_fnv(d, SV_LEN) != h || d[0] != SV_VER) { gm_sv_state = 3; return; }
     if (d[1] >= 1 && d[1] <= 9) gm_lives = d[1];
-    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1;
+    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1; gm_steady = !(d[4] >> 2 & 1);
 #ifdef SAP_CDFADE
     if (d[5] <= 8) gm_mus = d[5];
 #endif
@@ -364,6 +364,7 @@ static uint32_t gm_pad(uint16_t p, uint32_t b, uint32_t f)
             if (gm_sel == GM_SUB && (dir || ok)) gm_sub_on ^= 1;
 #endif
             if (gm_sel == GM_FLASH && (dir || ok)) gm_flash ^= 1;   /* (docs/78) */
+            if (gm_sel == GM_STEADY && (dir || ok)) gm_steady ^= 1;   /* (docs/91) */
             if (gm_sel == GM_COL && (dir || ok)) gm_col = (uint8_t)((gm_col + 3 + (dir ? dir : 1)) % 3);   /* (docs/68: AUTO, EXACT, FAST) */
 #endif
             if (k & SEGA_CTRL_B) shut = 1;
@@ -939,6 +940,43 @@ static uint8_t flash_pal[512];
    it caught either phase at random (a slow red / black flicker). A cell seen in a one-colour palette other than white
    in the last two pictures keeps that palette */
 static struct { uint16_t k; uint8_t age, pal; } red_t[16];
+/* docs/91, STEADY BLINK: a picture from an even frame (eng_last) takes the odd frame before it's sprites too - those not
+   the same in the even one, behind the even frame's (its visible ones first, in their order), up to the 64 places. What
+   the game draws on alternate frames shows as both at once, as a television's eye has it: on / off blinks steady on,
+   red / dark the red in front, sets of sprites shared out over two frames all there. The odd table is read while the
+   engine waits for the even frame (eng_odd_grab) */
+static uint16_t odd_sat[256]; static uint32_t odd_f = 0xFFFFFFFFu, eng_steady_n;
+__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_odd_grab(uint32_t f)
+{
+    if (f == odd_f) return;
+    odd_f = 0xFFFFFFFFu;
+    if (!ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) return;
+    for (int i = 0; i < 256; i++) odd_sat[i] = ENG_R(ENG_W6, 0x20C00 + 2 * i);
+    if (ENG_R(ENG_W6, 0x20E08) == f) odd_f = f;               /* (the frame ended meanwhile: not one frame's) */
+}
+__attribute__((section(".rodata.sap_steady"), noinline)) static int eng_spr_seen(const uint16_t *e)
+{
+    const int y = (e[0] & 0x3FF) - 64, x = (e[1] & 0x3FF) - 32;
+    return y > -64 && y < 224 && x > -32 && x < 256;
+}
+__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_steady_merge(void)
+{
+    if (!gm_steady || odd_f + 1 != eng_last || !ENG_SPR_ON(eng_v.t.CR)) return;
+    uint16_t m[256]; int n = 0;
+    for (int i = 0; i < 64; i++) { const uint16_t *e = eng_v.sat + 4 * i;
+        if (eng_spr_seen(e)) { m[4 * n] = e[0]; m[4 * n + 1] = e[1]; m[4 * n + 2] = e[2]; m[4 * n + 3] = e[3]; n++; } }
+    const int ne = n;
+    for (int i = 0; i < 64 && n < 64; i++) { const uint16_t *e = odd_sat + 4 * i;
+        if (!eng_spr_seen(e)) continue;
+        int j = 0;
+        for (; j < ne; j++) if (m[4 * j] == e[0] && m[4 * j + 1] == e[1] && m[4 * j + 2] == e[2] && m[4 * j + 3] == e[3]) break;
+        if (j < ne) continue;
+        m[4 * n] = e[0]; m[4 * n + 1] = e[1]; m[4 * n + 2] = e[2]; m[4 * n + 3] = e[3]; n++;
+    }
+    for (int i = 0; i < 4 * n; i++) eng_v.sat[i] = m[i];
+    for (int i = 4 * n; i < 256; i++) eng_v.sat[i] = 0;
+    eng_steady_n += n - ne;
+}
 static void eng_noflash(void)
 {
     static uint8_t init;
@@ -1043,7 +1081,7 @@ static void eng_picture(uint32_t done)
        way: the Genesis' display off keeps its blank flag up, and the 68000's list waits for it to fall) */
     if (ENG_SPR_ON(eng_v.t.CR)) for (int i = 0; i < 256; i++) eng_v.sat[i] = ENG_R(ENG_W6, 0x20C00 + 2 * i);
     else for (int i = 0; i < 256; i++) eng_v.sat[i] = 0;
-    eng_noflash(); eng_nowhite();
+    eng_steady_merge(); eng_noflash(); eng_nowhite();
     spr_prio();
 }
 /* docs/50: the console showed blocks of the picture wrong and staying wrong (the intro's planet): a block is copied
@@ -1277,6 +1315,7 @@ static void eng_prefetch(void)
 #endif
     const uint32_t f = ENG_R(ENG_W6, 0x20E08);
     if (f == eng_last) return;                                /* (no newer frame yet) */
+    if (gm_steady && (f & 1) && ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) { eng_odd_grab(f); return; }   /* (docs/91: STEADY BLINK - even frames, in play) */
     eng_stg.r[0] = ENG_R(ENG_W6, 0x20E00); eng_stg.r[1] = ENG_R(ENG_W6, 0x20E02); eng_stg.r[2] = ENG_R(ENG_W6, 0x20E04);
     eng_stg.r[3] = ENG_R(ENG_W6, 0x20E06);
     for (int l = 0; l < 224; l++) { eng_stg.lines[2 * l] = ENG_R(ENG_W6, 0x21000 + 2 * l); eng_stg.lines[2 * l + 1] = ENG_R(ENG_W6, 0x21200 + 2 * l); }
@@ -1334,7 +1373,7 @@ static void eng_apply(void)                                   /* (eng_picture an
     eng_v.BXR = eng_stg.r[0]; eng_v.BYR = eng_stg.r[1]; eng_v.MWR = eng_stg.r[2]; eng_v.t.CR = eng_stg.r[3];
     if (ENG_SPR_ON(eng_v.t.CR)) for (int i = 0; i < 256; i++) eng_v.sat[i] = eng_stg.sat[i];
     else for (int i = 0; i < 256; i++) eng_v.sat[i] = 0;
-    eng_noflash(); eng_nowhite();
+    eng_steady_merge(); eng_noflash(); eng_nowhite();
     spr_prio();
     for (int i = 0; i < 224 * 2; i++) eng_lines[i] = eng_stg.lines[i];
     eng_scroll_bands();
@@ -1634,6 +1673,11 @@ static void eng_main(void)
         }
 #endif
         if (f == eng_last) continue;
+        /* docs/91 (the owner: "then work on it"), STEADY BLINK: the game draws some things in two versions on alternate
+           frames - the bombs' white disc / blue ball, dying enemies red / dark, faces and signs on / off - seen on a
+           television as a blend. A picture every 2-3 frames caught either at random: a slow, uneven flicker. With it on,
+           a picture is made of an even frame, with the odd frame's sprites behind (eng_steady_merge) */
+        if (gm_steady && (f & 1) && ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) { eng_odd_grab(f); continue; }   /* (sprites on: play; the loading and the intro as they were - ares: 370 frames lost at NOW LOADING otherwise) */
         eng_last = f;
 #ifdef SAP_TRACE
         { extern void sap_trace(uint32_t, uint32_t); sap_trace(1, f); }

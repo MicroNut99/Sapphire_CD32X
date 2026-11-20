@@ -47,7 +47,7 @@ enum { GM_RESUME, GM_STAGE, GM_LIVES, GM_INF, GM_INFCR, GM_AUTO,
 #ifdef SAP_SUBS
        GM_SUB,
 #endif
-       GM_FLASH,
+       GM_FLASH, GM_STEADY,
        GM_STATUS, GM_CREDITS, GM_N };
 /* docs/60: STATUS - what the USB log told, on the screen (the owner has no USB link any more: a photograph of this
    page is the console's report). The play before the menu opened, measured by eng.c gm_stats over 4 s at a time:
@@ -76,6 +76,7 @@ static uint8_t gm_in_stage;                                   /* (as the menu op
    the work folder's subs_en.txt) */
 static uint8_t gm_infcr;                                      /* (docs/86, INFINITE CREDIT: base RAM $06BD kept at 9) */
 static uint8_t gm_flash;                                      /* (docs/78, HIT FLASH: off - a hit sprite keeps its colours) */
+static uint8_t gm_steady = 1;                                 /* (docs/91, STEADY BLINK: on - pictures of even frames only) */
 static uint8_t gm_sub_on = 1; static const char *gm_sub1, *gm_sub2;
 static const char *gm_msg;                                    /* (a line under the items: why not, what is going on) */
 static void gm_fill(int x0, int y0, int x1, int y1, uint8_t c)   /* (x0, x1 even) */
@@ -148,7 +149,7 @@ static void gm_draw(void)                                     /* the menu, whole
     { char t[24] = "SAPPHIRE CD32X  V   "; gm_num(t + 17, GOT_VER, 2); gm_mid(14, t, GM_TXT); }   /* (docs/72: the kit's number, tools/VERSION) */
     gm_mid(24, "OPTIONS", GM_DIM);
     for (int i = 0; i < GM_N; i++) {
-        const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 34 + 10 * i;   /* (docs/68: ten items 12 lines apart; docs/86: thirteen, 10 - the high score no longer over STATUS) */
+        const uint8_t c = i == gm_sel ? GM_HI : GM_TXT; const int y = 32 + 9 * i;   /* (docs/91: fourteen, 9) */   /* (docs/68: ten items 12 lines apart; docs/86: thirteen, 10 - the high score no longer over STATUS) */
         gm_text(48, y, i == gm_sel ? ">" : " ", c);
         if (i == GM_RESUME) gm_text(64, y, "RESUME", c);
         else if (i == GM_STAGE) { char t[24] = "STAGE SELECT    < 1 >"; t[18] = (char)('0' + gm_stage); gm_text(64, y, t, c); }
@@ -167,6 +168,7 @@ static void gm_draw(void)                                     /* the menu, whole
         else if (i == GM_SUB) gm_text(64, y, gm_sub_on ? "ENGLISH TEXT    < ON >" : "ENGLISH TEXT    < OFF >", c);
 #endif
         else if (i == GM_FLASH) gm_text(64, y, gm_flash ? "HIT FLASH       < ON >" : "HIT FLASH       < OFF >", c);
+        else if (i == GM_STEADY) gm_text(64, y, gm_steady ? "STEADY BLINK    < ON >" : "STEADY BLINK    < OFF >", c);
         else if (i == GM_STATUS) gm_text(64, y, "STATUS", c);
         else gm_text(64, y, "CREDITS", c);
     }
@@ -181,6 +183,7 @@ static void gm_draw(void)                                     /* the menu, whole
     else if (gm_sel == GM_INFCR) gm_mid(184, "THE CREDITS KEPT AT 9", GM_DIM);
     else if (gm_sel == GM_AUTO) gm_mid(184, "HOLD I: THE SHIP FIRES ON", GM_DIM);
     else if (gm_sel == GM_STATUS) gm_mid(184, "A: HOW THE CONSOLE RUNS IT", GM_DIM);
+    else if (gm_sel == GM_STEADY) gm_mid(184, "ON: NO SLOW FLICKER, FEWER PICTURES", GM_DIM);
 #ifdef BG2_X32
     else if (gm_sel == GM_COL) gm_mid(184, gm_col == 1 ? "EXACT: FEWER PICTURES" : gm_col == 2 ? "FAST: THE NEAREST COLOURS" : "AUTO: EXACT WHERE IT IS CHEAP", GM_DIM);
 #endif

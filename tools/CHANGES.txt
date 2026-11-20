@@ -1,3 +1,4 @@
+v26 STEADY BLINK (options menu, on by default): effects the game draws on alternate frames (bombs white/blue, dying airships red/dark, blinking faces and signs) no longer flicker slowly - each picture takes an even frame and the odd frame's sprites behind it
 v25 the background torn for one picture (lower part shifted, status bar garbage): the 68000 no longer applies the plane's held changes in the middle of a picture - they wait for the blank the 32X swaps in
 v24 the background jumping for one picture: the status bar's scroll split is now put back on time (the 68000 let the line interrupt in while it waits for the display, and while it copies to the 32X), and the splits stay on when the playfield's scroll passes the status bar's
 v23 the big red airships are red again as they die (the game draws a dying airship in its red palette for two seconds; the hit-flash removal had taken that red away too and left a black hull) - only white flashes are removed now
