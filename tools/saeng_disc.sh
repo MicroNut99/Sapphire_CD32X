@@ -190,7 +190,52 @@ s = s.replace(a, """        move.w  #0x2300,sr              | (Sapphire docs/89)
 """ + a)
 open(p, 'w').write(s)
 PYE
-{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
+# docs/90 (ARMWAIT=0 without; the build's copy of the stack only): a command 79 that came while the last one's kept runs
+# still waited for their vblank (armed: the 32X swaps there) ran them at once - in the middle of the picture, before the
+# 32X showed theirs (ares, v24, stage 1: in 1,690 of 7,000 frames, from line 0 to 222). The plane's new rows, its V and
+# colours changed under the beam with the H interrupt held (level 7): the console's pictures with their lower part
+# displaced and the status bar garbage. Now the command waits for that vblank first (the interrupts in: vblank_int runs
+# the kept runs there), up to ~2.5 frames; then as before. And a swap found done already while the picture is being drawn
+# arms its kept runs for the next vblank instead of running them under the beam.
+[ "${ARMWAIT:-1}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+import sys
+p = sys.argv[1]; s = open(p).read()
+a = """        bsr.w   fb_overdue              | (runs kept for a vblank whose interrupt has not run them: now)
+"""
+assert s.count(a) == 1
+s = s.replace(a, """        move.w  sr,-(sp)                | (Sapphire docs/90) kept runs armed for the coming vblank: wait for it,
+        move.w  #0x2300,sr              | the H and V interrupts in (no VDP address in use yet), vblank_int runs
+        move.l  #12000,d0               | them as the 32X swaps; ~2.5 frames at most, then fb_overdue as before
+        lea     fb_armed(pc),a1
+18:
+        tst.w   (a1)
+        beq.b   19f
+        subq.l  #1,d0
+        bne.b   18b
+19:
+        move.w  (sp)+,sr
+""" + a)
+a = """        bne.b   15f
+        bsr.w   fb_vrun                 | shown already (the list ended in a blank): the kept runs now,
+        move.w  (sp)+,sr                | and the pairs (the buffer not shown is the one drawn in next)
+        bra.w   13f
+"""
+assert s.count(a) == 1
+s = s.replace(a, """        bne.b   15f
+        btst    #3,0xC00005             | (Sapphire docs/90) shown already - in the display (ares: 1,641 of 7,000
+        beq.b   20f                     | frames, lines 0-222): not under the beam, at the next vblank
+        bsr.w   fb_vrun                 | shown already (the list ended in a blank): the kept runs now,
+        move.w  (sp)+,sr                | and the pairs (the buffer not shown is the one drawn in next)
+        bra.w   13f
+20:
+        lea     fb_armed(pc),a3
+        move.w  #1,(a3)
+        move.w  (sp)+,sr
+        bra.w   13f
+""")
+open(p, 'w').write(s)
+PYE
+{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ] || [ "${ARMWAIT:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
 # SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"
