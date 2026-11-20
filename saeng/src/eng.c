@@ -929,24 +929,45 @@ static void eng_blk_read(int k, uint16_t *d)
    stage 1: palette 0 all $1FF, palette 15 all $038) and gives a sprite one of them for the frames it is hit or dies -
    every other frame on the PC Engine, held for pictures on end at 25 pictures a second. gm_flash off (the default):
    a sprite in a palette of one colour is drawn in the palette its cell was last seen in (flash_pal, by the cell's
-   64 words); a cell never seen in another keeps it (the shots and sparks that are white by design) */
+   64 words); a cell never seen in another keeps it (the shots and sparks that are white by design).
+   docs/88 (the owner, v22: "Stage 1 is still fucked by the big red dudes"): palette 15's red ($038) is not a flash - a
+   dying airship is drawn in it for ~130 frames (Mednafen, recording playL 8,544-8,674: 4 sprites in palette 15 on
+   every even frame); put back in its old palette its dying cells showed as a black hull. Only white is a flash now */
 static uint8_t flash_pal[512];
+/* docs/88: the game draws a dying airship red and in its own dark palette on alternate frames (Mednafen 8,625-8,636:
+   palette 15 on even frames, 8 on odd) - on a television a red airship. The 32X shows a picture every 2-3 frames, so
+   it caught either phase at random (a slow red / black flicker). A cell seen in a one-colour palette other than white
+   in the last two pictures keeps that palette */
+static struct { uint16_t k; uint8_t age, pal; } red_t[16];
 static void eng_noflash(void)
 {
     static uint8_t init;
-    if (!init) { init = 1; for (int i = 0; i < 512; i++) flash_pal[i] = 0xFF; }
-    if (gm_flash || !ENG_SPR_ON(eng_v.t.CR)) return;
-    unsigned one = 0;                                         /* the sprite palettes of one colour */
+    if (!init) { init = 1; for (int i = 0; i < 512; i++) flash_pal[i] = 0xFF; for (int j = 0; j < 16; j++) red_t[j].age = 0xFF; }
+    if (!ENG_SPR_ON(eng_v.t.CR)) return;
+    unsigned one = 0, onec = 0;                               /* the sprite palettes of one colour: white / another */
     for (int p = 0; p < 16; p++) {
         const uint16_t *c = eng_v.color + 256 + 16 * p; const uint16_t c1 = c[1] & 0x1FF; int u = c1 != 0;
         for (int i = 2; i < 16 && u; i++) u = (c[i] & 0x1FF) == c1;
-        one |= (unsigned)u << p;
+        if (u && (c1 & 7) >= 6 && (c1 >> 3 & 7) >= 6 && (c1 >> 6 & 7) >= 6) one |= 1u << p;   /* white (docs/78) */
+        else if (u) onec |= 1u << p;                          /* red (docs/88: the game's, kept) */
     }
-    if (!one || one == 0xFFFF) return;                        /* (all of them: a fade to white - the game's picture) */
+    for (int j = 0; j < 16; j++) if (red_t[j].age < 0xFF) red_t[j].age++;
+    if (onec == 0xFFFF) onec = 0;
+    if (gm_flash || one == 0xFFFF) one = 0;                   /* (all of them: a fade to white - the game's picture) */
+    if (!one && !onec) return;
     for (int i = 0; i < 64; i++) {
         uint16_t *e = eng_v.sat + 4 * i; const unsigned k = (e[2] >> 1) & 0x1FF, pal = e[3] & 15;
-        if (one >> pal & 1) { if (flash_pal[k] != 0xFF) e[3] = (uint16_t)((e[3] & ~15u) | flash_pal[k]); }
-        else flash_pal[k] = (uint8_t)pal;
+        if (onec >> pal & 1) {
+            int j, o = 0;
+            for (j = 0; j < 16 && red_t[j].k != k; j++) if (red_t[j].age > red_t[o].age) o = j;
+            if (j == 16) j = o;
+            red_t[j].k = (uint16_t)k; red_t[j].age = 0; red_t[j].pal = (uint8_t)pal;
+            continue;
+        }
+        if (one >> pal & 1) { if (flash_pal[k] != 0xFF) e[3] = (uint16_t)((e[3] & ~15u) | flash_pal[k]); continue; }
+        flash_pal[k] = (uint8_t)pal;
+        for (int j = 0; j < 16; j++)
+            if (red_t[j].k == k && red_t[j].age <= 2 && (onec >> red_t[j].pal & 1)) { e[3] = (uint16_t)((e[3] & ~15u) | red_t[j].pal); break; }
     }
 }
 /* docs/85 (the owner, v19: "The Main title also looks great except for a white flash. If that's part of the design
