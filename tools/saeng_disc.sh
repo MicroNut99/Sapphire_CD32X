@@ -165,7 +165,32 @@ s = s.replace(a, a + """        lea     vs_vars(pc),a0          | (Sapphire docs
 """)
 open(p, 'w').write(s)
 PYE
-{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
+# docs/89 (PAIRSH=0 without; the build's copy of the stack only): command 79's op 1 - the pairs journalled into the 32X's
+# frame buffer after a swap - ran with level 4 masked (the dispatcher's level for the routines that touch the VDP), but
+# it touches no VDP: the H interrupt of line 223 (the top's V put back after the status bar's split) waited behind it,
+# and the next picture's first lines were drawn at the status bar's V (the playfield jumps for one picture: ares, v23,
+# stage 1: 8 in 7,000 frames). Now the pairs run with the H interrupt let in, and the waits for the display before the
+# swap (a list that ends in a blank waited there with the H interrupt held, through line 223).
+[ "${PAIRSH:-1}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+import sys
+p = sys.argv[1]; s = open(p).read()
+a = """        lea     fb_jrn_n(pc),a3         | the commit, after its runs: the pairs kept into the frame buffer (the
+        move.w  (a3),d0                 | one the SH2 draws in next: the swap has been)
+        beq.w   12f
+"""
+assert s.count(a) == 1
+s = s.replace(a, a + """        move.w  #0x2300,sr              | (Sapphire docs/89) no VDP here: the H interrupt let in
+""")
+a = """16:
+        btst    #3,0xC00005             | (the list ended in a vertical blank: wait for the display first, so the
+"""
+assert s.count(a) == 1
+s = s.replace(a, """        move.w  #0x2300,sr              | (Sapphire docs/89) the list's runs done, no VDP address in use: the H
+                                        | interrupt let in while this waits for the display (line 223's top)
+""" + a)
+open(p, 'w').write(s)
+PYE
+{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
 # SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"

@@ -1201,6 +1201,15 @@ static void eng_scroll_bands(void)
         const unsigned v = (unsigned)(eng_lines[2 * l + 1] - l) & hm;
         if (v != last) { eng_vw[n++] = (uint32_t)l << 20 | v << 10 | v; last = v; }
     }
+    /* docs/89: the playfield's V passing the status bar's (both $01F in stage 1) made one band for a picture or two:
+       the splits were turned off, then on again - the top put back late, the first lines at the old V. The splits now
+       stay on through such pictures (the last lines, this V in each), up to 60 pictures in a row */
+    static int one_n;
+    if (n == 1 && eng_nvs >= 2 && one_n < 60) {
+        const uint32_t v = eng_vw[0] & 0x3FFu;
+        for (int i = 0; i < eng_nvs; i++) eng_vw[i] = (eng_vs[i] & 0xFFF00000u) | v << 10 | v;
+        n = eng_nvs; one_n++;
+    } else if (n != 1) one_n = 0;
     if (n == 1) n = 0;                                        /* (one band: the kept part's V alone, no splits) */
     eng_vwn = n;
 #ifdef BG2_MORE
