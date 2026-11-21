@@ -91,7 +91,7 @@ PYE
 [ "${COW:-$([ "${V10PIC:-1}" = 1 ] && echo 0 || echo 1)}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 [ "${X32ALL:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg4.patch"; RTX_X32ALL=1; }   # (docs/82: the intro drawn whole by the 32X; X32ALL=0 without)
 [ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
-[ "${COLNOW:-1}" = 1 ] && [ "${PARTCOVER:-0}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg6.patch"   # (docs/97: the cover takes as many of the moved palettes as the 32X has room for - the biggest; PARTCOVER=0: all or nothing, as v21-v31)
+[ "${COLNOW:-1}" = 1 ] && [ "${PARTCOVER:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg6.patch"; RTX_PART=1; }   # (docs/97: the cover takes as many of the moved palettes as the 32X has room for - the biggest; PARTCOVER=0: all or nothing, as v21-v31)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -266,6 +266,7 @@ PYE
 [ -n "${FREELESS:-}" ] && RTX="$RTX -DSAP_FREE_LESS=$FREELESS"   # (docs/97: ares only - the cover's room less n 32X palettes, as a second player's sprites take them)
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
+[ -n "${RTX_PART:-}" ] && [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_PARTCOVER"   # (docs/97: STATUS shows the cover's counts)
 [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_COVER"   # (docs/86: palettes placed again drawn by the 32X while the plane is rewritten; COVER=0 without)
 [ "${REPL:-0}" = 1 ] && RTX="$RTX -DSAP_REPL"   # (docs/86: a re-placement's rest at once, not paced - tried, not needed in ares; REPL=1 to have it)
 [ "${QUIET:-0}" = 1 ] && RTX="$RTX -DSAP_QUIET"   # (docs/82: tried, no gain measured - off)   # (docs/82: test builds - the console's pace in ares; never in a kit)

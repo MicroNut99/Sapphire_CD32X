@@ -125,9 +125,19 @@ static void gm_status(void)
     { char t[32] = "PICTURES A SECOND        . "; gm_num(t + 22, gm_stv.pps10 / 10, 3); t[26] = (char)('0' + gm_stv.pps10 % 10); gm_text(40, 56, t, GM_TXT); }
     { char t[32] = "SLOWEST PICTURE         /6O"; gm_num(t + 20, gm_stv.worst, 4); gm_text(40, 70, t, GM_TXT); }
     { char t[32] = "ENGINE FRAMES A SECOND     "; gm_num(t + 23, gm_stv.fps, 4); gm_text(40, 84, t, GM_TXT); }
-    { char t[32] = "32X BACKGROUND PALETTES    "; gm_num(t + 23, gm_stv.xpal, 4); gm_text(40, 104, t, GM_TXT); }
-    { char t[32] = "  CELLS NOW      MOST      "; gm_num(t + 12, gm_stv.xcells, 4); gm_num(t + 23, gm_stv.xmost, 4); gm_text(40, 118, t, GM_TXT); }
-    { char t[32] = "  MOVES        LATE        "; gm_num(t + 8, gm_stv.moves, 6); gm_num(t + 20, gm_stv.early, 7); gm_text(40, 132, t, GM_TXT); }
+    { char t[32] = "32X BACKGROUND PALETTES    "; gm_num(t + 23, gm_stv.xpal, 4); gm_text(40, 100, t, GM_TXT); }
+    { char t[32] = "  CELLS NOW      MOST      "; gm_num(t + 12, gm_stv.xcells, 4); gm_num(t + 23, gm_stv.xmost, 4); gm_text(40, 112, t, GM_TXT); }
+    { char t[32] = "  MOVES        LATE        "; gm_num(t + 8, gm_stv.moves, 6); gm_num(t + 20, gm_stv.early, 7); gm_text(40, 124, t, GM_TXT); }
+#ifdef SAP_PARTCOVER
+    {   /* (docs/97: the 32X's covers of palettes placed again - all made, those of a part only, and the big moves it had
+           no room for at all; the secondary's counts, read past the cache) */
+        extern uint32_t bg2_sap_covers, bg2_sap_part, bg2_sap_why[4];
+        char t[32] = "COVERS      PART     NONE     ";
+        gm_num(t + 7, *(volatile uint32_t *)((uintptr_t)&bg2_sap_covers | 0x20000000), 4);
+        gm_num(t + 17, *(volatile uint32_t *)((uintptr_t)&bg2_sap_part | 0x20000000), 3);
+        gm_num(t + 26, *(volatile uint32_t *)((uintptr_t)&bg2_sap_why[2] | 0x20000000), 3);
+        gm_text(40, 136, t, GM_TXT); }
+#endif
     { char t[32] = "LONG LISTS                 "; gm_num(t + 19, gm_stv.more, 8); gm_text(40, 152, t, GM_TXT); }
     { char t[32] = "BLOCKS READ AGAIN          "; gm_num(t + 19, gm_stv.fix, 8); gm_text(40, 166, t, GM_TXT); }
     { char t[32] = "LIST WORDS LEFT OUT        "; gm_num(t + 19, gm_stv.over, 8); gm_text(40, 180, t, GM_TXT); }
