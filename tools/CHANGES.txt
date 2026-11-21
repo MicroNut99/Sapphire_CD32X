@@ -1,3 +1,4 @@
+v34 = v27 + one change: the corrupt picture just before the intro's blue city (the city in white specks for five frames) is gone - while the game's whole palette is black, leftover colours on the Genesis are blacked too. Nothing of v28-v33 is in it. docs/100
 v27 the stage 3 boss (and others) no longer a solid orange silhouette while hit: the red flash is drawn mixed with the sprite's own colours, as a television blends it; STEADY BLINK keeps to even frames when a picture is made again, and only inside a stage
 v26 STEADY BLINK (options menu, on by default): effects the game draws on alternate frames (bombs white/blue, dying airships red/dark, blinking faces and signs) no longer flicker slowly - each picture takes an even frame and the odd frame's sprites behind it
 v25 the background torn for one picture (lower part shifted, status bar garbage): the 68000 no longer applies the plane's held changes in the middle of a picture - they wait for the blank the 32X swaps in

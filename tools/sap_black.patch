@@ -1,0 +1,35 @@
+--- a/rt_bg2.c	2026-11-21 09:08:03.011067880 -0800
++++ b/rt_bg2.c	2026-11-21 09:08:03.024319077 -0800
+@@ -1506,6 +1506,32 @@
+             b->cram[c >> 4][c & 15] = b->gcol[c >> 4][c & 15]; }
+         b->kn += 5 + n; c0 = c1 + 1;
+     }
++#ifdef SAP_BLACK
++    /* Sapphire docs/100 (the owner's video of 21 Nov, v27: "a corrupt frame of graphics just before the blue city pops
++       up" - the intro's city in white specks, five frames, then black, then the city). A Genesis colour no index is
++       placed on any more is never sent again: it keeps what it last showed. The game fades the ship to black, loads the
++       city under an all-black palette (the PC machine, 1,344-1,361: every one of the 256 background colours 0, the map
++       and tiles written at 1,348-1,351), then sets the colours; here the ship's colours stayed in the Genesis's CRAM
++       and the city's tiles showed in them as the list wrote them (ares 1,814-1,821).
++       Only this: **while every background colour of the PC Engine is black, a Genesis colour that nothing is placed on
++       and that is not black is set black** - with the kept runs, at the blank. The original's background is black
++       then, whatever the plane holds. Nothing else is touched: a placed colour goes as before, and with any colour
++       lit this does nothing */
++    {   int lit = 0;
++        for (int i = 0; i < 256 && !lit; i++) lit = (v->color[i] & 0x1FF) != 0;
++        if (!lit) for (int c0 = 1; c0 < 16 * BG2_NPAL; ) {
++            if (!(c0 & 15) || b->gref[c0 >> 4][c0 & 15] || b->cram[c0 >> 4][c0 & 15] == 0) { c0++; continue; }
++            int c1 = c0;
++            while (c1 + 1 < 16 * BG2_NPAL && ((c1 + 1) & 15) && !b->gref[(c1 + 1) >> 4][(c1 + 1) & 15] && b->cram[(c1 + 1) >> 4][(c1 + 1) & 15] != 0) c1++;
++            const int n = c1 - c0 + 1;
++            if (b->kn + 5 + n > 250 || b->ln + 6 + n > BG2_LIST_WORDS) break;   /* (no room this picture: the next) */
++            list_word(b, (uint16_t)(0x3000 | (4 + n))); list_word(b, 0x1002);
++            list_word(b, (uint16_t)(0xC000 | 2 * c0)); list_word(b, 0); list_word(b, (uint16_t)(0x2000 | n));
++            for (int c = c0; c <= c1; c++) { list_word(b, 0); b->cram[c >> 4][c & 15] = 0; }
++            b->kn += 5 + n; c0 = c1 + 1;
++        }
++    }
++#endif
+ #ifdef SPR_HUD
+     hud_frame(b, v, 1);                          /* (docs/83: its sprite table and colours, kept) */
+ #endif
