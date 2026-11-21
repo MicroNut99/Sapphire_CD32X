@@ -42,7 +42,23 @@ background is black.
   the same.
 - SDRAM: `bg2_frame` + 374 bytes; `__sdcode_end` 0x06005F20 of 0x06006000; bss as v27.
 
-## The four v27 videos again (PXL_20261121_055612344 / 055839060 / 060111113 / 060252723)
-Sent again with "Analyse for lost tiles, frames and glitching": the same files as docs/95's (sizes equal), its table
-stands - the strips of stale tiles at stage 3's boss (27.0-28.5 s, 34.5-36.5 s), the still pictures of 0.13-0.4 s where
-new tiles arrive, a stage's first pictures lost. None of that is touched by v34.
+## The four v27 videos, looked at again (PXL_20261121_055612344 / 055839060 / 060111113 / 060252723)
+Sent again with "Analyse for lost tiles, frames and glitching"; the first answer repeated docs/95's table without
+looking, and the owner said so. Then looked at: every camera frame extracted, sheets at three a second of all four
+read through, the every-frame scans (`scan.py`, `frz.py`) and stills of what they flagged.
+
+| what | where | |
+|---|---|---|
+| **strips of forest tiles across the road**, a row of cells high, 1.5-2 s | stage 3's boss, 060111113 27.0-28.7 s (right of the boss, two heights), 35.0-36.8 s (upper left) | seen; docs/95's, a real fault |
+| **wrong colours for ~0.3 s** | stage 2, 055839060 60.2-60.5 s: the wall's blue-grey band orange and yellow, orange squares among the trees below it; 65.0-65.2 s: the fortress's top yellow, the band under it orange | **not in docs/95's table.** Palettes placed again (docs/86-87) |
+| the picture still for 0.13-0.4 s | stage 1 10.0, 47.1, 52.3, 60.7; stage 2 21.4, 45.1 (0.4 s), 55.9, 59.9, 72.9; stage 3 10.6, 58.8, 65.2, 74.7; stage 4 32.5, 74.6 | as docs/95 |
+| a light-blue band over the lower two thirds, one sample | stage 2's end, 72.67 s | not checked against the original (not in the recording) |
+
+**The game's own, checked against the PC machine this time:** the striped frame as a briefing ends (8,104-8,106:
+grey stripes, then orange); a new scene coming down behind a hard horizontal edge (stage 1's city under the clouds,
+8,320-8,336 - stage 2's wall and stage 3's forest and cloud layer arrive the same way, those three not checked one by
+one); the briefing's grid changing between wire and solid (8,100 / 8,102). The white screens at stage 1's bolts:
+docs/97. The white sky in a stage's first second: the HUD is blown white in the same camera frames - the camera's
+exposure after the black screen, as docs/95 judged; not provable from a video.
+Not measured again: "a stage's first pictures lost" (docs/95).
+
