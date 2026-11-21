@@ -33,9 +33,6 @@
 #if __has_include("subs_dlg.h")
 #include "subs_dlg.h"                                       /* (docs/79: SAP_DLG, sap_dlg_en[112][2]) */
 #endif
-#if __has_include("subs_intro.h")
-#include "subs_intro.h"                                     /* (docs/94: SAP_INTRO, sap_intro_en[]) */
-#endif
 #if __has_include("subs_en.h")
 #include "subs_en.h"                                        /* (docs/77: SAP_SUBS, sap_subs_en[5][3]) */
 #endif
@@ -80,7 +77,7 @@ static uint8_t gm_in_stage;                                   /* (as the menu op
 static uint8_t gm_infcr;                                      /* (docs/86, INFINITE CREDIT: base RAM $06BD kept at 9) */
 static uint8_t gm_flash;                                      /* (docs/78, HIT FLASH: off - a hit sprite keeps its colours) */
 static uint8_t gm_steady = 1;                                 /* (docs/91, STEADY BLINK: on - pictures of even frames only) */
-static uint8_t gm_sub_on = 1, gm_sub_box; static const char *gm_sub1, *gm_sub2;   /* (gm_sub_box 2: the intro's narration, docs/94) */
+static uint8_t gm_sub_on = 1; static const char *gm_sub1, *gm_sub2;
 static const char *gm_msg;                                    /* (a line under the items: why not, what is going on) */
 static void gm_fill(int x0, int y0, int x1, int y1, uint8_t c)   /* (x0, x1 even) */
 {
@@ -105,7 +102,7 @@ static void gm_colours(void)                                  /* (pace_vbi, the 
 }
 static void gm_wipe(int buf)                                  /* the menu's picture off the buffer drawn in: nothing remembered */
 {
-    gm_fill(0, 0, 320, 224, 0); spr_last_clear(buf);          /* (docs/96: the side columns too - a line wider than the picture stayed there) */
+    gm_fill(32, 0, 288, 224, 0); spr_last_clear(buf);
 }
 static const char *const gm_credits[] = {
     "GINGA FUKEI DENSETSU", "SAPPHIRE", "(C) 1995 HUDSON SOFT", "", "THE CD32X PORT:", "THE GAME'S OWN PROGRAM ON A",
@@ -125,19 +122,9 @@ static void gm_status(void)
     { char t[32] = "PICTURES A SECOND        . "; gm_num(t + 22, gm_stv.pps10 / 10, 3); t[26] = (char)('0' + gm_stv.pps10 % 10); gm_text(40, 56, t, GM_TXT); }
     { char t[32] = "SLOWEST PICTURE         /6O"; gm_num(t + 20, gm_stv.worst, 4); gm_text(40, 70, t, GM_TXT); }
     { char t[32] = "ENGINE FRAMES A SECOND     "; gm_num(t + 23, gm_stv.fps, 4); gm_text(40, 84, t, GM_TXT); }
-    { char t[32] = "32X BACKGROUND PALETTES    "; gm_num(t + 23, gm_stv.xpal, 4); gm_text(40, 100, t, GM_TXT); }
-    { char t[32] = "  CELLS NOW      MOST      "; gm_num(t + 12, gm_stv.xcells, 4); gm_num(t + 23, gm_stv.xmost, 4); gm_text(40, 112, t, GM_TXT); }
-    { char t[32] = "  MOVES        LATE        "; gm_num(t + 8, gm_stv.moves, 6); gm_num(t + 20, gm_stv.early, 7); gm_text(40, 124, t, GM_TXT); }
-#ifdef SAP_PARTCOVER
-    {   /* (docs/97: the 32X's covers of palettes placed again - all made, those of a part only, and the big moves it had
-           no room for at all; the secondary's counts, read past the cache) */
-        extern uint32_t bg2_sap_covers, bg2_sap_part, bg2_sap_why[4];
-        char t[32] = "COVERS      PART     NONE     ";
-        gm_num(t + 7, *(volatile uint32_t *)((uintptr_t)&bg2_sap_covers | 0x20000000), 4);
-        gm_num(t + 17, *(volatile uint32_t *)((uintptr_t)&bg2_sap_part | 0x20000000), 3);
-        gm_num(t + 26, *(volatile uint32_t *)((uintptr_t)&bg2_sap_why[2] | 0x20000000), 3);
-        gm_text(40, 136, t, GM_TXT); }
-#endif
+    { char t[32] = "32X BACKGROUND PALETTES    "; gm_num(t + 23, gm_stv.xpal, 4); gm_text(40, 104, t, GM_TXT); }
+    { char t[32] = "  CELLS NOW      MOST      "; gm_num(t + 12, gm_stv.xcells, 4); gm_num(t + 23, gm_stv.xmost, 4); gm_text(40, 118, t, GM_TXT); }
+    { char t[32] = "  MOVES        LATE        "; gm_num(t + 8, gm_stv.moves, 6); gm_num(t + 20, gm_stv.early, 7); gm_text(40, 132, t, GM_TXT); }
     { char t[32] = "LONG LISTS                 "; gm_num(t + 19, gm_stv.more, 8); gm_text(40, 152, t, GM_TXT); }
     { char t[32] = "BLOCKS READ AGAIN          "; gm_num(t + 19, gm_stv.fix, 8); gm_text(40, 166, t, GM_TXT); }
     { char t[32] = "LIST WORDS LEFT OUT        "; gm_num(t + 19, gm_stv.over, 8); gm_text(40, 180, t, GM_TXT); }
@@ -196,7 +183,7 @@ static void gm_draw(void)                                     /* the menu, whole
     else if (gm_sel == GM_INFCR) gm_mid(184, "THE CREDITS KEPT AT 9", GM_DIM);
     else if (gm_sel == GM_AUTO) gm_mid(184, "HOLD I: THE SHIP FIRES ON", GM_DIM);
     else if (gm_sel == GM_STATUS) gm_mid(184, "A: HOW THE CONSOLE RUNS IT", GM_DIM);
-    else if (gm_sel == GM_STEADY) gm_mid(184, "NO SLOW FLICKER, FEWER PICTURES", GM_DIM);   /* (docs/96: 32 letters at most - the picture's 256 columns) */
+    else if (gm_sel == GM_STEADY) gm_mid(184, "ON: NO SLOW FLICKER, FEWER PICTURES", GM_DIM);
 #ifdef BG2_X32
     else if (gm_sel == GM_COL) gm_mid(184, gm_col == 1 ? "EXACT: FEWER PICTURES" : gm_col == 2 ? "FAST: THE NEAREST COLOURS" : "AUTO: EXACT WHERE IT IS CHEAP", GM_DIM);
 #endif
@@ -217,16 +204,6 @@ static void gm_text_on(int y, const char *t)                  /* white letters a
 static int gm_sub_y = 84;                                     /* (docs/79: the briefing's band 84-104; the dialogue's 38-58, over the grid above the pilot (ares: at 128 the portrait covered letters)) */
 static void gm_subs(void)                                     /* (the owner, of v12: under the text box, "just as white txt") */
 {
-    /* docs/96 (the owner, of v28-v30: "I didnt want you to move or change the existing subtitles. They were perfect they
-       way they were. I just wanted you to add the additional missing subs"): the briefing's and the dialogue's lines
-       where and as v12-v27 had them. The intro's narration (new in v29: gm_sub_box 2) at the screen's bottom edge, on
-       its picture's black band, the rows ending at line 215 (a television's overscan) */
-    if (gm_sub_box == 2) {
-        const int n = gm_sub2 ? 2 : 1; int y = 215 - (11 * n - 3);
-        if (gm_sub1) gm_text_on(y, gm_sub1);
-        if (gm_sub2) gm_text_on(y + 11, gm_sub2);
-        return;
-    }
     if (gm_sub1) gm_text_on(gm_sub2 ? gm_sub_y : gm_sub_y + 6, gm_sub1);
     if (gm_sub2) gm_text_on(gm_sub_y + 12, gm_sub2);
 }

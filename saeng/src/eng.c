@@ -184,16 +184,9 @@ static uint32_t sv_saved_h;                                   /* (the data as la
 static uint32_t sv_fnv(const uint8_t *p, unsigned n) { uint32_t h = 0x811C9DC5u; while (n--) { h ^= *p++; h *= 0x01000193u; } return h; }
 static void sv_put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }
 static uint32_t sv_get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
-#ifdef SAP_SUBS                                               /* (docs/98: ENGLISH TEXT in the SD card's record) */
-#define SV_SUB_BIT ((gm_sub_on ^ 1) << 3)
-#define SV_SUB_GET(b) (gm_sub_on = (uint8_t)!((b) >> 3 & 1))
-#else
-#define SV_SUB_BIT 0
-#define SV_SUB_GET(b) ((void)0)
-#endif
 static void sv_data(uint8_t *d)
 {
-    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1 | (gm_steady ^ 1) << 2 | SV_SUB_BIT);   /* (docs/98: bit 3 = ENGLISH TEXT off - saved with the rest; older saves keep it on) */   /* (docs/91: bit 2 = STEADY BLINK off: older saves keep it on) */   /* (docs/86: INFINITE CREDIT in bit 1) */
+    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1 | (gm_steady ^ 1) << 2);   /* (docs/91: bit 2 = STEADY BLINK off: older saves keep it on) */   /* (docs/86: INFINITE CREDIT in bit 1) */
 #ifdef SAP_CDFADE
     d[5] = gm_mus;
 #else
@@ -232,7 +225,7 @@ static void sv_load(void)                                     /* at the start: t
     const uint32_t h = sv_get32(r + 8);
     if (sv_get32(r + 4) != SV_LEN || sv_get32(r + 12) != ~h || sv_fnv(d, SV_LEN) != h || d[0] != SV_VER) { gm_sv_state = 3; return; }
     if (d[1] >= 1 && d[1] <= 9) gm_lives = d[1];
-    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1; gm_steady = !(d[4] >> 2 & 1); SV_SUB_GET(d[4]);
+    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1; gm_steady = !(d[4] >> 2 & 1);
 #ifdef SAP_CDFADE
     if (d[5] <= 8) gm_mus = d[5];
 #endif
@@ -426,13 +419,6 @@ static uint32_t sap_demo_lba;
    of the same track (same mode, same sector) then changes nothing - the music goes on into the stage. Any play of the
    game's own clears it */
 static uint32_t sap_brief_lba;
-#ifdef SAP_INTRO
-/* docs/94 (the owner: "an intro scene with all japanese language"): the intro's Japanese is spoken - a narrator over CD
-   track 15 (LBA 144,633, the game's play at frame 1,348 of recording playL; on screen no Japanese at all). The English,
-   timed to the narration (0.5-53.4 s into the track), shown by the 32X's blank count since the game started the track */
-#define SAP_INTRO_LBA 144633u
-static uint8_t sap_intro_on; static uint32_t sap_intro_t0;
-#endif
 static const uint32_t sap_st_lba[5] = { 11339, 29473, 47670, 65804, 83973 };   /* (the stages' tracks' starts, AUDIO_LOG) */
 static uint8_t sap_stage_seen = 0xFF;                         /* (the stage whose block the game read last, less one) */
 static void sap_tick(uint32_t f)
@@ -470,7 +456,7 @@ static void sap_tick(uint32_t f)
 #ifdef SAP_SUBS
     {   /* docs/77: a briefing's text is up - its sectors read (sap_brief_lba), the briefing's picture (CR $C8, the map 64
            wide, no V scroll); the order on the map's left screen (BXR 0), the pilot's answer on its right (BXR $100) */
-        const char *a = 0, *b = 0; int box = 0;
+        const char *a = 0, *b = 0;
         if (gm_sub_on && sap_brief_lba && cr == 0xC8 && ENG_R(ENG_W6, 0x20E04) == 0x10 && ENG_R(ENG_W6, 0x20E02) == 0) {
             int st = 0; while (st < 4 && sap_st_lba[st] != sap_brief_lba) st++;
             const uint16_t bx = ENG_R(ENG_W6, 0x20E00);
@@ -478,41 +464,24 @@ static void sap_tick(uint32_t f)
             else if (bx == 0x100) a = sap_subs_en[st][2];
         }
         int y = 84;
-#ifdef SAP_INTRO
-        if (gm_sub_on && sap_intro_on) {                      /* (docs/94: the intro's narration, at the bottom) */
-            const uint32_t t = gTicks - sap_intro_t0;
-            for (unsigned i = 0; i < sizeof sap_intro_en / sizeof sap_intro_en[0]; i++)
-                if (t >= sap_intro_en[i].a && t < sap_intro_en[i].b) { a = sap_intro_en[i].r1; b = sap_intro_en[i].r2; box = 2; break; }
-        }
-#endif
 #ifdef SAP_DLG
         /* docs/79 (the owner: "cutscenes with missing subtitles"): after stages 1-4, one of 112 lines (the data track's
-           sectors 3,663-3,665 from offset 1,762; the game reads it from the Arcade Card: a table, then the text).
-           docs/93 (the owner: "translate the Japanese to English subtitles for the cutscenes. Put the subs at the bottom
-           of the screen"): **the line is the game's own number, zero page $1C** - `LDA <$1C / JSR $62B7` (bank 69, $61F9),
-           the table's entry ($1C x 2 + 2) into the card's port 0 ($62BB). Set as the scene begins (one player: pilot x 4 +
-           stage - 1, $06A7), and **in two players changed between the two pilots' lines** (the PC machine, recording
-           playL with $069F = 2, $06A8 = 1 poked at 20,400: $1C 3 from 20,450, 4 from 20,730, the second pilot's line
-           typed from 20,760; the table's order = subs_dlg.txt's, 112 of 112 lines in sequence). Read through the poke port
-           as the scene begins, then every 16 frames (a change taken when two reads agree): docs/72's slow-down was reads in
-           play, this is the dialogue only. docs/96: drawn where v15-v27 drew the one player's (y 38), two rows */
-        {   static uint8_t was, ln = 0xFF, cand = 0xFF, play_st = 0xFF; static uint32_t rf;
+           sectors 3,663-3,665; the game reads it from the Arcade Card, its port 0 at $010E00: a table of 113 offsets,
+           then the text). One player: line pilot x 4 + the stage less one - the pilot base RAM $06A7 (0-3: measured,
+           one to three presses of right on the select screen). The scene: CR $CC, the map 64 x 32 (MWR $10), BXR and
+           BYR 0 - read once as it begins (the poke port), the stage the one last played. Two players (CD RAM $A00D):
+           two lines, the second pilot not known - nothing shown */
+        {   static uint8_t was, pil, play_st = 0xFF;
             const uint16_t mw = ENG_R(ENG_W6, 0x20E04), bx = ENG_R(ENG_W6, 0x20E00), by = ENG_R(ENG_W6, 0x20E02);
             const int dlg = cr == 0xCC && mw == 0x10 && bx == 0 && by == 0;
             if (sap_in && mw == 0x20) play_st = sap_stage_seen;
-            if (dlg && gm_sub_on && play_st < 4) {
-                if (!was) { const uint32_t v = gm_peek(0x001C); ln = (uint8_t)(v < 112 ? v : 0xFF); cand = 0xFF; rf = f; }
-                else if (f - rf >= 16) {
-                    rf = f; const uint32_t v = gm_peek(0x001C);
-                    if (v < 112 && v != ln) { if (cand == v) { ln = (uint8_t)v; cand = 0xFF; } else cand = (uint8_t)v; } else cand = 0xFF;
-                }
-            } else ln = 0xFF;
+            if (dlg && !was) pil = (uint8_t)(gm_sub_on && play_st < 4 && sp_cdpeek(0xA00Du) == 0 ? gm_peek(0x06A7) : 0xFF);
             was = (uint8_t)dlg;
-            if (dlg && ln < 112) { a = sap_dlg_en[ln][0]; b = sap_dlg_en[ln][1]; y = 38; box = 0; }   /* (docs/96: where v15-v27 drew it) */
+            if (dlg && gm_sub_on && pil < 4 && play_st < 4) { a = sap_dlg_en[pil * 4 + play_st][0]; b = sap_dlg_en[pil * 4 + play_st][1]; y = 38; }
         }
 #endif
         gm_sub_y = y;
-        if (a != gm_sub1 || b != gm_sub2 || box != gm_sub_box) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; gm_sub_box = (uint8_t)box; }
+        if (a != gm_sub1 || b != gm_sub2) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; }
     }
 #endif
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high
@@ -658,11 +627,6 @@ static void eng_feed(void)
     uint32_t src = lba;                                       /* (the sector whose bytes go: the one wanted, but the stage select's) */
 #ifdef GOT_MENU
     if (gm_mac == 30 && lba == W_GAME) gm_mgo(31, eng_last);  /* (docs/58: the game's start asked - the block's turn next) */
-#ifdef SAP_DIAG_STAGE
-    /* DIAG (docs/95, DIAGSTAGE=<n>): a recording's new game played in stage n - the stage select's feed and poke from the
-       first new game's block, as the PC machine's SEC_REMAP + RUN_POKES $069C (an emulator's comparison, never a kit) */
-    { static uint8_t once; if (!once && lba == W_BRIEF) { once = 1; gm_stage = SAP_DIAG_STAGE; gm_bset = 0; gm_mgo(31, eng_last); } }
-#endif
     if (gm_mac == 31) {
         if (lba == W_BRIEF && !gm_bset) { gm_poke(SP_STAGE_AT, (uint32_t)(gm_stage - 1)); gm_bset = 1; }   /* (the block's read begun) */
         if (gm_stage >= 2 && lba >= W_BRIEF_OWN && lba < W_BRIEF_OWN + 64u) src = W_BRIEF_N + 724u * (gm_stage - 2u) + (lba - W_BRIEF_OWN);
@@ -876,11 +840,7 @@ static void bgx_slots(uint16_t taken, int bg_on)
 #ifdef SAP_COVER
     {   extern int bg2_x32_free;                              /* (docs/87: the cover's room - the 32X palettes the sprites take now,
                                                      not by their peak: bgx_assign gives the 32X's palettes by what they take now) */
-        bg2_x32_free = bg_on ? 16 - n : 0;
-#ifdef SAP_FREE_LESS
-        bg2_x32_free = bg2_x32_free > SAP_FREE_LESS ? bg2_x32_free - SAP_FREE_LESS : 0;   /* (docs/97: a diagnostic build - a second player's palettes) */
-#endif
-        }
+        bg2_x32_free = bg_on ? 16 - n : 0; }
 #endif
     if (n >= peak) { peak = (uint8_t)n; fall = 0; } else if (++fall >= 64) { fall = 0; peak--; }
 #ifndef SAP_PEAK_MIN
@@ -1166,38 +1126,26 @@ static void eng_picture(uint32_t done)
 #ifndef ENG_VFY
 #define ENG_VFY 8
 #endif
-static uint16_t vfy_tag = 0x6000, vfy_r1[64];
-__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_vfy1(int k)
+static void eng_verify(void)
 {
+    static int vk; static uint16_t vtag = 0x6000;
+    static uint16_t r1[64];
     const uint32_t sb = ENG_W6 + 0x20000;
-    if (ENG_R(sb, 2 * k) != eng_stamp[k]) return;             /* (a change under way: the copy's own path takes it) */
-    const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
-    uint16_t *d = eng_v.vram + 64 * k; int diff = 0;
-    for (int i = 0; i < 64; i++) { vfy_r1[i] = src[i]; diff |= vfy_r1[i] != d[i]; }
-    if (!diff) return;
-    for (int i = 0; i < 64; i++) if (src[i] != vfy_r1[i]) return;
-    if (ENG_R(sb, 2 * k) != eng_stamp[k]) return;
-    for (int i = 0; i < 64; i++) d[i] = vfy_r1[i];
-    vfy_tag = (uint16_t)(vfy_tag + 1);
-    const uint16_t tag = (uint16_t)(VSRC_CODE | (vfy_tag & 0x7FFF));
-    for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;
-    eng_fixn++;
-}
-/* docs/95 (the owner's v27 videos, stage 3's boss: strips of the forest across the road, a row of cells high, from
-   mid-screen to the edge, for 1.5-2 s, then right - not in the original, not in ares): the stage's map is 128 cells
-   wide (MWR $20), a row two blocks of 64 words; a strip is one block of a row - a block's copy gone stale, mended when
-   eng_verify's round of the 512 blocks reached it (8 a picture: 2.5 s a round - the strips' time). The map's own
-   blocks now have a round of their own, ENG_VFY_BAT a picture: 64 blocks in 5 pictures, a fifth of a second */
-#ifndef ENG_VFY_BAT
-#define ENG_VFY_BAT 12
-#endif
-__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_verify(void)
-{
-    static int vk, vb;
-    for (int n = 0; n < ENG_VFY; n++) { eng_vfy1(vk); vk = (vk + 1) & 511; }
-    static const uint8_t wsh[4] = { 5, 6, 7, 7 };
-    const int nb = 1 << (wsh[eng_v.MWR >> 4 & 3] + (eng_v.MWR & 0x40 ? 6 : 5) - 6);
-    for (int n = 0; n < ENG_VFY_BAT; n++) { if (vb >= nb) vb = 0; eng_vfy1(vb++); }
+    for (int n = 0; n < ENG_VFY; n++) {
+        const int k = vk; vk = (vk + 1) & 511;
+        if (ENG_R(sb, 2 * k) != eng_stamp[k]) continue;        /* (a change under way: the copy's own path takes it) */
+        const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
+        uint16_t *d = eng_v.vram + 64 * k; int diff = 0;
+        for (int i = 0; i < 64; i++) { r1[i] = src[i]; diff |= r1[i] != d[i]; }
+        if (!diff) continue;
+        for (int i = 0; i < 64; i++) if (src[i] != r1[i]) { diff = 0; break; }
+        if (!diff || ENG_R(sb, 2 * k) != eng_stamp[k]) continue;
+        for (int i = 0; i < 64; i++) d[i] = r1[i];
+        vtag = (uint16_t)(vtag + 1);
+        const uint16_t tag = (uint16_t)(VSRC_CODE | (vtag & 0x7FFF));
+        for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;
+        eng_fixn++;
+    }
 }
 /* docs/103: the CD audio - the engine's drive plays a track (register words 3-4: playing, the play's mode, its start
    sector); the Sega CD plays the disc's own copy of it (tools/eng_music.py: the game's track n is disc track n, its 1 is
@@ -1490,9 +1438,6 @@ static void eng_audio(void)
     eng_audio_seen++;
     const int was = eng_aud >> 31, now = a >> 31;
     eng_aud = a;
-#ifdef SAP_INTRO
-    sap_intro_on = (uint8_t)(now && (a & 0x1FFFFFu) == SAP_INTRO_LBA); sap_intro_t0 = gTicks;   /* (docs/94: the narration's clock) */
-#endif
     cdr_busy = 1;
     for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { LT_POLL(); }
     if (now) {

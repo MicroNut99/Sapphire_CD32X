@@ -53,7 +53,7 @@ rm -f "$B/saeng/src/subs_dlg.h"
 import sys
 l = [x.rstrip('\n') for x in open(sys.argv[1])][:112]
 assert len(l) == 112, 'subs_dlg.txt: 112 lines'
-def split(t):                                         # (docs/96: as v15-v27 - two rows of 32 at most)
+def split(t):
     t = t.upper()
     assert len(t) <= 64 and '"' not in t and '\\' not in t, t
     if len(t) <= 32: return t, None
@@ -64,22 +64,6 @@ def split(t):                                         # (docs/96: as v15-v27 - t
 q = lambda x: '"%s"' % x if x else '0'
 open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][2] = {\n' +
     ''.join('    { %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
-PYE
-# docs/94: the intro's narration in English (the work folder's subs_intro.txt: "<from s> <to s>|<row>|<row>" a line, the
-# seconds into the intro's track, CD track 15; rows of 32 at most) - sap_intro_en[]; not in the repository
-rm -f "$B/saeng/src/subs_intro.h"
-# (docs/98, the owner: "no subs during the intro" - off unless INTROSUBS=1)
-[ "${INTROSUBS:-0}" = 1 ] && [ -f "$W/subs_intro.txt" ] && python3 - "$W/subs_intro.txt" "$B/saeng/src/subs_intro.h" <<'PYE'
-import sys
-out = []
-for x in open(sys.argv[1]):
-    x = x.rstrip('\n')
-    if not x.strip(): continue
-    t, r1, r2 = x.split('|')
-    a, b = (round(float(v) * 59.92) for v in t.split())
-    assert a < b and 0 < len(r1) <= 32 and len(r2) <= 32 and not any(c in r1 + r2 for c in '"\\'), x
-    out.append('    { %d, %d, "%s", %s },\n' % (a, b, r1.upper(), '"%s"' % r2.upper() if r2 else '0'))
-open(sys.argv[2], 'w').write('#define SAP_INTRO\nstatic const struct { uint16_t a, b; const char *r1, *r2; } sap_intro_en[] = {\n' + ''.join(out) + '};\n')
 PYE
 [ -f "$W/subs_en.txt" ] && python3 - "$W/subs_en.txt" "$B/saeng/src/subs_en.h" <<'PYE'
 import sys
@@ -92,7 +76,6 @@ PYE
 [ "${COW:-$([ "${V10PIC:-1}" = 1 ] && echo 0 || echo 1)}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 [ "${X32ALL:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg4.patch"; RTX_X32ALL=1; }   # (docs/82: the intro drawn whole by the 32X; X32ALL=0 without)
 [ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
-[ "${COLNOW:-1}" = 1 ] && [ "${PARTCOVER:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg6.patch"; RTX_PART=1; }   # (docs/97: the cover takes as many of the moved palettes as the 32X has room for - the biggest; PARTCOVER=0: all or nothing, as v21-v31)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -262,12 +245,9 @@ PYE
 # ares only. V10PIC=0: v16's.
 [ "${V10PIC:-1}" = 1 ] && RTX="$RTX -DSAP_V10PIC"
 [ -n "${SLOW:-}" ] && RTX="$RTX -DSAP_SLOW=$SLOW"
-[ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"
-[ -n "${DIAGSTAGE:-}" ] && RTX="$RTX -DSAP_DIAG_STAGE=$DIAGSTAGE"   # (docs/95: a recording played in another stage - ares comparisons only)   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
-[ -n "${FREELESS:-}" ] && RTX="$RTX -DSAP_FREE_LESS=$FREELESS"   # (docs/97: ares only - the cover's room less n 32X palettes, as a second player's sprites take them)
+[ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
-[ -n "${RTX_PART:-}" ] && [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_PARTCOVER"   # (docs/97: STATUS shows the cover's counts)
 [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_COVER"   # (docs/86: palettes placed again drawn by the 32X while the plane is rewritten; COVER=0 without)
 [ "${REPL:-0}" = 1 ] && RTX="$RTX -DSAP_REPL"   # (docs/86: a re-placement's rest at once, not paced - tried, not needed in ares; REPL=1 to have it)
 [ "${QUIET:-0}" = 1 ] && RTX="$RTX -DSAP_QUIET"   # (docs/82: tried, no gain measured - off)   # (docs/82: test builds - the console's pace in ares; never in a kit)

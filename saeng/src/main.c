@@ -1198,7 +1198,7 @@ static void draw_hook(V32 *v)
         while (SEC_DONE != job) { }                           /* (the sprites drawn: the 68000 may have the buffer) */
 #endif
 #endif
-        if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2)) gm_subs();   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them. docs/96: every picture again, as v13-v27) */
+        if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2)) gm_subs();   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them) */
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);
         bg2_sent++; bg2_words += (uint32_t)n;
