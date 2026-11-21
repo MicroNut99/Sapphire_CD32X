@@ -46,27 +46,24 @@ patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg2.patch"
 # docs/77: the briefing's lines in English - the work folder's subs_en.txt (15 lines: a stage's order in two lines and
 # the answer, 32 characters at most each); not in the repository. Without the file: no ENGLISH TEXT item.
 rm -f "$B/saeng/src/subs_en.h"
-# docs/79: the between-stage dialogue's 112 lines in English (the work folder's subs_dlg.txt, a line each; docs/93: split
-# at spaces into rows of 27 at most, two or three) - sap_dlg_en[112][3]; not in the repository
+# docs/79: the between-stage dialogue's 112 lines in English (the work folder's subs_dlg.txt, a line each, 64 characters at
+# most: split in two at a space) - sap_dlg_en[112][2]; not in the repository
 rm -f "$B/saeng/src/subs_dlg.h"
 [ -f "$W/subs_dlg.txt" ] && python3 - "$W/subs_dlg.txt" "$B/saeng/src/subs_dlg.h" <<'PYE'
 import sys
 l = [x.rstrip('\n') for x in open(sys.argv[1])][:112]
 assert len(l) == 112, 'subs_dlg.txt: 112 lines'
-def split(t):                                         # (docs/93: rows of 27 at most - the game's text box is 28 wide; two, or three)
+def split(t):                                         # (docs/96: as v15-v27 - two rows of 32 at most)
     t = t.upper()
-    assert len(t) <= 81 and '"' not in t and '\\' not in t, t
-    W = 27
-    if len(t) <= W: return t, None, None
-    sp = [i for i, c in enumerate(t) if c == ' ']
-    two = [(max(i, len(t) - i - 1), i) for i in sp if i <= W and len(t) - i - 1 <= W]
-    if two: i = min(two)[1]; return t[:i], t[i + 1:], None
-    three = [(max(i, j - i - 1, len(t) - j - 1), i, j) for i in sp for j in sp if i < j and i <= W and j - i - 1 <= W and len(t) - j - 1 <= W]
-    assert three, t
-    _, i, j = min(three); return t[:i], t[i + 1:j], t[j + 1:]
+    assert len(t) <= 64 and '"' not in t and '\\' not in t, t
+    if len(t) <= 32: return t, None
+    sp = [i for i, c in enumerate(t) if c == ' ' and i <= 32 and len(t) - i - 1 <= 32]
+    assert sp, t
+    i = min(sp, key=lambda i: abs(len(t) / 2 - i))   # (the space nearest the middle: two lines of like length)
+    return t[:i], t[i + 1:]
 q = lambda x: '"%s"' % x if x else '0'
-open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][3] = {\n' +
-    ''.join('    { %s, %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
+open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][2] = {\n' +
+    ''.join('    { %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
 PYE
 # docs/94: the intro's narration in English (the work folder's subs_intro.txt: "<from s> <to s>|<row>|<row>" a line, the
 # seconds into the intro's track, CD track 15; rows of 32 at most) - sap_intro_en[]; not in the repository
@@ -94,6 +91,7 @@ PYE
 [ "${COW:-$([ "${V10PIC:-1}" = 1 ] && echo 0 || echo 1)}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg3.patch"   # (docs/76: changed tiles to other slots, the map after them; COW=0 without)
 [ "${X32ALL:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg4.patch"; RTX_X32ALL=1; }   # (docs/82: the intro drawn whole by the 32X; X32ALL=0 without)
 [ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
+[ "${COLNOW:-1}" = 1 ] && [ "${PARTCOVER:-0}" = 1 ] && patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg6.patch"   # (docs/97: the cover takes as many of the moved palettes as the 32X has room for - the biggest; PARTCOVER=0: all or nothing, as v21-v31)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -265,6 +263,7 @@ PYE
 [ -n "${SLOW:-}" ] && RTX="$RTX -DSAP_SLOW=$SLOW"
 [ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"
 [ -n "${DIAGSTAGE:-}" ] && RTX="$RTX -DSAP_DIAG_STAGE=$DIAGSTAGE"   # (docs/95: a recording played in another stage - ares comparisons only)   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
+[ -n "${FREELESS:-}" ] && RTX="$RTX -DSAP_FREE_LESS=$FREELESS"   # (docs/97: ares only - the cover's room less n 32X palettes, as a second player's sprites take them)
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
 [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_COVER"   # (docs/86: palettes placed again drawn by the 32X while the plane is rewritten; COVER=0 without)

@@ -1,0 +1,58 @@
+--- a/rt_bg2.c	2026-11-21 06:47:02.109797354 -0800
++++ b/rt_bg2.c	2026-11-21 06:47:20.554614782 -0800
+@@ -140,7 +140,7 @@
+ #ifdef SAP_REPL
+ int bg2_replaced;
+ #endif
+-uint32_t bg2_sap_covers, bg2_sap_uncov, bg2_sap_why[4];   /* (covers made; big moves not covered - no room, or the 32X moved too) */ int bg2_x32_free = 16;   /* (eng.c bgx_slots: the 32X palettes no sprite takes now) */
++uint32_t bg2_sap_covers, bg2_sap_uncov, bg2_sap_why[4], bg2_sap_part;   /* (covers made; big moves not covered - no room, or the 32X moved too) */ int bg2_x32_free = 16;   /* (eng.c bgx_slots: the 32X palettes no sprite takes now) */
+ #ifdef SAP_COVER
+ /* Sapphire docs/86: palettes placed again with many entries to send - the 32X draws them over the plane while it is
+    rewritten. The pack found at picture N is put back; N's job tells the 32X (bg2_x32_draw) and the master draws those
+@@ -1191,17 +1191,32 @@
+     ok = colours(b, v, chgd);
+     uint16_t mv = 0; for (int p = 0; p < 16; p++) if (chgd[p] && s_g[p] >= 0) mv |= B16(p);
+     int nmv = 0;
++    uint16_t cv = 0;                          /* (docs/97: the palettes covered - all that moved, or as many as the 32X has room for) */
+     /* (not for a new screen - its entries to send already, the colours sent first: docs/83's NOW LOADING stripes came back
+-       under a cover of black cells - nor while every palette is the 32X's, docs/82) */
+-    if (mv && !sap_cover && b->ndirty < 400 && nbat < 16   /* (docs/87: and not with a quarter of the map's entries rewritten
+-                                                     this picture - NOW LOADING's end had fewer than 400 left to send, its stripes came back) */
++       under a cover of black cells - nor while every palette is the 32X's, docs/82; docs/87: and not with a quarter of
++       the map's entries rewritten this picture - NOW LOADING's end had fewer than 400 left to send, its stripes came back) */
++    if (mv && !sap_cover && b->ndirty < 400 && nbat < 16
+ #ifdef SAP_X32ALL
+         && !bg2_x32_all
+ #endif
++       ) {
++        uint16_t cnt[16]; memset(cnt, 0, sizeof cnt);
++        for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
++        cv = mv;
+ #ifdef BG2_X32
+-        && popc16(x32_set | x32_leave | mv) <= bg2_x32_free - 1
++        /* (docs/97: v21-v31 covered all or nothing - two players' sprites leave the 32X fewer palettes than a pack
++           placed again moves, and the whole screen showed its rewriting (the owner's videos of 21 Nov: stage 1's city
++           orange, stage 4's clouds blue). Now the palettes with the fewest entries on the map go uncovered, one by
++           one, until the rest fits) */
++        while (cv && popc16(x32_set | x32_leave | cv) > bg2_x32_free - 1) {
++            int sm = -1;
++            for (int p = 0; p < 16; p++) if ((cv >> p & 1) && !((x32_set | x32_leave) >> p & 1) && (sm < 0 || cnt[p] < cnt[sm])) sm = p;
++            if (sm < 0) { cv = 0; break; }
++            cv &= (uint16_t)~B16(sm);
++        }
+ #endif
+-       ) for (int a = 0; a < ne; a++) nmv += mv >> (v->vram[a] >> 12) & 1;
++        for (int p = 0; p < 16; p++) if (cv >> p & 1) nmv += cnt[p];
++    }
+     if (nmv < SAP_COVER_MIN && mv && !sap_cover) {   /* (counted: a big move the cover could not take) */
+         int all = 0; for (int a = 0; a < ne; a++) all += mv >> (v->vram[a] >> 12) & 1;
+         if (all >= SAP_COVER_MIN) { bg2_sap_uncov++;
+@@ -1222,7 +1237,7 @@
+ #endif
+         for (int p = 0; p < 16; p++) chgd[p] = 0;
+         ok = b->col_ok; ch = b->colhash;          /* (the colours as they were: tried again at N + 2) */
+-        sap_cover = mv; sap_cover_wait = 1; bg2_sap_covers++;
++        sap_cover = cv; sap_cover_wait = 1; bg2_sap_covers++; if (cv != mv) bg2_sap_part++;
+     } else { b->fails = ok ? 0 : b->fails + 1; if (b->fails >= BG2_FAILS) { b->hold = BG2_HOLD; b->fails = 0; } }
+     *chp = ch;
+     return ok;

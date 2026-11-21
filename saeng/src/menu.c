@@ -30,7 +30,6 @@
 #define GM_HI 0x30                                            /*  3-6 - never drawn, never written by pace_vbi; 0x20 is the */
 #define GM_DIM 0x40                                           /*  picture number's in the border, left dark) */
 #define GM_BOX 0x50
-#define GM_BLK 0x70                                           /* (docs/93: opaque black - the subtitles' edge and the dialogue's box; index 0 of sprite palette 7, never drawn, never written by pace_vbi) */
 #if __has_include("subs_dlg.h")
 #include "subs_dlg.h"                                       /* (docs/79: SAP_DLG, sap_dlg_en[112][2]) */
 #endif
@@ -76,13 +75,12 @@ static uint32_t gm_best;                                      /* (the high score
 static uint8_t gm_in_stage;                                   /* (as the menu opened: eng.c) */
 /* docs/77 (the owner: the briefing's Japanese in English, a switch in the options, "at the bottom of the screen"):
    eng.c sets gm_sub1 / gm_sub2 (two lines of 32 characters at most) while a briefing's text is up; gm_subs draws them
-   (docs/93: at the screen's bottom edge; the dialogue's in its text box, up to three rows of 27)
    over the game's picture as gm_note does. The lines are not in the repository (subs_en.h, made by saeng_disc.sh from
    the work folder's subs_en.txt) */
 static uint8_t gm_infcr;                                      /* (docs/86, INFINITE CREDIT: base RAM $06BD kept at 9) */
 static uint8_t gm_flash;                                      /* (docs/78, HIT FLASH: off - a hit sprite keeps its colours) */
 static uint8_t gm_steady = 1;                                 /* (docs/91, STEADY BLINK: on - pictures of even frames only) */
-static uint8_t gm_sub_on = 1, gm_sub_box; static const char *gm_sub1, *gm_sub2, *gm_sub3;   /* (docs/93: a third row; box: the dialogue's text box) */
+static uint8_t gm_sub_on = 1, gm_sub_box; static const char *gm_sub1, *gm_sub2;   /* (gm_sub_box 2: the intro's narration, docs/94) */
 static const char *gm_msg;                                    /* (a line under the items: why not, what is going on) */
 static void gm_fill(int x0, int y0, int x1, int y1, uint8_t c)   /* (x0, x1 even) */
 {
@@ -103,11 +101,11 @@ static void gm_mid(int y, const char *t, uint8_t c) { gm_text((160 - 4 * gm_len(
 static void gm_colours(void)                                  /* (pace_vbi, the 32X's palette its: once the menu is asked) */
 {
     volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
-    cram[GM_TXT] = 0x7FFF; cram[GM_HI] = 0x03FF; cram[GM_DIM] = 0x4210; cram[GM_BOX] = 0x2800; cram[GM_BLK] = 0x0000;
+    cram[GM_TXT] = 0x7FFF; cram[GM_HI] = 0x03FF; cram[GM_DIM] = 0x4210; cram[GM_BOX] = 0x2800;
 }
 static void gm_wipe(int buf)                                  /* the menu's picture off the buffer drawn in: nothing remembered */
 {
-    gm_fill(32, 0, 288, 224, 0); spr_last_clear(buf);
+    gm_fill(0, 0, 320, 224, 0); spr_last_clear(buf);          /* (docs/96: the side columns too - a line wider than the picture stayed there) */
 }
 static const char *const gm_credits[] = {
     "GINGA FUKEI DENSETSU", "SAPPHIRE", "(C) 1995 HUDSON SOFT", "", "THE CD32X PORT:", "THE GAME'S OWN PROGRAM ON A",
@@ -188,7 +186,7 @@ static void gm_draw(void)                                     /* the menu, whole
     else if (gm_sel == GM_INFCR) gm_mid(184, "THE CREDITS KEPT AT 9", GM_DIM);
     else if (gm_sel == GM_AUTO) gm_mid(184, "HOLD I: THE SHIP FIRES ON", GM_DIM);
     else if (gm_sel == GM_STATUS) gm_mid(184, "A: HOW THE CONSOLE RUNS IT", GM_DIM);
-    else if (gm_sel == GM_STEADY) gm_mid(184, "ON: NO SLOW FLICKER, FEWER PICTURES", GM_DIM);
+    else if (gm_sel == GM_STEADY) gm_mid(184, "NO SLOW FLICKER, FEWER PICTURES", GM_DIM);   /* (docs/96: 32 letters at most - the picture's 256 columns) */
 #ifdef BG2_X32
     else if (gm_sel == GM_COL) gm_mid(184, gm_col == 1 ? "EXACT: FEWER PICTURES" : gm_col == 2 ? "FAST: THE NEAREST COLOURS" : "AUTO: EXACT WHERE IT IS CHEAP", GM_DIM);
 #endif
@@ -206,35 +204,21 @@ static void gm_text_on(int y, const char *t)                  /* white letters a
         for (int r = 0; r < 8; r++) for (int b = 0; b < 8; b++) if (g[r] & (0x80 >> b)) fb[(y + r) * 320 + x + b] = GM_TXT;
     }
 }
-static void gm_text_ol(int y, const char *t)                  /* (docs/93) white letters with a black edge, centred: readable over any picture */
+static int gm_sub_y = 84;                                     /* (docs/79: the briefing's band 84-104; the dialogue's 38-58, over the grid above the pilot (ares: at 128 the portrait covered letters)) */
+static void gm_subs(void)                                     /* (the owner, of v12: under the text box, "just as white txt") */
 {
-    volatile uint8_t *fb = (volatile uint8_t *)(FB + 0x100);
-    const int x0 = (160 - 4 * gm_len(t)) & ~1;
-    int x = x0;
-    for (const char *s = t; *s; s++, x += 8) {                /* the edge: each letter's rows widened a pixel each way, a row up and down */
-        int ch = (uint8_t)*s; if (ch < 32 || ch > 127) ch = '?';
-        const unsigned char *g = font8x8[ch - 32];
-        for (int r = -1; r <= 8; r++) {
-            unsigned m = 0;
-            for (int q = r - 1; q <= r + 1; q++) if (q >= 0 && q < 8) m |= g[q];
-            m = (m << 1 | m << 2 | m << 3) >> 1;              /* (bits 9..0: x - 1 .. x + 8) */
-            for (int b = 0; b < 10; b++) if (m & (0x200 >> b)) fb[(y + r) * 320 + x - 1 + b] = GM_BLK;
-        }
+    /* docs/96 (the owner, of v28-v30: "I didnt want you to move or change the existing subtitles. They were perfect they
+       way they were. I just wanted you to add the additional missing subs"): the briefing's and the dialogue's lines
+       where and as v12-v27 had them. The intro's narration (new in v29: gm_sub_box 2) at the screen's bottom edge, on
+       its picture's black band, the rows ending at line 215 (a television's overscan) */
+    if (gm_sub_box == 2) {
+        const int n = gm_sub2 ? 2 : 1; int y = 215 - (11 * n - 3);
+        if (gm_sub1) gm_text_on(y, gm_sub1);
+        if (gm_sub2) gm_text_on(y + 11, gm_sub2);
+        return;
     }
-    gm_text_on(y, t);
-}
-static void gm_subs(void)                                     /* (docs/93, the owner: "Put the subs at the bottom of the screen") */
-{
-    const char *r[3] = { gm_sub1, gm_sub2, gm_sub3 }; int n = 0;
-    while (n < 3 && r[n]) n++;
-    if (!n) return;
-    if (gm_sub_box) {                                         /* the dialogue: in the game's text box at the bottom (the original's: x 16-239, y 176-207), its Japanese covered */
-        gm_fill(48, 176, 272, 208, GM_BLK);
-        for (int i = 0, y = 176 + (32 - 11 * n + 3) / 2; i < n; i++, y += 11) gm_text_on(y, r[i]);
-    } else if (gm_sub_box == 2)                               /* (docs/94) the intro: the bottom edge, on its black letterbox - plain white, every picture */
-        for (int i = 0, y = 215 - (11 * n - 3); i < n; i++, y += 11) gm_text_on(y, r[i]);
-    else                                                      /* the briefing (its Japanese at the top): the screen's bottom edge */
-        for (int i = 0, y = 215 - (11 * n - 3); i < n; i++, y += 11) gm_text_ol(y, r[i]);   /* (rows end at 215: a television's overscan) */
+    if (gm_sub1) gm_text_on(gm_sub2 ? gm_sub_y : gm_sub_y + 6, gm_sub1);
+    if (gm_sub2) gm_text_on(gm_sub_y + 12, gm_sub2);
 }
 static void gm_note(void)                                     /* (the stage select at work: a line over the game's picture) */
 {

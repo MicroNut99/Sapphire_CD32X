@@ -463,13 +463,14 @@ static void sap_tick(uint32_t f)
 #ifdef SAP_SUBS
     {   /* docs/77: a briefing's text is up - its sectors read (sap_brief_lba), the briefing's picture (CR $C8, the map 64
            wide, no V scroll); the order on the map's left screen (BXR 0), the pilot's answer on its right (BXR $100) */
-        const char *a = 0, *b = 0, *c = 0; int box = 0;
+        const char *a = 0, *b = 0; int box = 0;
         if (gm_sub_on && sap_brief_lba && cr == 0xC8 && ENG_R(ENG_W6, 0x20E04) == 0x10 && ENG_R(ENG_W6, 0x20E02) == 0) {
             int st = 0; while (st < 4 && sap_st_lba[st] != sap_brief_lba) st++;
             const uint16_t bx = ENG_R(ENG_W6, 0x20E00);
             if (bx == 0) { a = sap_subs_en[st][0]; b = sap_subs_en[st][1]; }
             else if (bx == 0x100) a = sap_subs_en[st][2];
         }
+        int y = 84;
 #ifdef SAP_INTRO
         if (gm_sub_on && sap_intro_on) {                      /* (docs/94: the intro's narration, at the bottom) */
             const uint32_t t = gTicks - sap_intro_t0;
@@ -487,7 +488,7 @@ static void sap_tick(uint32_t f)
            playL with $069F = 2, $06A8 = 1 poked at 20,400: $1C 3 from 20,450, 4 from 20,730, the second pilot's line
            typed from 20,760; the table's order = subs_dlg.txt's, 112 of 112 lines in sequence). Read through the poke port
            as the scene begins, then every 16 frames (a change taken when two reads agree): docs/72's slow-down was reads in
-           play, this is the dialogue only. Drawn in the game's own text box (box), the Japanese covered */
+           play, this is the dialogue only. docs/96: drawn where v15-v27 drew the one player's (y 38), two rows */
         {   static uint8_t was, ln = 0xFF, cand = 0xFF, play_st = 0xFF; static uint32_t rf;
             const uint16_t mw = ENG_R(ENG_W6, 0x20E04), bx = ENG_R(ENG_W6, 0x20E00), by = ENG_R(ENG_W6, 0x20E02);
             const int dlg = cr == 0xCC && mw == 0x10 && bx == 0 && by == 0;
@@ -500,10 +501,11 @@ static void sap_tick(uint32_t f)
                 }
             } else ln = 0xFF;
             was = (uint8_t)dlg;
-            if (dlg && ln < 112) { a = sap_dlg_en[ln][0]; b = sap_dlg_en[ln][1]; c = sap_dlg_en[ln][2]; box = 1; }
+            if (dlg && ln < 112) { a = sap_dlg_en[ln][0]; b = sap_dlg_en[ln][1]; y = 38; box = 0; }   /* (docs/96: where v15-v27 drew it) */
         }
 #endif
-        if (a != gm_sub1 || b != gm_sub2 || c != gm_sub3 || box != gm_sub_box) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; gm_sub3 = c; gm_sub_box = (uint8_t)box; }
+        gm_sub_y = y;
+        if (a != gm_sub1 || b != gm_sub2 || box != gm_sub_box) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; gm_sub_box = (uint8_t)box; }
     }
 #endif
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high
@@ -867,7 +869,11 @@ static void bgx_slots(uint16_t taken, int bg_on)
 #ifdef SAP_COVER
     {   extern int bg2_x32_free;                              /* (docs/87: the cover's room - the 32X palettes the sprites take now,
                                                      not by their peak: bgx_assign gives the 32X's palettes by what they take now) */
-        bg2_x32_free = bg_on ? 16 - n : 0; }
+        bg2_x32_free = bg_on ? 16 - n : 0;
+#ifdef SAP_FREE_LESS
+        bg2_x32_free = bg2_x32_free > SAP_FREE_LESS ? bg2_x32_free - SAP_FREE_LESS : 0;   /* (docs/97: a diagnostic build - a second player's palettes) */
+#endif
+        }
 #endif
     if (n >= peak) { peak = (uint8_t)n; fall = 0; } else if (++fall >= 64) { fall = 0; peak--; }
 #ifndef SAP_PEAK_MIN

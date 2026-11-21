@@ -1133,8 +1133,7 @@ static void draw_hook(V32 *v)
 #ifdef SEC_EARLY
     SEC_FBOK = job;                                           /* (the frame buffer is the SH2s': the list may go in) */
 #if defined(DX_ENGINE) && defined(GOT_MENU)
-    static uint8_t sub_now, sub_n;                            /* (docs/93: the subtitles drawn after a wipe, and 2 pictures in 8) */
-    if (gm_wipe_n) { gm_wipe_n--; gm_wipe(cur ^ 1); sub_now = 1; }         /* (docs/56: the menu's picture off this buffer, the sprites all drawn again) */
+    if (gm_wipe_n) { gm_wipe_n--; gm_wipe(cur ^ 1); }         /* (docs/56: the menu's picture off this buffer, the sprites all drawn again) */
     if (gm_open) gm_draw(); else { spr_frame(v, cur ^ 1); BGX_AFTER(v, cur ^ 1); if (gm_banner) gm_note(); }
 #if defined(SAP_TRACE) && defined(BG2_X32)
     { extern uint32_t bgx_cells; TR(9, bgx_cells); }
@@ -1199,11 +1198,7 @@ static void draw_hook(V32 *v)
         while (SEC_DONE != job) { }                           /* (the sprites drawn: the 68000 may have the buffer) */
 #endif
 #endif
-        /* docs/93: v28's first build drew them (their black edge) on every picture: the briefing at half speed in ares (the
-           game waits on the pictures there; 185 frames in 400). Now after a wipe (a change wipes both buffers) and two
-           pictures in eight (both buffers: a sprite's clearing that took letters is mended) */
-        if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2) && (sub_now || gm_sub_box == 2 || (++sub_n & 7) < 2)) gm_subs();   /* (docs/94: the intro's every picture - the 32X draws its whole picture and wipes letters) */
-        sub_now = 0;   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them) */
+        if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2)) gm_subs();   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them. docs/96: every picture again, as v13-v27) */
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);
         bg2_sent++; bg2_words += (uint32_t)n;
