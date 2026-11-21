@@ -34,6 +34,9 @@
 #if __has_include("subs_dlg.h")
 #include "subs_dlg.h"                                       /* (docs/79: SAP_DLG, sap_dlg_en[112][2]) */
 #endif
+#if __has_include("subs_intro.h")
+#include "subs_intro.h"                                     /* (docs/94: SAP_INTRO, sap_intro_en[]) */
+#endif
 #if __has_include("subs_en.h")
 #include "subs_en.h"                                        /* (docs/77: SAP_SUBS, sap_subs_en[5][3]) */
 #endif
@@ -228,7 +231,9 @@ static void gm_subs(void)                                     /* (docs/93, the o
     if (gm_sub_box) {                                         /* the dialogue: in the game's text box at the bottom (the original's: x 16-239, y 176-207), its Japanese covered */
         gm_fill(48, 176, 272, 208, GM_BLK);
         for (int i = 0, y = 176 + (32 - 11 * n + 3) / 2; i < n; i++, y += 11) gm_text_on(y, r[i]);
-    } else                                                    /* the briefing (its Japanese at the top): the screen's bottom edge */
+    } else if (gm_sub_box == 2)                               /* (docs/94) the intro: the bottom edge, on its black letterbox - plain white, every picture */
+        for (int i = 0, y = 215 - (11 * n - 3); i < n; i++, y += 11) gm_text_on(y, r[i]);
+    else                                                      /* the briefing (its Japanese at the top): the screen's bottom edge */
         for (int i = 0, y = 215 - (11 * n - 3); i < n; i++, y += 11) gm_text_ol(y, r[i]);   /* (rows end at 215: a television's overscan) */
 }
 static void gm_note(void)                                     /* (the stage select at work: a line over the game's picture) */

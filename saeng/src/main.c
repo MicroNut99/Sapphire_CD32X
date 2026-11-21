@@ -1202,7 +1202,7 @@ static void draw_hook(V32 *v)
         /* docs/93: v28's first build drew them (their black edge) on every picture: the briefing at half speed in ares (the
            game waits on the pictures there; 185 frames in 400). Now after a wipe (a change wipes both buffers) and two
            pictures in eight (both buffers: a sprite's clearing that took letters is mended) */
-        if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2) && (sub_now || (++sub_n & 7) < 2)) gm_subs();
+        if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2) && (sub_now || gm_sub_box == 2 || (++sub_n & 7) < 2)) gm_subs();   /* (docs/94: the intro's every picture - the 32X draws its whole picture and wipes letters) */
         sub_now = 0;   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them) */
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);

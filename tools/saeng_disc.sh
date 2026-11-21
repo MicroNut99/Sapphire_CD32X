@@ -68,6 +68,21 @@ q = lambda x: '"%s"' % x if x else '0'
 open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][3] = {\n' +
     ''.join('    { %s, %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
 PYE
+# docs/94: the intro's narration in English (the work folder's subs_intro.txt: "<from s> <to s>|<row>|<row>" a line, the
+# seconds into the intro's track, CD track 15; rows of 32 at most) - sap_intro_en[]; not in the repository
+rm -f "$B/saeng/src/subs_intro.h"
+[ -f "$W/subs_intro.txt" ] && python3 - "$W/subs_intro.txt" "$B/saeng/src/subs_intro.h" <<'PYE'
+import sys
+out = []
+for x in open(sys.argv[1]):
+    x = x.rstrip('\n')
+    if not x.strip(): continue
+    t, r1, r2 = x.split('|')
+    a, b = (round(float(v) * 59.92) for v in t.split())
+    assert a < b and 0 < len(r1) <= 32 and len(r2) <= 32 and not any(c in r1 + r2 for c in '"\\'), x
+    out.append('    { %d, %d, "%s", %s },\n' % (a, b, r1.upper(), '"%s"' % r2.upper() if r2 else '0'))
+open(sys.argv[2], 'w').write('#define SAP_INTRO\nstatic const struct { uint16_t a, b; const char *r1, *r2; } sap_intro_en[] = {\n' + ''.join(out) + '};\n')
+PYE
 [ -f "$W/subs_en.txt" ] && python3 - "$W/subs_en.txt" "$B/saeng/src/subs_en.h" <<'PYE'
 import sys
 l = [x.rstrip('\n') for x in open(sys.argv[1])][:15]

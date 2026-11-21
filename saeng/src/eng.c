@@ -419,6 +419,13 @@ static uint32_t sap_demo_lba;
    of the same track (same mode, same sector) then changes nothing - the music goes on into the stage. Any play of the
    game's own clears it */
 static uint32_t sap_brief_lba;
+#ifdef SAP_INTRO
+/* docs/94 (the owner: "an intro scene with all japanese language"): the intro's Japanese is spoken - a narrator over CD
+   track 15 (LBA 144,633, the game's play at frame 1,348 of recording playL; on screen no Japanese at all). The English,
+   timed to the narration (0.5-53.4 s into the track), shown by the 32X's blank count since the game started the track */
+#define SAP_INTRO_LBA 144633u
+static uint8_t sap_intro_on; static uint32_t sap_intro_t0;
+#endif
 static const uint32_t sap_st_lba[5] = { 11339, 29473, 47670, 65804, 83973 };   /* (the stages' tracks' starts, AUDIO_LOG) */
 static uint8_t sap_stage_seen = 0xFF;                         /* (the stage whose block the game read last, less one) */
 static void sap_tick(uint32_t f)
@@ -463,6 +470,13 @@ static void sap_tick(uint32_t f)
             if (bx == 0) { a = sap_subs_en[st][0]; b = sap_subs_en[st][1]; }
             else if (bx == 0x100) a = sap_subs_en[st][2];
         }
+#ifdef SAP_INTRO
+        if (gm_sub_on && sap_intro_on) {                      /* (docs/94: the intro's narration, at the bottom) */
+            const uint32_t t = gTicks - sap_intro_t0;
+            for (unsigned i = 0; i < sizeof sap_intro_en / sizeof sap_intro_en[0]; i++)
+                if (t >= sap_intro_en[i].a && t < sap_intro_en[i].b) { a = sap_intro_en[i].r1; b = sap_intro_en[i].r2; box = 2; break; }
+        }
+#endif
 #ifdef SAP_DLG
         /* docs/79 (the owner: "cutscenes with missing subtitles"): after stages 1-4, one of 112 lines (the data track's
            sectors 3,663-3,665 from offset 1,762; the game reads it from the Arcade Card: a table, then the text).
@@ -1446,6 +1460,9 @@ static void eng_audio(void)
     eng_audio_seen++;
     const int was = eng_aud >> 31, now = a >> 31;
     eng_aud = a;
+#ifdef SAP_INTRO
+    sap_intro_on = (uint8_t)(now && (a & 0x1FFFFFu) == SAP_INTRO_LBA); sap_intro_t0 = gTicks;   /* (docs/94: the narration's clock) */
+#endif
     cdr_busy = 1;
     for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { LT_POLL(); }
     if (now) {
