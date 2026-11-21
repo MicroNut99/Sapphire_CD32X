@@ -77,6 +77,7 @@ PYE
 [ "${X32ALL:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg4.patch"; RTX_X32ALL=1; }   # (docs/82: the intro drawn whole by the 32X; X32ALL=0 without)
 [ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
 [ "${BLACK:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_black.patch"; RTX_BLACK=1; }   # (docs/100: while every background colour is black, the Genesis colours nothing is placed on are set black; BLACK=0 without)
+[ "${STABLE:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_stable.patch"; RTX_STABLE=1; }   # (docs/102: a pack placed again keeps its old names - only what really moved is redrawn; STABLE=0 without)
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
@@ -250,6 +251,8 @@ PYE
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
 [ -n "${RTX_BLACK:-}" ] && RTX="$RTX -DSAP_BLACK"
+[ -n "${RTX_STABLE:-}" ] && RTX="$RTX -DSAP_STABLE"
+[ -n "${FREELESS:-}" ] && RTX="$RTX -DSAP_FREE_LESS=$FREELESS"   # (docs/97: ares only - the cover's room less n 32X palettes, as a second player's sprites take them; never a kit)
 [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_COVER"   # (docs/86: palettes placed again drawn by the 32X while the plane is rewritten; COVER=0 without)
 [ "${REPL:-0}" = 1 ] && RTX="$RTX -DSAP_REPL"   # (docs/86: a re-placement's rest at once, not paced - tried, not needed in ares; REPL=1 to have it)
 [ "${QUIET:-0}" = 1 ] && RTX="$RTX -DSAP_QUIET"   # (docs/82: tried, no gain measured - off)   # (docs/82: test builds - the console's pace in ares; never in a kit)

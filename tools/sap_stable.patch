@@ -1,0 +1,113 @@
+--- a/rt_bg2.c	2026-11-21 12:28:17.022127511 -0800
++++ b/rt_bg2.c	2026-11-21 12:28:54.159775126 -0800
+@@ -567,12 +567,110 @@
+    every tile of the screen was converted again, in place, under the colours still on screen) */
+ static uint8_t sm_m[16][16]; static int8_t sm_g[16]; static uint16_t sm_chg[16][16], sm_ver[16];
+ #endif
++#if defined(SAP_STABLE) && defined(BG2_SAMEMAP) && defined(BG2_COLB)
++/* Sapphire docs/102 (the owner's videos: the picture still for 0.13-0.4 s, the wrong colours for a third of a second -
++   one fault). Measured in ares, stage 1: eleven times in 6,400 frames the palettes are placed again (a merge's try, a
++   palette back from the 32X, a pack that no longer fits) and **every one of the map's ~2,390 entries is rewritten, every
++   tile converted again** - a list of 10-16,000 words, ~16 frames to make and ~14 for the 68000 to run - though the pack
++   that comes out is mostly the old one under other names: the Genesis palettes numbered by the order of placing (p0 in
++   2 and p9 in 1 before, p0 in 1 and p9 in 2 after), a colour on another of its palette's 15 slots.
++   The names carry no meaning: **the pack colours_do made is kept as it is - the same palettes together, the same
++   colours shown - and renamed to fall on the old one where it can**: (1) the Genesis palettes permuted (24 ways at
++   most) so that the most map entries keep their palette; (2) in each, the slots permuted so that the most keep their
++   slot (by the entries' count; a colour new to the palette goes where the Genesis's CRAM has it already, or to a free
++   slot). A palette that ends in its old Genesis palette with every index on its old slot is not touched at all (BG2_
++   SAMEMAP's rule); one with some indices moved has only those converted again. Nothing is renamed while a palette
++   owns a Genesis palette (BG2_PRIV: index i is slot i), and the HUD's palette is left alone (BG2_NPAL).
++   Uses colb_v / colb_c as scratch (colours_do is through with them; it fills them anew each call). In ROM */
++#ifdef __sh__
++static void sap_stable(Bg2 *b, const V32 *v, uint16_t *chgd, const uint16_t *chgd_in) __attribute__((noinline, section(".rodata.sap_cover")));
++#endif
++uint32_t bg2_stable_n, bg2_stable_kept;              /* (packs renamed; palettes that stayed untouched through one) */
++static void sap_stable(Bg2 *b, const V32 *v, uint16_t *chgd, const uint16_t *chgd_in)
++{
++    const int np = BG2_NPAL;
++    int moved = 0;
++    for (int p = 0; p < 16; p++) if (b->g[p] >= 0 && sm_g[p] >= 0 && (b->g[p] != sm_g[p] || memcmp(b->m[p], sm_m[p], 16))) moved = 1;
++    if (!moved) return;
++#ifdef BG2_PRIV
++    for (int h = 0; h < 4; h++) if (bg2_priv[h]) return;
++#endif
++    for (int p = 0; p < 16; p++) if (b->g[p] >= np) return;   /* (one in the HUD's palette: as it is) */
++    uint16_t cnt[16]; memset(cnt, 0, sizeof cnt);
++    {   const int ne = map_n(v); for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++; }
++    for (int p = 0; p < 16; p++) cnt[p] = (uint16_t)(cnt[p] > 4000 ? 4001 : cnt[p] + 1);
++    /* (1) the Genesis palettes' numbers */
++    uint8_t perm[4] = { 0, 1, 2, 3 }, cur[4] = { 0, 1, 2, 3 }; uint32_t best = 0;
++    for (int p = 0; p < 16; p++) if (b->g[p] >= 0 && b->g[p] == sm_g[p]) best += cnt[p];
++    for (int k = 1; k < (np == 4 ? 24 : 6); k++) {
++        {   int i = np - 2; while (i >= 0 && cur[i] > cur[i + 1]) i--;      /* (the next permutation, in order) */
++            if (i < 0) break;
++            int j = np - 1; while (cur[j] < cur[i]) j--;
++            { const uint8_t t = cur[i]; cur[i] = cur[j]; cur[j] = t; }
++            for (int x = i + 1, y = np - 1; x < y; x++, y--) { const uint8_t t = cur[x]; cur[x] = cur[y]; cur[y] = t; } }
++        uint32_t sc = 0;
++        for (int p = 0; p < 16; p++) if (b->g[p] >= 0 && sm_g[p] >= 0 && cur[b->g[p]] == sm_g[p]) sc += cnt[p];
++        if (sc > best) { best = sc; memcpy(perm, cur, 4); }
++    }
++    /* (2) each palette's slots; then the pack under its new names, in the scratch first */
++    uint16_t (*const vote)[16] = colb_v[0]; uint16_t (*const gc2)[16] = colb_v[1]; uint8_t (*const gr2)[16] = colb_c[1];
++    uint8_t sig[4][16];
++    for (int h = 0; h < np; h++) {
++        const int H = perm[h]; uint16_t taken = 1, done = 1;
++        for (int j = 0; j < 16; j++) { sig[h][j] = 0; for (int k = 0; k < 16; k++) vote[j][k] = 0; }
++        for (int p = 0; p < 16; p++) if (b->g[p] == h && sm_g[p] == H) for (int i = 1; i < 16; i++) {
++            const int j = b->m[p][i], jo = sm_m[p][i];
++            if (j && jo) { const uint32_t w = (uint32_t)vote[j][jo] + cnt[p]; vote[j][jo] = (uint16_t)(w > 60000u ? 60000u : w); } }
++        for (;;) {                                 /* (the most entries first) */
++            int bj = 0, bk = 0; uint16_t bw = 0;
++            for (int j = 1; j < 16; j++) if (!(done >> j & 1)) for (int k = 1; k < 16; k++) if (!(taken >> k & 1) && vote[j][k] > bw) { bw = vote[j][k]; bj = j; bk = k; }
++            if (!bw) break;
++            sig[h][bj] = (uint8_t)bk; done |= B16(bj); taken |= B16(bk);
++        }
++        for (int j = 1; j < 16; j++) if (!(done >> j & 1) && b->gref[h][j]) {   /* (in use, no old slot: where CRAM has its colour) */
++            for (int k = 1; k < 16; k++) if (!(taken >> k & 1) && b->cram[H][k] == b->gcol[h][j]) { sig[h][j] = (uint8_t)k; done |= B16(j); taken |= B16(k); break; } }
++        for (int pass = 0; pass < 2; pass++)       /* (the rest: its own number if free, else the first free - those in use first) */
++            for (int j = 1; j < 16; j++) if (!(done >> j & 1) && (pass || b->gref[h][j])) {
++                int k = j; if (taken >> k & 1) for (k = 1; k < 16; k++) if (!(taken >> k & 1)) break;
++                sig[h][j] = (uint8_t)k; done |= B16(j); taken |= B16(k); }
++        gc2[H][0] = b->gcol[h][0]; gr2[H][0] = b->gref[h][0];
++        for (int j = 1; j < 16; j++) { gc2[H][sig[h][j]] = b->gcol[h][j]; gr2[H][sig[h][j]] = b->gref[h][j]; }
++    }
++    for (int H = 0; H < np; H++) for (int j = 0; j < 16; j++) { b->gcol[H][j] = gc2[H][j]; b->gref[H][j] = gr2[H][j]; }
++    for (int p = 0; p < 16; p++) if (b->g[p] >= 0) {
++        const int h = b->g[p];
++        for (int i = 1; i < 16; i++) if (b->m[p][i]) b->m[p][i] = sig[h][b->m[p][i]];
++        b->g[p] = (int8_t)perm[h];
++    }
++    /* (3) what moved, by the palette as it stood: its tiles' stamps and the indices to convert again */
++    bg2_stable_n++;
++    for (int p = 0; p < 16; p++) {
++        if (b->g[p] < 0 || sm_g[p] < 0) continue;  /* (new on the plane, or gone from it: as colours_do left it) */
++        if (b->g[p] != sm_g[p]) { for (int i = 1; i < 16; i++) if (b->m[p][i]) b->chg[p][i] = ++b->ver[p]; chgd[p] = 0xFFFF; continue; }
++        uint16_t c = chgd_in[p];
++        for (int i = 1; i < 16; i++) {
++            if (b->m[p][i] == sm_m[p][i]) b->chg[p][i] = sm_chg[p][i];
++            else { b->chg[p][i] = ++b->ver[p]; c |= B16(i); } }
++        if (!c) { b->ver[p] = sm_ver[p]; if (b->used[p]) bg2_stable_kept++; }
++        chgd[p] = c;
++    }
++}
++#endif
+ static int colours(Bg2 *b, const V32 *v, uint16_t *chgd)
+ {
+ #ifdef BG2_SAMEMAP
+     memcpy(sm_m, b->m, sizeof sm_m); memcpy(sm_g, b->g, sizeof sm_g); memcpy(sm_chg, b->chg, sizeof sm_chg); memcpy(sm_ver, b->ver, sizeof sm_ver);
+ #endif
++#if defined(SAP_STABLE) && defined(BG2_SAMEMAP) && defined(BG2_COLB)
++    uint16_t chgd_in[16]; memcpy(chgd_in, chgd, sizeof chgd_in);
++#endif
+     const int ok = colours_do(b, v, chgd);
++#if defined(SAP_STABLE) && defined(BG2_SAMEMAP) && defined(BG2_COLB)
++#ifndef __sh__
++    if (!getenv("NOSTABLE"))
++#endif
++    sap_stable(b, v, chgd, chgd_in);
++#endif
+ #ifdef BG2_SAMEMAP
+     for (int p = 0; p < 16; p++) if (chgd[p] && b->g[p] == sm_g[p] && !memcmp(b->m[p], sm_m[p], sizeof sm_m[p])) {
+         memcpy(b->chg[p], sm_chg[p], sizeof sm_chg[p]); b->ver[p] = sm_ver[p]; chgd[p] = 0; }

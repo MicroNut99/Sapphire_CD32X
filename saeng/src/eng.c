@@ -840,7 +840,11 @@ static void bgx_slots(uint16_t taken, int bg_on)
 #ifdef SAP_COVER
     {   extern int bg2_x32_free;                              /* (docs/87: the cover's room - the 32X palettes the sprites take now,
                                                      not by their peak: bgx_assign gives the 32X's palettes by what they take now) */
-        bg2_x32_free = bg_on ? 16 - n : 0; }
+        bg2_x32_free = bg_on ? 16 - n : 0;
+#ifdef SAP_FREE_LESS
+        bg2_x32_free = bg2_x32_free > SAP_FREE_LESS ? bg2_x32_free - SAP_FREE_LESS : 0;   /* (docs/97: a diagnostic build - a second player's palettes) */
+#endif
+        }
 #endif
     if (n >= peak) { peak = (uint8_t)n; fall = 0; } else if (++fall >= 64) { fall = 0; peak--; }
 #ifndef SAP_PEAK_MIN
