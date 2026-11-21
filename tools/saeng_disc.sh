@@ -263,7 +263,8 @@ PYE
 # ares only. V10PIC=0: v16's.
 [ "${V10PIC:-1}" = 1 ] && RTX="$RTX -DSAP_V10PIC"
 [ -n "${SLOW:-}" ] && RTX="$RTX -DSAP_SLOW=$SLOW"
-[ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
+[ -n "${TRACE:-}" ] && RTX="$RTX -DSAP_TRACE"
+[ -n "${DIAGSTAGE:-}" ] && RTX="$RTX -DSAP_DIAG_STAGE=$DIAGSTAGE"   # (docs/95: a recording played in another stage - ares comparisons only)   # (docs/84: diagnostic builds only - each picture's steps timed, for --dump-sdram)
 [ -n "${RTX_X32ALL:-}" ] && RTX="$RTX -DSAP_X32ALL"
 [ -n "${RTX_COLNOW:-}" ] && RTX="$RTX -DSAP_COLNOW"
 [ "${COVER:-1}" = 1 ] && RTX="$RTX -DSAP_COVER"   # (docs/86: palettes placed again drawn by the 32X while the plane is rewritten; COVER=0 without)

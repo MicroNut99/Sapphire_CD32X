@@ -649,6 +649,11 @@ static void eng_feed(void)
     uint32_t src = lba;                                       /* (the sector whose bytes go: the one wanted, but the stage select's) */
 #ifdef GOT_MENU
     if (gm_mac == 30 && lba == W_GAME) gm_mgo(31, eng_last);  /* (docs/58: the game's start asked - the block's turn next) */
+#ifdef SAP_DIAG_STAGE
+    /* DIAG (docs/95, DIAGSTAGE=<n>): a recording's new game played in stage n - the stage select's feed and poke from the
+       first new game's block, as the PC machine's SEC_REMAP + RUN_POKES $069C (an emulator's comparison, never a kit) */
+    { static uint8_t once; if (!once && lba == W_BRIEF) { once = 1; gm_stage = SAP_DIAG_STAGE; gm_bset = 0; gm_mgo(31, eng_last); } }
+#endif
     if (gm_mac == 31) {
         if (lba == W_BRIEF && !gm_bset) { gm_poke(SP_STAGE_AT, (uint32_t)(gm_stage - 1)); gm_bset = 1; }   /* (the block's read begun) */
         if (gm_stage >= 2 && lba >= W_BRIEF_OWN && lba < W_BRIEF_OWN + 64u) src = W_BRIEF_N + 724u * (gm_stage - 2u) + (lba - W_BRIEF_OWN);
@@ -1148,26 +1153,38 @@ static void eng_picture(uint32_t done)
 #ifndef ENG_VFY
 #define ENG_VFY 8
 #endif
-static void eng_verify(void)
+static uint16_t vfy_tag = 0x6000, vfy_r1[64];
+__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_vfy1(int k)
 {
-    static int vk; static uint16_t vtag = 0x6000;
-    static uint16_t r1[64];
     const uint32_t sb = ENG_W6 + 0x20000;
-    for (int n = 0; n < ENG_VFY; n++) {
-        const int k = vk; vk = (vk + 1) & 511;
-        if (ENG_R(sb, 2 * k) != eng_stamp[k]) continue;        /* (a change under way: the copy's own path takes it) */
-        const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
-        uint16_t *d = eng_v.vram + 64 * k; int diff = 0;
-        for (int i = 0; i < 64; i++) { r1[i] = src[i]; diff |= r1[i] != d[i]; }
-        if (!diff) continue;
-        for (int i = 0; i < 64; i++) if (src[i] != r1[i]) { diff = 0; break; }
-        if (!diff || ENG_R(sb, 2 * k) != eng_stamp[k]) continue;
-        for (int i = 0; i < 64; i++) d[i] = r1[i];
-        vtag = (uint16_t)(vtag + 1);
-        const uint16_t tag = (uint16_t)(VSRC_CODE | (vtag & 0x7FFF));
-        for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;
-        eng_fixn++;
-    }
+    if (ENG_R(sb, 2 * k) != eng_stamp[k]) return;             /* (a change under way: the copy's own path takes it) */
+    const volatile uint16_t *src = (const volatile uint16_t *)(ENG_W6 + 128u * k);
+    uint16_t *d = eng_v.vram + 64 * k; int diff = 0;
+    for (int i = 0; i < 64; i++) { vfy_r1[i] = src[i]; diff |= vfy_r1[i] != d[i]; }
+    if (!diff) return;
+    for (int i = 0; i < 64; i++) if (src[i] != vfy_r1[i]) return;
+    if (ENG_R(sb, 2 * k) != eng_stamp[k]) return;
+    for (int i = 0; i < 64; i++) d[i] = vfy_r1[i];
+    vfy_tag = (uint16_t)(vfy_tag + 1);
+    const uint16_t tag = (uint16_t)(VSRC_CODE | (vfy_tag & 0x7FFF));
+    for (int u = 0; u < 4; u++) rt_marks.v[(4 * k + u) & 2047] = tag;
+    eng_fixn++;
+}
+/* docs/95 (the owner's v27 videos, stage 3's boss: strips of the forest across the road, a row of cells high, from
+   mid-screen to the edge, for 1.5-2 s, then right - not in the original, not in ares): the stage's map is 128 cells
+   wide (MWR $20), a row two blocks of 64 words; a strip is one block of a row - a block's copy gone stale, mended when
+   eng_verify's round of the 512 blocks reached it (8 a picture: 2.5 s a round - the strips' time). The map's own
+   blocks now have a round of their own, ENG_VFY_BAT a picture: 64 blocks in 5 pictures, a fifth of a second */
+#ifndef ENG_VFY_BAT
+#define ENG_VFY_BAT 12
+#endif
+__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_verify(void)
+{
+    static int vk, vb;
+    for (int n = 0; n < ENG_VFY; n++) { eng_vfy1(vk); vk = (vk + 1) & 511; }
+    static const uint8_t wsh[4] = { 5, 6, 7, 7 };
+    const int nb = 1 << (wsh[eng_v.MWR >> 4 & 3] + (eng_v.MWR & 0x40 ? 6 : 5) - 6);
+    for (int n = 0; n < ENG_VFY_BAT; n++) { if (vb >= nb) vb = 0; eng_vfy1(vb++); }
 }
 /* docs/103: the CD audio - the engine's drive plays a track (register words 3-4: playing, the play's mode, its start
    sector); the Sega CD plays the disc's own copy of it (tools/eng_music.py: the game's track n is disc track n, its 1 is

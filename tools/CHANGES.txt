@@ -1,3 +1,4 @@
+v30 lost tiles (strips of wrong background tiles for 1-2 s, seen at stage 3's boss): the tile map's copy is now checked against the cart five pictures apart, not every 2.5 s
 v29 the intro's narration subtitled in English at the bottom of the screen (the Japanese in the intro is spoken: twelve subtitles timed to the narration on the CD track)
 v28 English subtitles at the bottom of the screen: the between-stage dialogue in the game's own text box (the Japanese covered), now for two players too (the game's own line number is read); the briefing's lines at the bottom edge with a black outline
 v27 the stage 3 boss (and others) no longer a solid orange silhouette while hit: the red flash is drawn mixed with the sprite's own colours, as a television blends it; STEADY BLINK keeps to even frames when a picture is made again, and only inside a stage
