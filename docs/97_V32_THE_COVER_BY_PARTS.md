@@ -46,7 +46,9 @@ that group 12 apart to make room. **A photograph of STATUS after a two-player st
   need a look-up a pixel in `bgx_draw`: the next step if NONE counts on the console.
 - Stage 4's second of pale hatch before the blue: the merge (colours shared while no exact pack fits and the 32X has
   no palette to take one) - not a rewrite, the cover does not apply.
-- The white screens at stage 1's bolts (1069, 52.4 / 53.4 s): the same white pictures are in ares in the one-player
-  recording (11,878-11,884, 11,950-11,956) with the bolts; the PC machine's colour RAM at frame end (11,000-11,900)
-  shows no white palette, so **how the game makes them is not found, and they are not checked against Mednafen's
-  picture.**
+
+## The white screens at stage 1's bolts are the game's
+1069, 52.4 and 53.4 s (docs/96 left them unchecked): the PC machine's own picture, recording playL, frames 11,204-
+11,296 rendered every fourth - the backdrop white at 11,224, grey over the next two, and again at 11,288, each as the
+bolts strike. The same in ares (11,878-11,884, 11,950-11,956). (The scan of the colour RAM's palettes found nothing:
+the white is not a background palette's - the picture shows it.)

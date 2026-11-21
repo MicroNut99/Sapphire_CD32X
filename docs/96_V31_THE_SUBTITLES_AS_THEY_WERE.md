@@ -40,7 +40,8 @@ menu was opened on that item. Now: the hint is 31 letters, and `gm_wipe` clears 
   6,760: painted on the hangar's floor).
 - 1069, 52.4 and 53.4 s: the blue sky white for eight camera frames, fading through grey, as the bolts strike - twice.
   It looks like the game's lightning; the one-player recording's fight (17,600-20,400, every second frame's colours)
-  has no such frame, and it does not reach that attack: **not checked against the original.**
+  has no such frame, and it does not reach that attack: not checked here - **docs/97: it is the game's** (the PC
+  machine's picture at 11,224 and 11,288).
 - Stage 3's boss (1071): no strips of stale tiles in this video (v30's check of the map's blocks, if this was v30).
 - Freezes of 0.13-0.5 s where new tile sets arrive (stage starts, the boss's entry), the stage's first pictures cut,
   the striped frame at the briefing's end: as before, open.
