@@ -17,6 +17,19 @@ removed). The kit to play is v27's own, as built on 20 Nov and already on his PC
   work before it was traced.**
 - docs/93-98 stay as the record of those rounds; nothing of them is in the source.
 
+## Corrected the same day: what broke v32 / v33 was the menu's wipe, not the cover
+The suspicion above was wrong, and so was what the owner was told. Found by running the v33 kit's ROM beside v34 in
+ares (recording playL, pictures at 8,380 / 9,300 / 10,400): **v33 shows the plane's side columns - the briefing spilling
+past the picture's edges, junk left and right of the stage** (9,088 and 15,680 lit pixels outside the picture at 8,380;
+v34: 4 and 0). docs/96's "fix" for the letters at the screen's sides made `gm_wipe` clear all 320 columns of the 32X's
+frame buffer - **and the 32 columns either side hold the 32X's black mask over the Genesis plane's wider picture.**
+Every Start press, menu close and subtitle change wipes: from then on the sides were open. In the owner's videos: the
+title's floor letters with a third letter each side, CONFIGURATION's first letters again at the right edge, marks at
+the right of stage 1. The earlier ares checks of v31-v33 had it in view (44 lit pixels left of the picture after the
+menu closed, a column of marks left of the briefing) and it was passed over.
+The cover by parts (docs/97) is neither cleared nor blamed by this: untested on the console.
+**The lesson for the letters at the sides: shorten the hint line only; never widen the wipe.**
+
 ## For whoever takes this up next
 - Start from v27. One change a kit, and no change to the picture in a kit made for something else.
 - His subtitles are v13's: the briefing's lines in the band under the text box (rows 84 / 96), plain white, no box.
