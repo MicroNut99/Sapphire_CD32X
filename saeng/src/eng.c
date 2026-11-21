@@ -961,7 +961,7 @@ __attribute__((section(".rodata.sap_steady"), noinline)) static int eng_spr_seen
 }
 __attribute__((section(".rodata.sap_steady"), noinline)) static void eng_steady_merge(void)
 {
-    if (!gm_steady || odd_f + 1 != eng_last || !ENG_SPR_ON(eng_v.t.CR)) return;
+    if (!gm_steady || !sap_in || odd_f + 1 != eng_last || !ENG_SPR_ON(eng_v.t.CR)) return;
     uint16_t m[256]; int n = 0;
     for (int i = 0; i < 64; i++) { const uint16_t *e = eng_v.sat + 4 * i;
         if (eng_spr_seen(e)) { m[4 * n] = e[0]; m[4 * n + 1] = e[1]; m[4 * n + 2] = e[2]; m[4 * n + 3] = e[3]; n++; } }
@@ -976,6 +976,40 @@ __attribute__((section(".rodata.sap_steady"), noinline)) static void eng_steady_
     for (int i = 0; i < 4 * n; i++) eng_v.sat[i] = m[i];
     for (int i = 4 * n; i < 256; i++) eng_v.sat[i] = 0;
     eng_steady_n += n - ne;
+}
+/* docs/92: the game's one-colour sprite palettes other than white (the red, $038) alternate frame by frame with the
+   sprite's own (a dying airship, a boss being hit): a television's eye sees the two mixed - red-tinted. Held in front
+   (docs/88, 91) they were a solid red-orange silhouette for as long as the hits went on (owner's 234330467, stage 3's
+   boss 40.9-44.3 s). With HIT FLASH off each such palette is drawn as that mix: its sprites' own palette (flash_pal, the
+   first of them that has one) half and half with the red, channel by channel */
+__attribute__((section(".rodata.sap_steady"), noinline)) static void eng_red_blend(unsigned onec)
+{
+    for (int p = 0; p < 16; p++) {
+        if (!(onec >> p & 1) || (eng_v.color[256 + 16 * p + 1] & 0x1FF) != 0x038) continue;   /* (the red alone: other one-colour
+                                                              palettes are the game's fades and texts - ares, v27's first build: the
+                                                              stage's fly-in blended, the engine 450 frames behind by stage 1) */
+        int b = -1;
+        for (int i = 0; i < 64 && b < 0; i++) { const uint16_t *e = eng_v.sat + 4 * i;
+            if ((e[3] & 15) != (unsigned)p) continue;
+            const unsigned k = (e[2] >> 1) & 0x1FF;
+            if (flash_pal[k] != 0xFF && flash_pal[k] != p) b = flash_pal[k]; }
+        if (b < 0) continue;
+        uint16_t *c = eng_v.color + 256 + 16 * p; const uint16_t *o = eng_v.color + 256 + 16 * b; const unsigned r = c[1] & 0x1FF;
+        for (int i = 1; i < 16; i++) { const unsigned q = o[i] & 0x1FF;
+            c[i] = (uint16_t)((((q >> 6 & 7) + (r >> 6 & 7) + 1) >> 1) << 6 | (((q >> 3 & 7) + (r >> 3 & 7) + 1) >> 1) << 3 | (((q & 7) + (r & 7) + 1) >> 1)); }
+    }
+}
+/* docs/92: STEADY BLINK's retry (a picture that found blocks under way is made again from the newest frame): an even
+   frame there too - the odd one read, then the next waited for (on the console the retries are many: the owner's v26
+   videos still had the bombs white and blue by turns) */
+__attribute__((section(".rodata.sap_steady"), noinline)) static uint32_t eng_even(uint32_t g)
+{
+    if (!gm_steady || !sap_in || !(g & 1)) return g;   /* (in a stage only: v27's first builds, the briefing at half speed) */
+    eng_odd_grab(g);
+    /* (a read of the cart's window every ~40 us, not back to back: ares - polled flat out, the engine lost 570 frames
+       by stage 1: the window's reads take its bus) */
+    for (int n = 0; n < 600 && ENG_R(ENG_W6, 0x20E08) == g; n++) for (volatile int d = 0; d < 150; d++) { }
+    return ENG_R(ENG_W6, 0x20E08);
 }
 static void eng_noflash(void)
 {
@@ -1007,6 +1041,7 @@ static void eng_noflash(void)
         for (int j = 0; j < 16; j++)
             if (red_t[j].k == k && red_t[j].age <= 2 && (onec >> red_t[j].pal & 1)) { e[3] = (uint16_t)((e[3] & ~15u) | red_t[j].pal); break; }
     }
+    if (onec && !gm_flash) eng_red_blend(onec);
 }
 /* docs/85 (the owner, v19: "The Main title also looks great except for a white flash. If that's part of the design
    then please remove it"): it is the game's - before the title (START / CONFIG) it fades every colour to white and
@@ -1315,7 +1350,7 @@ static void eng_prefetch(void)
 #endif
     const uint32_t f = ENG_R(ENG_W6, 0x20E08);
     if (f == eng_last) return;                                /* (no newer frame yet) */
-    if (gm_steady && (f & 1) && ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) { eng_odd_grab(f); return; }   /* (docs/91: STEADY BLINK - even frames, in play) */
+    if (gm_steady && sap_in && (f & 1)) { eng_odd_grab(f); return; }   /* (docs/91: STEADY BLINK - even frames, in play) */
     eng_stg.r[0] = ENG_R(ENG_W6, 0x20E00); eng_stg.r[1] = ENG_R(ENG_W6, 0x20E02); eng_stg.r[2] = ENG_R(ENG_W6, 0x20E04);
     eng_stg.r[3] = ENG_R(ENG_W6, 0x20E06);
     for (int l = 0; l < 224; l++) { eng_stg.lines[2 * l] = ENG_R(ENG_W6, 0x21000 + 2 * l); eng_stg.lines[2 * l + 1] = ENG_R(ENG_W6, 0x21200 + 2 * l); }
@@ -1677,7 +1712,7 @@ static void eng_main(void)
            frames - the bombs' white disc / blue ball, dying enemies red / dark, faces and signs on / off - seen on a
            television as a blend. A picture every 2-3 frames caught either at random: a slow, uneven flicker. With it on,
            a picture is made of an even frame, with the odd frame's sprites behind (eng_steady_merge) */
-        if (gm_steady && (f & 1) && ENG_SPR_ON(ENG_R(ENG_W6, 0x20E06))) { eng_odd_grab(f); continue; }   /* (sprites on: play; the loading and the intro as they were - ares: 370 frames lost at NOW LOADING otherwise) */
+        if (gm_steady && sap_in && (f & 1)) { eng_odd_grab(f); continue; }   /* (sprites on: play; the loading and the intro as they were - ares: 370 frames lost at NOW LOADING otherwise) */
         eng_last = f;
 #ifdef SAP_TRACE
         { extern void sap_trace(uint32_t, uint32_t); sap_trace(1, f); }
@@ -1752,7 +1787,7 @@ static void eng_main(void)
                 eng_picture(g);
                 if (eng_still()) break;
                 eng_mix++;
-                g = ENG_R(ENG_W6, 0x20E08); eng_last = g;
+                g = eng_even(ENG_R(ENG_W6, 0x20E08)); eng_last = g;
             }
 #else
             for (int t = 0; t < 4; t++) {
