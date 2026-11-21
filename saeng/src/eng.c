@@ -456,32 +456,40 @@ static void sap_tick(uint32_t f)
 #ifdef SAP_SUBS
     {   /* docs/77: a briefing's text is up - its sectors read (sap_brief_lba), the briefing's picture (CR $C8, the map 64
            wide, no V scroll); the order on the map's left screen (BXR 0), the pilot's answer on its right (BXR $100) */
-        const char *a = 0, *b = 0;
+        const char *a = 0, *b = 0, *c = 0; int box = 0;
         if (gm_sub_on && sap_brief_lba && cr == 0xC8 && ENG_R(ENG_W6, 0x20E04) == 0x10 && ENG_R(ENG_W6, 0x20E02) == 0) {
             int st = 0; while (st < 4 && sap_st_lba[st] != sap_brief_lba) st++;
             const uint16_t bx = ENG_R(ENG_W6, 0x20E00);
             if (bx == 0) { a = sap_subs_en[st][0]; b = sap_subs_en[st][1]; }
             else if (bx == 0x100) a = sap_subs_en[st][2];
         }
-        int y = 84;
 #ifdef SAP_DLG
         /* docs/79 (the owner: "cutscenes with missing subtitles"): after stages 1-4, one of 112 lines (the data track's
-           sectors 3,663-3,665; the game reads it from the Arcade Card, its port 0 at $010E00: a table of 113 offsets,
-           then the text). One player: line pilot x 4 + the stage less one - the pilot base RAM $06A7 (0-3: measured,
-           one to three presses of right on the select screen). The scene: CR $CC, the map 64 x 32 (MWR $10), BXR and
-           BYR 0 - read once as it begins (the poke port), the stage the one last played. Two players (CD RAM $A00D):
-           two lines, the second pilot not known - nothing shown */
-        {   static uint8_t was, pil, play_st = 0xFF;
+           sectors 3,663-3,665 from offset 1,762; the game reads it from the Arcade Card: a table, then the text).
+           docs/93 (the owner: "translate the Japanese to English subtitles for the cutscenes. Put the subs at the bottom
+           of the screen"): **the line is the game's own number, zero page $1C** - `LDA <$1C / JSR $62B7` (bank 69, $61F9),
+           the table's entry ($1C x 2 + 2) into the card's port 0 ($62BB). Set as the scene begins (one player: pilot x 4 +
+           stage - 1, $06A7), and **in two players changed between the two pilots' lines** (the PC machine, recording
+           playL with $069F = 2, $06A8 = 1 poked at 20,400: $1C 3 from 20,450, 4 from 20,730, the second pilot's line
+           typed from 20,760; the table's order = subs_dlg.txt's, 112 of 112 lines in sequence). Read through the poke port
+           as the scene begins, then every 16 frames (a change taken when two reads agree): docs/72's slow-down was reads in
+           play, this is the dialogue only. Drawn in the game's own text box (box), the Japanese covered */
+        {   static uint8_t was, ln = 0xFF, cand = 0xFF, play_st = 0xFF; static uint32_t rf;
             const uint16_t mw = ENG_R(ENG_W6, 0x20E04), bx = ENG_R(ENG_W6, 0x20E00), by = ENG_R(ENG_W6, 0x20E02);
             const int dlg = cr == 0xCC && mw == 0x10 && bx == 0 && by == 0;
             if (sap_in && mw == 0x20) play_st = sap_stage_seen;
-            if (dlg && !was) pil = (uint8_t)(gm_sub_on && play_st < 4 && sp_cdpeek(0xA00Du) == 0 ? gm_peek(0x06A7) : 0xFF);
+            if (dlg && gm_sub_on && play_st < 4) {
+                if (!was) { const uint32_t v = gm_peek(0x001C); ln = (uint8_t)(v < 112 ? v : 0xFF); cand = 0xFF; rf = f; }
+                else if (f - rf >= 16) {
+                    rf = f; const uint32_t v = gm_peek(0x001C);
+                    if (v < 112 && v != ln) { if (cand == v) { ln = (uint8_t)v; cand = 0xFF; } else cand = (uint8_t)v; } else cand = 0xFF;
+                }
+            } else ln = 0xFF;
             was = (uint8_t)dlg;
-            if (dlg && gm_sub_on && pil < 4 && play_st < 4) { a = sap_dlg_en[pil * 4 + play_st][0]; b = sap_dlg_en[pil * 4 + play_st][1]; y = 38; }
+            if (dlg && ln < 112) { a = sap_dlg_en[ln][0]; b = sap_dlg_en[ln][1]; c = sap_dlg_en[ln][2]; box = 1; }
         }
 #endif
-        gm_sub_y = y;
-        if (a != gm_sub1 || b != gm_sub2) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; }
+        if (a != gm_sub1 || b != gm_sub2 || c != gm_sub3 || box != gm_sub_box) { gm_wipe_n = 2; if (a) gm_pal = 1; gm_sub1 = a; gm_sub2 = b; gm_sub3 = c; gm_sub_box = (uint8_t)box; }
     }
 #endif
     {   /* (docs/67: play over - 10 s with no stage's frame-end CR (a briefing, the title after the game's end): a new high

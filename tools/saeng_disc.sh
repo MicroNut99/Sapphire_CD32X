@@ -46,24 +46,27 @@ patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg2.patch"
 # docs/77: the briefing's lines in English - the work folder's subs_en.txt (15 lines: a stage's order in two lines and
 # the answer, 32 characters at most each); not in the repository. Without the file: no ENGLISH TEXT item.
 rm -f "$B/saeng/src/subs_en.h"
-# docs/79: the between-stage dialogue's 112 lines in English (the work folder's subs_dlg.txt, a line each, 64 characters at
-# most: split in two at a space) - sap_dlg_en[112][2]; not in the repository
+# docs/79: the between-stage dialogue's 112 lines in English (the work folder's subs_dlg.txt, a line each; docs/93: split
+# at spaces into rows of 27 at most, two or three) - sap_dlg_en[112][3]; not in the repository
 rm -f "$B/saeng/src/subs_dlg.h"
 [ -f "$W/subs_dlg.txt" ] && python3 - "$W/subs_dlg.txt" "$B/saeng/src/subs_dlg.h" <<'PYE'
 import sys
 l = [x.rstrip('\n') for x in open(sys.argv[1])][:112]
 assert len(l) == 112, 'subs_dlg.txt: 112 lines'
-def split(t):
+def split(t):                                         # (docs/93: rows of 27 at most - the game's text box is 28 wide; two, or three)
     t = t.upper()
-    assert len(t) <= 64 and '"' not in t and '\\' not in t, t
-    if len(t) <= 32: return t, None
-    sp = [i for i, c in enumerate(t) if c == ' ' and i <= 32 and len(t) - i - 1 <= 32]
-    assert sp, t
-    i = min(sp, key=lambda i: abs(len(t) / 2 - i))   # (the space nearest the middle: two lines of like length)
-    return t[:i], t[i + 1:]
+    assert len(t) <= 81 and '"' not in t and '\\' not in t, t
+    W = 27
+    if len(t) <= W: return t, None, None
+    sp = [i for i, c in enumerate(t) if c == ' ']
+    two = [(max(i, len(t) - i - 1), i) for i in sp if i <= W and len(t) - i - 1 <= W]
+    if two: i = min(two)[1]; return t[:i], t[i + 1:], None
+    three = [(max(i, j - i - 1, len(t) - j - 1), i, j) for i in sp for j in sp if i < j and i <= W and j - i - 1 <= W and len(t) - j - 1 <= W]
+    assert three, t
+    _, i, j = min(three); return t[:i], t[i + 1:j], t[j + 1:]
 q = lambda x: '"%s"' % x if x else '0'
-open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][2] = {\n' +
-    ''.join('    { %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
+open(sys.argv[2], 'w').write('#define SAP_DLG\nstatic const char *const sap_dlg_en[112][3] = {\n' +
+    ''.join('    { %s, %s, %s },\n' % tuple(q(x) for x in split(t)) for t in l) + '};\n')
 PYE
 [ -f "$W/subs_en.txt" ] && python3 - "$W/subs_en.txt" "$B/saeng/src/subs_en.h" <<'PYE'
 import sys
