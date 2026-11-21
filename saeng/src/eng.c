@@ -184,9 +184,16 @@ static uint32_t sv_saved_h;                                   /* (the data as la
 static uint32_t sv_fnv(const uint8_t *p, unsigned n) { uint32_t h = 0x811C9DC5u; while (n--) { h ^= *p++; h *= 0x01000193u; } return h; }
 static void sv_put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }
 static uint32_t sv_get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+#ifdef SAP_SUBS                                               /* (docs/98: ENGLISH TEXT in the SD card's record) */
+#define SV_SUB_BIT ((gm_sub_on ^ 1) << 3)
+#define SV_SUB_GET(b) (gm_sub_on = (uint8_t)!((b) >> 3 & 1))
+#else
+#define SV_SUB_BIT 0
+#define SV_SUB_GET(b) ((void)0)
+#endif
 static void sv_data(uint8_t *d)
 {
-    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1 | (gm_steady ^ 1) << 2);   /* (docs/91: bit 2 = STEADY BLINK off: older saves keep it on) */   /* (docs/86: INFINITE CREDIT in bit 1) */
+    d[0] = SV_VER; d[1] = gm_lives; d[2] = gm_lives_on; d[3] = gm_inf; d[4] = (uint8_t)(gm_autofire | gm_infcr << 1 | (gm_steady ^ 1) << 2 | SV_SUB_BIT);   /* (docs/98: bit 3 = ENGLISH TEXT off - saved with the rest; older saves keep it on) */   /* (docs/91: bit 2 = STEADY BLINK off: older saves keep it on) */   /* (docs/86: INFINITE CREDIT in bit 1) */
 #ifdef SAP_CDFADE
     d[5] = gm_mus;
 #else
@@ -225,7 +232,7 @@ static void sv_load(void)                                     /* at the start: t
     const uint32_t h = sv_get32(r + 8);
     if (sv_get32(r + 4) != SV_LEN || sv_get32(r + 12) != ~h || sv_fnv(d, SV_LEN) != h || d[0] != SV_VER) { gm_sv_state = 3; return; }
     if (d[1] >= 1 && d[1] <= 9) gm_lives = d[1];
-    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1; gm_steady = !(d[4] >> 2 & 1);
+    gm_lives_on = d[2] != 0; gm_inf = d[3] != 0; gm_autofire = d[4] & 1; gm_infcr = d[4] >> 1 & 1; gm_steady = !(d[4] >> 2 & 1); SV_SUB_GET(d[4]);
 #ifdef SAP_CDFADE
     if (d[5] <= 8) gm_mus = d[5];
 #endif

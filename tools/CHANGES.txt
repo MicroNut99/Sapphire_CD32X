@@ -1,3 +1,4 @@
+v33 subtitles as v13: the briefing lines in the band under the text box, plain white; no subtitles during the intro; ENGLISH TEXT ON/OFF is now saved on the SD card with the other options. docs/98
 v32 wrong-colour screens for a quarter second (stage 1's city orange, stage 4's clouds blue - worst with two players): the 32X now covers as many of the re-coloured palettes as it has room for, the biggest first, where v21-v31 covered all or none. docs/97
 v31 the subtitles back where v27 had them (briefing band, dialogue over the grid, plain white, two rows); kept: the two-player dialogue lines, the intro's narration at the bottom. The options menu no longer leaves marks at the screen's sides (a hint line wider than the picture). docs/96
 v30 lost tiles (strips of wrong background tiles for 1-2 s, seen at stage 3's boss): the tile map's copy is now checked against the cart five pictures apart, not every 2.5 s

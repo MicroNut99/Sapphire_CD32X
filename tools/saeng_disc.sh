@@ -68,7 +68,8 @@ PYE
 # docs/94: the intro's narration in English (the work folder's subs_intro.txt: "<from s> <to s>|<row>|<row>" a line, the
 # seconds into the intro's track, CD track 15; rows of 32 at most) - sap_intro_en[]; not in the repository
 rm -f "$B/saeng/src/subs_intro.h"
-[ -f "$W/subs_intro.txt" ] && python3 - "$W/subs_intro.txt" "$B/saeng/src/subs_intro.h" <<'PYE'
+# (docs/98, the owner: "no subs during the intro" - off unless INTROSUBS=1)
+[ "${INTROSUBS:-0}" = 1 ] && [ -f "$W/subs_intro.txt" ] && python3 - "$W/subs_intro.txt" "$B/saeng/src/subs_intro.h" <<'PYE'
 import sys
 out = []
 for x in open(sys.argv[1]):
