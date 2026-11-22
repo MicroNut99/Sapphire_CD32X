@@ -1,6 +1,6 @@
 --- a/rt_bg2.c	2026-11-21 12:28:17.022127511 -0800
-+++ b/rt_bg2.c	2026-11-21 12:28:54.159775126 -0800
-@@ -567,12 +567,110 @@
++++ b/rt_bg2.c	2026-11-22 03:21:39.283822198 -0800
+@@ -567,12 +567,121 @@
     every tile of the screen was converted again, in place, under the colours still on screen) */
  static uint8_t sm_m[16][16]; static int8_t sm_g[16]; static uint16_t sm_chg[16][16], sm_ver[16];
  #endif
@@ -33,13 +33,19 @@
 +    for (int h = 0; h < 4; h++) if (bg2_priv[h]) return;
 +#endif
 +    for (int p = 0; p < 16; p++) if (b->g[p] >= np) return;   /* (one in the HUD's palette: as it is) */
-+    uint16_t cnt[16]; memset(cnt, 0, sizeof cnt);
-+    {   const int ne = map_n(v); for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++; }
-+    for (int p = 0; p < 16; p++) cnt[p] = (uint16_t)(cnt[p] > 4000 ? 4001 : cnt[p] + 1);
++    uint16_t cnt[16]; int gmv = 0;
++    for (int p = 0; p < 16; p++) if (b->g[p] >= 0 && sm_g[p] >= 0 && b->g[p] != sm_g[p]) gmv = 1;
++    if (gmv) {                                     /* (docs/103: the map's entries counted only when a palette changed
++                                                       its Genesis palette - the usual case, a few indices on other slots,
++                                                       needs no weights: v36 counted 4,096 entries every time) */
++        memset(cnt, 0, sizeof cnt);
++        const int ne = map_n(v); for (int a = 0; a < ne; a++) cnt[v->vram[a] >> 12]++;
++        for (int p = 0; p < 16; p++) cnt[p] = (uint16_t)(cnt[p] > 4000 ? 4001 : cnt[p] + 1);
++    } else for (int p = 0; p < 16; p++) cnt[p] = 1;
 +    /* (1) the Genesis palettes' numbers */
 +    uint8_t perm[4] = { 0, 1, 2, 3 }, cur[4] = { 0, 1, 2, 3 }; uint32_t best = 0;
 +    for (int p = 0; p < 16; p++) if (b->g[p] >= 0 && b->g[p] == sm_g[p]) best += cnt[p];
-+    for (int k = 1; k < (np == 4 ? 24 : 6); k++) {
++    for (int k = 1; gmv && k < (np == 4 ? 24 : 6); k++) {
 +        {   int i = np - 2; while (i >= 0 && cur[i] > cur[i + 1]) i--;      /* (the next permutation, in order) */
 +            if (i < 0) break;
 +            int j = np - 1; while (cur[j] < cur[i]) j--;
@@ -49,27 +55,32 @@
 +        for (int p = 0; p < 16; p++) if (b->g[p] >= 0 && sm_g[p] >= 0 && cur[b->g[p]] == sm_g[p]) sc += cnt[p];
 +        if (sc > best) { best = sc; memcpy(perm, cur, 4); }
 +    }
-+    /* (2) each palette's slots; then the pack under its new names, in the scratch first */
++    /* (2) each palette's slots; then the pack under its new names, in the scratch first. (docs/103: flags in bytes,
++       not bits - the SH2 shifts by a variable count in a library call, and this ran ~2 frames a time in v36) */
 +    uint16_t (*const vote)[16] = colb_v[0]; uint16_t (*const gc2)[16] = colb_v[1]; uint8_t (*const gr2)[16] = colb_c[1];
 +    uint8_t sig[4][16];
 +    for (int h = 0; h < np; h++) {
-+        const int H = perm[h]; uint16_t taken = 1, done = 1;
-+        for (int j = 0; j < 16; j++) { sig[h][j] = 0; for (int k = 0; k < 16; k++) vote[j][k] = 0; }
++        const int H = perm[h]; uint8_t taken[16], done[16], cand[16]; int nc = 0;
++        for (int j = 0; j < 16; j++) { sig[h][j] = 0; taken[j] = done[j] = 0; for (int k = 0; k < 16; k++) vote[j][k] = 0; }
++        taken[0] = done[0] = 1;
 +        for (int p = 0; p < 16; p++) if (b->g[p] == h && sm_g[p] == H) for (int i = 1; i < 16; i++) {
 +            const int j = b->m[p][i], jo = sm_m[p][i];
 +            if (j && jo) { const uint32_t w = (uint32_t)vote[j][jo] + cnt[p]; vote[j][jo] = (uint16_t)(w > 60000u ? 60000u : w); } }
-+        for (;;) {                                 /* (the most entries first) */
++        for (int j = 1; j < 16; j++) for (int k = 1; k < 16; k++) if (vote[j][k]) { cand[nc++] = (uint8_t)j; break; }
++        for (;;) {                                 /* (the most entries first: only the slots with a vote) */
 +            int bj = 0, bk = 0; uint16_t bw = 0;
-+            for (int j = 1; j < 16; j++) if (!(done >> j & 1)) for (int k = 1; k < 16; k++) if (!(taken >> k & 1) && vote[j][k] > bw) { bw = vote[j][k]; bj = j; bk = k; }
++            for (int c = 0; c < nc; c++) { const int j = cand[c]; if (done[j]) continue;
++                const uint16_t *vj = vote[j];
++                for (int k = 1; k < 16; k++) if (!taken[k] && vj[k] > bw) { bw = vj[k]; bj = j; bk = k; } }
 +            if (!bw) break;
-+            sig[h][bj] = (uint8_t)bk; done |= B16(bj); taken |= B16(bk);
++            sig[h][bj] = (uint8_t)bk; done[bj] = 1; taken[bk] = 1;
 +        }
-+        for (int j = 1; j < 16; j++) if (!(done >> j & 1) && b->gref[h][j]) {   /* (in use, no old slot: where CRAM has its colour) */
-+            for (int k = 1; k < 16; k++) if (!(taken >> k & 1) && b->cram[H][k] == b->gcol[h][j]) { sig[h][j] = (uint8_t)k; done |= B16(j); taken |= B16(k); break; } }
++        for (int j = 1; j < 16; j++) if (!done[j] && b->gref[h][j]) {   /* (in use, no old slot: where CRAM has its colour) */
++            for (int k = 1; k < 16; k++) if (!taken[k] && b->cram[H][k] == b->gcol[h][j]) { sig[h][j] = (uint8_t)k; done[j] = taken[k] = 1; break; } }
 +        for (int pass = 0; pass < 2; pass++)       /* (the rest: its own number if free, else the first free - those in use first) */
-+            for (int j = 1; j < 16; j++) if (!(done >> j & 1) && (pass || b->gref[h][j])) {
-+                int k = j; if (taken >> k & 1) for (k = 1; k < 16; k++) if (!(taken >> k & 1)) break;
-+                sig[h][j] = (uint8_t)k; done |= B16(j); taken |= B16(k); }
++            for (int j = 1; j < 16; j++) if (!done[j] && (pass || b->gref[h][j])) {
++                int k = j; if (taken[k]) for (k = 1; k < 16; k++) if (!taken[k]) break;
++                sig[h][j] = (uint8_t)k; done[j] = taken[k] = 1; }
 +        gc2[H][0] = b->gcol[h][0]; gr2[H][0] = b->gref[h][0];
 +        for (int j = 1; j < 16; j++) { gc2[H][sig[h][j]] = b->gcol[h][j]; gr2[H][sig[h][j]] = b->gref[h][j]; }
 +    }
@@ -111,3 +122,15 @@
  #ifdef BG2_SAMEMAP
      for (int p = 0; p < 16; p++) if (chgd[p] && b->g[p] == sm_g[p] && !memcmp(b->m[p], sm_m[p], sizeof sm_m[p])) {
          memcpy(b->chg[p], sm_chg[p], sizeof sm_chg[p]); b->ver[p] = sm_ver[p]; chgd[p] = 0; }
+@@ -1201,9 +1310,9 @@
+ #ifdef BG2_X32
+         && popc16(x32_set | x32_leave | mv) <= bg2_x32_free - 1
+ #endif
+-       ) for (int a = 0; a < ne; a++) nmv += mv >> (v->vram[a] >> 12) & 1;
++       ) for (int a = 0; a < ne; a++) nmv += (mv & B16(v->vram[a] >> 12)) != 0;   /* (docs/103: a table, not a shift by a count) */
+     if (nmv < SAP_COVER_MIN && mv && !sap_cover) {   /* (counted: a big move the cover could not take) */
+-        int all = 0; for (int a = 0; a < ne; a++) all += mv >> (v->vram[a] >> 12) & 1;
++        int all = 0; for (int a = 0; a < ne; a++) all += (mv & B16(v->vram[a] >> 12)) != 0;
+         if (all >= SAP_COVER_MIN) { bg2_sap_uncov++;
+             if (b->ndirty >= 400 || nbat >= 16) bg2_sap_why[0]++;
+ #ifdef SAP_X32ALL

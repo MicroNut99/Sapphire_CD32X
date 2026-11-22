@@ -1344,6 +1344,37 @@ static void eng_bands_send(void)
     eng_nvs = n; eng_vs_sent++;
 #endif
 }
+#ifdef SAP_LISTVS
+/* docs/103: the same splits, at the end of the picture's own command 79 list (the stack's op 0x5nnn, LISTVS: command
+   78's triples, run by fb_list as the commands would be) in place of two command 78 round trips after each swap - the
+   ~7 ms a picture the master spent on them was on the path that decides whether a picture shows after two blanks or
+   three. The commit is the last triple; with VSSWAP it is taken at this list's own swap. Returns the words written at
+   d (0: the splits as last sent - nothing) */
+static int eng_bands_list(volatile uint16_t *d)
+{
+#ifdef BG2_DRAW
+    const int n = eng_vwn;
+    int same = n == eng_nvs;
+    for (int i = 0; same && i < n; i++) same = eng_vw[i] == eng_vs[i];
+    if (same) return 0;
+    static int init; if (!init) { init = 1; for (int k = 0; k < 2; k++) for (int i = 0; i < 16; i++) eng_vsl[k][i] = 0xFFFFFFFFu; }
+    int w = 1;
+    for (int i = 0; i < n; i++) {
+        if (eng_vsl[eng_vsc][i] == eng_vw[i]) continue;
+        d[w++] = (uint16_t)i; d[w++] = (uint16_t)(eng_vw[i] >> 16); d[w++] = (uint16_t)eng_vw[i]; eng_vsl[eng_vsc][i] = eng_vw[i];
+    }
+    d[w++] = (uint16_t)(0x8000 | n); d[w++] = 0; d[w++] = 0;
+    d[0] = (uint16_t)(0x5000 | (w - 1));
+    if (n) eng_vsc ^= 1;
+    else for (int k = 0; k < 2; k++) for (int i = 0; i < 16; i++) eng_vsl[k][i] = 0xFFFFFFFFu;
+    for (int i = 0; i < n; i++) eng_vs[i] = eng_vw[i];
+    eng_nvs = n; eng_vs_sent++;
+    return w;
+#else
+    (void)d; return 0;
+#endif
+}
+#endif
 /* docs/122: the next picture read during the master's wait for the secondary (draw_hook) - into staging, not eng_v,
    which the secondary is reading: the changed blocks (up to ENG_STK; the rest read the old way after), the colours,
    the sprite table, the registers and the line table, of the newest whole frame the engine has then. Applied to eng_v

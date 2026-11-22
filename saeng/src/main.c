@@ -1069,6 +1069,9 @@ static void eng_prefetch(void);
 #endif
 #ifdef DX_ENGINE
 static void eng_bands_send(void);                             /* (docs/67: eng.c) */
+#ifdef SAP_LISTVS
+static int eng_bands_list(volatile uint16_t *d);             /* (docs/103: eng.c) */
+#endif
 #endif
 static void draw_hook(V32 *v)
 {
@@ -1102,7 +1105,9 @@ static void draw_hook(V32 *v)
         LT_MARK(0);
         bg2_take();                                           /* (the commit done, the frame buffer back) */
 #ifdef DX_ENGINE
+#ifndef SAP_LISTVS
         eng_bands_send();                                     /* (docs/67: this picture's V splits, after the one before is shown) */
+#endif
 #endif
         SEC_T(1, ta);
 #else
@@ -1201,6 +1206,15 @@ static void draw_hook(V32 *v)
         if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2)) gm_subs();   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them) */
         if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
         SEC_T(3, ta);
+#if defined(DX_ENGINE) && defined(SAP_LISTVS)
+        {   /* docs/103: this picture's V splits at the list's end, over its end word (the commands as before if that
+               word is not where it should be, or no room) */
+            volatile uint16_t *L = FB + (BG2_LIST >> 1);
+            const int e = n ? n - 1 : 0;                      /* (the end word: bg2_frame's count includes it) */
+            if (e < 15900 && L[e] == 0) { const int w = eng_bands_list(L + e); if (w) L[e + w] = 0; }
+            else eng_bands_send();
+        }
+#endif
         bg2_sent++; bg2_words += (uint32_t)n;
         bg2_send(BG2_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
         TR(5, n);

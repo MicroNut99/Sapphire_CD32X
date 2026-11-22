@@ -237,7 +237,48 @@ s = s.replace(a, """        bne.b   15f
 """)
 open(p, 'w').write(s)
 PYE
-{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ] || [ "${ARMWAIT:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
+# docs/103 (LISTVS=0 without; the build's copy of the stack only): the V splits in command 79's list. A list op 0x5nnn holds
+# n words, triples [index][entry high][entry low] as command 78's arguments (index bit 15: the commit, count in its low
+# bits): fb_list calls set_vs_line for each, as the command would. The SH2 used to send them by command 78 right after
+# each swap - two round trips, ~7 ms a picture, on the path the picture's time is decided by (ares: 115 lines of 262).
+# With VSSWAP the commit is taken at the list's own swap (fb_vrun), so the splits still change with the picture.
+[ "${LISTVS:-1}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+import sys
+p=sys.argv[1]; s=open(p).read()
+a="""        cmpi.w  #0x4000,d0
+        beq.w   10f
+"""
+assert s.count(a)==1
+s=s.replace(a,a+"""        cmpi.w  #0x5000,d0              | (Sapphire docs/103) 0x5nnn: V splits, command 78's triples
+        beq.w   30f
+""")
+a="""4:
+        move.w  (a0)+,(a2)              | 0x2nnn: data
+        dbra    d1,4b
+        bra.w   2b
+"""
+assert s.count(a)==1
+s=s.replace(a,a+"""30:
+        cmpi.l  #1,d3
+        beq.w   9f                      | (none inside the commit's runs)
+31:
+        moveq   #0,d0
+        move.w  (a0)+,d0                | the index (bit 15: the commit, its count below)
+        move.l  (a0)+,d2                | the entry
+        movem.l d1/a0-a1,-(sp)
+        move.l  d2,-(sp)
+        move.l  d0,-(sp)
+        bsr.w   set_vs_line             | (as command 78: into the list not shown; the commit taken at the swap)
+        addq.l  #8,sp
+        movem.l (sp)+,d1/a0-a1
+        subq.w  #3,d1
+        bpl.b   31b
+        bra.w   2b
+""")
+open(p,'w').write(s)
+PYE
+[ "${LISTVS:-1}" = 1 ] && RTX="$RTX -DSAP_LISTVS"
+{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ] || [ "${ARMWAIT:-1}" = 1 ] || [ "${LISTVS:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
 # SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"
