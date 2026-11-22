@@ -882,20 +882,22 @@ static void spr_prio(void)
     if (!(eng_v.t.CR & 0x80)) { spr_thr = 0; for (int p = 0; p < 16; p++) was[p] = 0; return; }   /* (docs/115: the
                                                      background off - all of it colour 0: the back sprites show) */
     uint16_t front = 0, back = 0;
+    uint16_t bit[16]; { unsigned m = 1; for (int p = 0; p < 16; p++, m <<= 1) bit[p] = (uint16_t)m; }   /* (Sapphire docs/104:
+                                                     a variable shift is a library call on the SH2) */
     for (int i = 0; i < 64; i++) {
         const uint16_t *s = eng_v.sat + 4 * i; const int y = (s[0] & 0x3FF) - 64, x = (s[1] & 0x3FF) - 32;
         if (y >= 240 || y <= -64 || x >= 256 || x <= -32) continue;
-        if (s[3] & 0x80) front |= (uint16_t)(1u << (s[3] & 15)); else back |= (uint16_t)(1u << (s[3] & 15));
+        if (s[3] & 0x80) front |= bit[s[3] & 15]; else back |= bit[s[3] & 15];
     }
     uint8_t to[16]; uint16_t taken = front | back, thr = 0;
     for (int p = 0; p < 16; p++) {
         to[p] = (uint8_t)p;
-        if (!(back >> p & 1)) { was[p] = 0; continue; }
-        if (!(front >> p & 1)) { to[p] = (uint8_t)p; thr |= (uint16_t)(1u << p); spr_srcp[p] = (uint8_t)p; was[p] = (uint8_t)(p + 1); continue; }
+        if (!(back & bit[p])) { was[p] = 0; continue; }
+        if (!(front & bit[p])) { to[p] = (uint8_t)p; thr |= bit[p]; spr_srcp[p] = (uint8_t)p; was[p] = (uint8_t)(p + 1); continue; }
         int q = was[p] ? was[p] - 1 : -1;
-        if (q < 0 || q == p || (taken >> q & 1)) { q = -1; for (int k = 15; k >= 0; k--) if (!(taken >> k & 1)) { q = k; break; } }
+        if (q < 0 || q == p || (taken & bit[q])) { q = -1; for (int k = 15; k >= 0; k--) if (!(taken & bit[k])) { q = k; break; } }
         if (q < 0) { was[p] = 0; continue; }                  /* (no palette free: in front) */
-        taken |= (uint16_t)(1u << q); thr |= (uint16_t)(1u << q); spr_srcp[q] = (uint8_t)p; to[p] = (uint8_t)q; was[p] = (uint8_t)(q + 1);
+        taken |= bit[q]; thr |= bit[q]; spr_srcp[q] = (uint8_t)p; to[p] = (uint8_t)q; was[p] = (uint8_t)(q + 1);
     }
     spr_thr = thr;
 #ifdef BG2_X32
@@ -1187,8 +1189,9 @@ void spr_under(const V32 *v, int buf, const SprBuf *b, uint16_t *dirty)
     for (int r = 0; r < 14; r++) { const unsigned m = sq[r]; if (!m) continue;
         dirty[r] |= (uint16_t)m; sq[r] = 0;
         uint8_t *row = b->nrm + 16 * r * SPR_LINE;
-        for (int c = 0; c < 16; c++) if (m >> c & 1) {
-            if (c < 15 && (m >> (c + 1) & 1)) { spr_clear(row + 16 * c, 16, 16); c++; }
+        unsigned k = m;                                        /* (Sapphire docs/104: shifted by one - no library calls) */
+        for (int c = 0; c < 16; c++, k >>= 1) if (k & 1) {
+            if (c < 15 && (k & 2)) { spr_clear(row + 16 * c, 16, 16); c++; k >>= 1; }
             else spr_clear(row + 16 * c, 8, 16); }
     }
 #ifdef SAP_TRACE

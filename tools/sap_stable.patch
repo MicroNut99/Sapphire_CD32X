@@ -1,6 +1,20 @@
 --- a/rt_bg2.c	2026-11-21 12:28:17.022127511 -0800
-+++ b/rt_bg2.c	2026-11-22 03:21:39.283822198 -0800
-@@ -567,12 +567,121 @@
++++ b/rt_bg2.c	2026-11-22 04:41:33.707130273 -0800
+@@ -308,9 +308,10 @@
+    nearest its palette has (the plan's merge, done where the exact pack fails) ---- */
+ static int cdist(unsigned a, unsigned c)          /* (GGGRRRBBB: squared steps) */
+ {
+-    int d = 0;
+-    for (int s = 0; s < 9; s += 3) { const int x = (int)((a >> s) & 7) - (int)((c >> s) & 7); d += x * x; }
+-    return d;
++    /* (docs/103: unrolled - a shift by the loop's count is a library call on the SH2, and this runs for every slot of
++       every colour the merge looks at) */
++    const int x = (int)(a & 7) - (int)(c & 7), y = (int)((a >> 3) & 7) - (int)((c >> 3) & 7), z = (int)((a >> 6) & 7) - (int)((c >> 6) & 7);
++    return x * x + y * y + z * z;
+ }
+ static int nearest(const Bg2 *b, int g, unsigned c, int *err)
+ {
+@@ -567,12 +568,121 @@
     every tile of the screen was converted again, in place, under the colours still on screen) */
  static uint8_t sm_m[16][16]; static int8_t sm_g[16]; static uint16_t sm_chg[16][16], sm_ver[16];
  #endif
@@ -122,7 +136,18 @@
  #ifdef BG2_SAMEMAP
      for (int p = 0; p < 16; p++) if (chgd[p] && b->g[p] == sm_g[p] && !memcmp(b->m[p], sm_m[p], sizeof sm_m[p])) {
          memcpy(b->chg[p], sm_chg[p], sizeof sm_chg[p]); b->ver[p] = sm_ver[p]; chgd[p] = 0; }
-@@ -1201,9 +1310,9 @@
+@@ -1098,8 +1208,8 @@
+         const unsigned u0 = tget(b, T_MASK(t)), u = u0 & ~1u;
+         if (!(u0 & 1)) tset(b, T_MASK(t), (uint16_t)(u0 | 1));   /* (named by the plane from now on) */
+ #ifdef BG2_X32
+-        if (x32_set >> p & 1) {                     /* (the 32X's: blank - from the picture after it went) */
+-            if (x32_blank >> p & 1) {
++        if (x32_set & B16(p)) {   /* (docs/104: a mask, not a shift - a library call an entry on the SH2) */                     /* (the 32X's: blank - from the picture after it went) */
++            if (x32_blank & B16(p)) {
+                 const uint16_t old = tget(b, T_GMAP(a));
+                 if (old != X32_SLOT) {
+                     if (old != NONE) tset(b, S_REFS(old & 0x7FF), (uint16_t)(tget(b, S_REFS(old & 0x7FF)) - 1));
+@@ -1201,9 +1311,9 @@
  #ifdef BG2_X32
          && popc16(x32_set | x32_leave | mv) <= bg2_x32_free - 1
  #endif

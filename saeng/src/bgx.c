@@ -50,6 +50,10 @@ int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned
     static const uint8_t wsh[4] = { 5, 6, 7, 7 };
     const unsigned ws = wsh[mwr >> 4 & 3], mw = 1u << ws, ymask = (mwr & 0x40 ? 512u : 256u) - 1;
     int cells = 0;
+    /* (Sapphire docs/104: the palette test and the squares' bits from local tables - the SH2 shifts by a variable count in
+       a library call; this ran one a cell, ~900 a picture. Built by shifting by one: no calls. On the stack: SDRAM, cached) */
+    uint8_t in[16]; uint16_t bit[16];
+    {   unsigned s = set, m = 1; for (int p = 0; p < 16; p++, s >>= 1, m <<= 1) { in[p] = (uint8_t)(s & 1); bit[p] = (uint16_t)m; } }
     for (int y = 0; y < 224; ) {
         const unsigned X = lines[2 * y], Y = lines[2 * y + 1] & ymask; const int r0 = (int)(Y & 7);
         int n = 1;                                            /* (the lines after it of the same row of cells, the same X) */
@@ -59,7 +63,7 @@ int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned
         uint8_t *line = dst + y * 320 - fx;
         for (int c = 0; c < 33; c++, cx = (cx + 1) & (mw - 1), line += 8) {
             const unsigned e = row[cx];
-            if (!(set >> (e >> 12) & 1)) continue;
+            if (!in[e >> 12]) continue;
             const int px = c * 8 - fx;
             if (px >= 256) break;
             const uint16_t *w = vram + (e & 0x7FF) * 16 + r0;
@@ -82,8 +86,8 @@ int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned
             }
             if (any) { cells++;
                 const int x0 = px < 0 ? 0 : px, x1 = px + 7 > 255 ? 255 : px + 7;
-                const uint16_t m = (uint16_t)((1u << (x0 >> 4)) | (1u << (x1 >> 4)));
-                sq[y >> 4] |= m; sq[(y + n - 1) >> 4] |= m; }
+                const uint16_t m = (uint16_t)(bit[(unsigned)x0 >> 4] | bit[(unsigned)x1 >> 4]);
+                sq[(unsigned)y >> 4] |= m; sq[(unsigned)(y + n - 1) >> 4] |= m;   /* (unsigned: a signed shift by 4 is a library call) */ }
         }
         y += n;
     }
@@ -100,6 +104,8 @@ void bgx_over(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigne
 {
     static const uint8_t wsh[4] = { 5, 6, 7, 7 };
     const unsigned ws = wsh[mwr >> 4 & 3], mw = 1u << ws, ymask = (mwr & 0x40 ? 512u : 256u) - 1;
+    uint8_t in[16], th[16];                               /* (docs/104: as bgx_draw's) */
+    {   unsigned s = set, t = thr; for (int p = 0; p < 16; p++, s >>= 1, t >>= 1) { in[p] = (uint8_t)(s & 1); th[p] = (uint8_t)(t & 1); } }
     for (int y = y0; y < y1; y++) {
         const unsigned X = lines[2 * y], Y = lines[2 * y + 1] & ymask;
         const uint16_t *row = vram + ((Y >> 3) << ws);
@@ -107,7 +113,7 @@ void bgx_over(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigne
         for (int x = x0; x < x1; ) {
             const unsigned sx = (unsigned)x + X, e = row[(sx >> 3) & (mw - 1)];
             const int k0 = (int)(sx & 7);                     /* (the cell's first pixel here) */
-            if (set >> (e >> 12) & 1) {
+            if (in[e >> 12]) {
                 const uint16_t *w = vram + (e & 0x7FF) * 16 + (Y & 7);
                 const unsigned p01 = w[0], p23 = w[8];
                 if (p01 | p23) {
@@ -118,7 +124,7 @@ void bgx_over(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigne
                     const unsigned b0 = base[e >> 12];
                     for (int k = k0; k < 8 && x + k - k0 < x1; k++) if (px[k]) {
                         const unsigned b = d[x + k - k0];
-                        if ((b & 15) && (thr >> (b >> 4) & 1)) d[x + k - k0] = (uint8_t)(b0 | px[k]);
+                        if ((b & 15) && th[b >> 4]) d[x + k - k0] = (uint8_t)(b0 | px[k]);
                     }
                 }
             }

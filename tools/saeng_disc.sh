@@ -278,7 +278,48 @@ s=s.replace(a,a+"""30:
 open(p,'w').write(s)
 PYE
 [ "${LISTVS:-1}" = 1 ] && RTX="$RTX -DSAP_LISTVS"
-{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ] || [ "${ARMWAIT:-1}" = 1 ] || [ "${LISTVS:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
+# docs/104 (HWINDUE=0 without; the build's copy of the stack only): HWIN lets VSPLIT's H interrupt in before each of a list's
+# control runs. The interrupt is set for every line, so one was pending at nearly every run in the display: hint_vs taken
+# for a line with nothing to do, ~250 68000 cycles a run (ares, stage 1: a map entry - control run and one data word - took
+# a line; a list of 150 entries ran from line 54 into the blank and its swap waited a frame). Now let in only when a split
+# is due (the line about to be drawn at or past the next entry's) or in the blank (line 224's work): what HWIN took
+# before at the first run after it was due, taken there still.
+[ "${HWINDUE:-1}" = 1 ] && python3 - "$B/stack/subcpu/hw_md.s" <<'PYE'
+import sys
+p=sys.argv[1]; s=open(p).read()
+a="""        cmpi.w  #0x1000,d0
+        bne.b   19f
+        move.w  #0x2300,sr
+        move.w  #0x2400,sr
+19:
+"""
+assert s.count(a)==1
+s=s.replace(a,"""        cmpi.w  #0x1000,d0
+        bne.b   19f
+        lea     vs_vars(pc),a3          | (Sapphire docs/104) only when a split is due, or in the blank
+        move.w  0xC00008,d2
+        lsr.w   #8,d2
+        addq.w  #1,d2                   | the line about to be drawn (as hint_vs reckons it)
+        cmpi.w  #224,d2
+        bhs.b   28f
+        move.w  2(a3),d0                | vs_pos
+        cmp.w   (a3),d0
+        bhs.b   19f                     | no split left in this picture
+        lsl.w   #2,d0
+        add.w   4(a3),d0
+        move.l  8(a3,d0.w),d0
+        swap    d0
+        lsr.w   #4,d0                   | its line
+        cmp.w   d0,d2
+        blo.b   19f                     | not yet
+28:
+        move.w  #0x2300,sr
+        move.w  #0x2400,sr
+19:
+""")
+open(p,'w').write(s)
+PYE
+{ [ "${VSWRAP:-1}" = 1 ] || [ "${VSTOP:-1}" = 1 ] || [ "${PAIRSH:-1}" = 1 ] || [ "${ARMWAIT:-1}" = 1 ] || [ "${LISTVS:-1}" = 1 ] || [ "${HWINDUE:-1}" = 1 ]; } && (cd "$B" && python3 tools/check_boot.py --update-genplane > /dev/null)   # (the copy's own sums: its build.sh checks them)
 # SPREAD=1: docs/72's merge_fresh (tools/sap_bg2.patch, BG2_SPREAD) - better on the PC harness's windows (2.23 % against 3.24 %),
 # worse over the whole recording in ares (mean 5.49 % against 4.89 %): off. It needs SDRAM (saeng/Makefile SPR_BC 228).
 [ "${SPREAD:-0}" = 1 ] && RTX="$RTX -DBG2_SPREAD"
