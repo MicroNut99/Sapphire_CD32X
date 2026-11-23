@@ -78,6 +78,34 @@ PYE
 [ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
 [ "${BLACK:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_black.patch"; RTX_BLACK=1; }   # (docs/100: while every background colour is black, the Genesis colours nothing is placed on are set black; BLACK=0 without)
 [ "${STABLE:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_stable.patch"; RTX_STABLE=1; }   # (docs/102: a pack placed again keeps its old names - only what really moved is redrawn; STABLE=0 without)
+# docs/107 (PADLESS=0 without): the SDRAM docs/105 found empty - dxspeed.ld's ALIGN(1024) before the hot halves and the bss's
+# ALIGN(1024) + PAD_RAM + PAD_RT for a base RAM and Rt the engine does not have (1,760 bytes) - left out, in the build's copy
+[ "${PADLESS:-0}" = 1 ] && python3 - "$B/saeng/dxspeed.ld" <<'PYE'
+import sys
+p=sys.argv[1]; s=open(p).read()
+a="""    . = ALIGN(1024);                            /* (the cache's 64 sets x 16 bytes: the hot code's sets don't
+                                                   move when the runtime's size does, docs/20) */
+"""
+assert s.count(a)==1; s=s.replace(a,"")
+a="""    . = ALIGN(1024);
+    . = . + PAD_RAM;                            /* (the base RAM at PAD_RAM mod 1 KB) */
+    *(.bss.place_ram)
+    . = . + PAD_RT;                             /* (8 KB on: the Rt at PAD_RAM + PAD_RT mod 1 KB) */
+"""
+assert s.count(a)==1; s=s.replace(a,"    *(.bss.place_ram)\n")
+open(p,'w').write(s)
+PYE
+# docs/107 (SDSTABLE=1, needs PADLESS=1 for the room): sap_stable - 15 % of the secondary's time while the master waits for
+# it (docs/106) - from the cart's ROM section into SDRAM, after all the SDRAM code there is (.sdlast.*: inserted before the
+# renderers it moved them 1.7 KB against the cache's sets and stage 1 ran slower, 21.0 pictures a second against 22.9)
+if [ "${SDSTABLE:-0}" = 1 ]; then
+  sed -i 's/static void sap_stable(Bg2 \*b, const V32 \*v, uint16_t \*chgd, const uint16_t \*chgd_in) __attribute__((noinline, section(".rodata.sap_cover")));/static void sap_stable(Bg2 *b, const V32 *v, uint16_t *chgd, const uint16_t *chgd_in) __attribute__((noinline, section(".sdlast.sap_stable")));/' "$B/tools/m3rt/rt_bg2.c" && grep -q 'sdlast.sap_stable' "$B/tools/m3rt/rt_bg2.c"
+  python3 - "$B/saeng/dxspeed.ld" <<'PYE'
+import sys
+p=sys.argv[1]; s=open(p).read(); a="    __sdcode_end = .;\n"; assert s.count(a)==1
+s=s.replace(a,"    . = ALIGN(16);\n    *(.sdlast.*)\n"+a); open(p,'w').write(s)
+PYE
+fi
 python3 "$B/.dx/tools/m2_machine.py" "$B/gen" > /dev/null
 SV=
 if [ "${SAVE:-1}" = 1 ]; then
