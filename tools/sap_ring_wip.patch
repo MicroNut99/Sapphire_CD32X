@@ -1,0 +1,563 @@
+diff --git a/saeng/src/bgx.c b/saeng/src/bgx.c
+index 895295b..229abf5 100644
+--- a/saeng/src/bgx.c
++++ b/saeng/src/bgx.c
+@@ -124,13 +124,106 @@ int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned
+     return cells;
+ }
+ 
++#ifdef SAP_RING
++/* Sapphire docs/108 (SAP_RING): the cells kept from this buffer's last drawing. The picture's lines show rows of a ring
++   - display line l shows row rmap[l] (the 32X line table), the map's line Y & 255 - so a map line drawn once stays in
++   its row while the background scrolls. rs[r]: the row's content as last drawn - its map line, X, cells' entries,
++   palettes' bases and tiles' marks hashed (bit 31: cells in it; 1: none; 0: unknown - cleared before use); dmg[r]: the
++   16-pixel columns the sprites' clearing wiped since (rt_spr.c via spr_ring_box). A line whose row holds it already is
++   left, but for its cells over wiped columns; any other's row is cleared (if it held cells) and its cells drawn.
++   nrm / ovl: row 0's byte in the normal / overwrite image; sq: as bgx_draw's, of the cells there are (drawn or kept). */
++static void bgx_row_clear(uint8_t *p)                       /* (the picture's 256 pixels of a row: the normal image) */
++{
++    uint32_t *q = (uint32_t *)p;
++    for (int i = 0; i < 64; i += 8) { q[i] = 0; q[i + 1] = 0; q[i + 2] = 0; q[i + 3] = 0; q[i + 4] = 0; q[i + 5] = 0; q[i + 6] = 0; q[i + 7] = 0; }
++}
++uint32_t bgx_ring_kept, bgx_ring_clr;                          /* (counts: lines left as they were, rows cleared) */
++static int bgx_ring(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned set, const uint8_t *base,
++                    uint8_t *nrm, uint8_t *ovl, const uint8_t *rmap, volatile uint32_t *rs, volatile uint16_t *dmg,
++                    const uint16_t *marks, uint16_t *sq, uint16_t *dirty)
++{
++    static const uint8_t wsh[4] = { 5, 6, 7, 7 };
++    const unsigned ws = wsh[mwr >> 4 & 3], mw = 1u << ws, ymask = (mwr & 0x40 ? 512u : 256u) - 1;
++    int cells = 0;
++    uint8_t in[16]; uint16_t bit[16];
++    {   unsigned s = set, m = 1; for (int p = 0; p < 16; p++, s >>= 1, m <<= 1) { in[p] = (uint8_t)(s & 1); bit[p] = (uint16_t)m; } }
++    for (int y = 0; y < 224; ) {
++        const unsigned X = lines[2 * y], Y = lines[2 * y + 1] & ymask; const int r0 = (int)(Y & 7);
++        int n = 1;
++        while (y + n < 224 && r0 + n < 8 && lines[2 * (y + n)] == X && (lines[2 * (y + n) + 1] & ymask) == Y + (unsigned)n) n++;
++        const uint16_t *row = vram + ((Y >> 3) << ws);
++        const int fx = (int)(X & 7); const unsigned cx0 = (X >> 3) & (mw - 1);
++        uint32_t h = 0x811C9DC5u ^ X; int has = 0; uint16_t sqm = 0;
++        if (set) {
++            unsigned cx = cx0;
++            for (int c = 0; c < 33; c++, cx = (cx + 1) & (mw - 1)) {
++                const unsigned e = row[cx];
++                if (!in[e >> 12]) continue;
++                const int px = c * 8 - fx;
++                if (px >= 256) break;
++                const int x0 = px < 0 ? 0 : px, x1 = px + 7 > 255 ? 255 : px + 7;
++                sqm |= (uint16_t)(bit[(unsigned)x0 >> 4] | bit[(unsigned)x1 >> 4]);
++                h = (h ^ e) * 16777619u; h = (h ^ (base[e >> 12] | (unsigned)c << 8)) * 16777619u; h = (h ^ marks[e & 0x7FF]) * 16777619u;
++                has = 1;
++            }
++        }
++        if (has) { sq[(unsigned)y >> 4] |= sqm; sq[(unsigned)(y + n - 1) >> 4] |= sqm; }
++        uint16_t nd[8]; uint32_t ro[8]; unsigned any = 0;
++        for (int k = 0; k < n; k++) {
++            const unsigned r = rmap[y + k]; ro[k] = r * 320u;
++            const uint32_t hl = has ? (((h ^ (Y + (unsigned)k)) * 16777619u) | 0x80000000u) : 1u;
++            const uint32_t old = rs[r];
++            uint16_t dk;                                      /* (the squares changed on the line: the sprites over them drawn again) */
++            if (old != hl) {
++                dk = has ? 0xFFFF : 0;
++                if (old != 1u) { bgx_row_clear(nrm + ro[k]); bgx_ring_clr++; dk = 0xFFFF; }
++                nd[k] = has ? 0xFFFF : 0; rs[r] = hl;
++            } else { nd[k] = has ? dmg[r] : 0; dk = nd[k]; bgx_ring_kept++; }
++            dmg[r] = 0; any |= nd[k]; dirty[(unsigned)(y + k) >> 4] |= dk;
++        }
++        if (any) {
++            unsigned cx = cx0;
++            for (int c = 0; c < 33; c++, cx = (cx + 1) & (mw - 1)) {
++                const unsigned e = row[cx];
++                if (!in[e >> 12]) continue;
++                const int px = c * 8 - fx;
++                if (px >= 256) break;
++                const int x0 = px < 0 ? 0 : px, x1 = px + 7 > 255 ? 255 : px + 7;
++                const uint16_t m = (uint16_t)(bit[(unsigned)x0 >> 4] | bit[(unsigned)x1 >> 4]);
++                if (!(any & m)) continue;
++                const uint16_t *w = vram + (e & 0x7FF) * 16 + r0;
++                const uint32_t b4 = (uint32_t)base[e >> 12] * 0x01010101u;
++                uint32_t mh = 0xFFFFFFFF, ml = 0xFFFFFFFF;
++                if (px < 0) { mh = bgx_lh[-px]; ml = bgx_ll[-px]; }
++                else if (px > 248) { mh = ~bgx_lh[256 - px]; ml = ~bgx_ll[256 - px]; }
++                uint8_t *const cd = ovl + px; int drew = 0;
++                for (int k = 0; k < n; k++) {
++                    if (!(nd[k] & m)) continue;
++                    const unsigned p01 = w[k], p23 = w[8 + k];
++                    if (!(p01 | p23)) continue;
++                    uint32_t hi = bgx_sp[p01 >> 4 & 15] | bgx_sp[p01 >> 12] << 1 | bgx_sp[p23 >> 4 & 15] << 2 | bgx_sp[p23 >> 12] << 3;
++                    uint32_t lo = bgx_sp[p01 & 15] | bgx_sp[p01 >> 8 & 15] << 1 | bgx_sp[p23 & 15] << 2 | bgx_sp[p23 >> 8 & 15] << 3;
++                    {   const uint32_t nh = ((hi + 0x0F0F0F0Fu) >> 4) & 0x01010101u, nl = ((lo + 0x0F0F0F0Fu) >> 4) & 0x01010101u;
++                        hi |= ((nh << 8) - nh) & b4; lo |= ((nl << 8) - nl) & b4; }
++                    hi &= mh; lo &= ml;
++                    if (hi | lo) { bgx_put(cd + ro[k], hi, lo); drew = 1; }
++                }
++                cells += drew;
++            }
++        }
++        y += n;
++    }
++    return cells;
++}
++#endif
++
+ /* The sprites behind the background are drawn after the cells (rt_spr.c draws every sprite in the table's order), so
+    where one lies over a cell its pixels are in front of the cell's. This puts the cell's pixels back, inside a box
+    (the sprite's: x0 <= x < x1, y0 <= y < y1 of the picture): where the frame buffer holds a pixel of a 32X palette in
+    `thr` (shown behind the plane: a back sprite's) and the cell has a pixel, the cell's. The sprite stays where the
+    cell is see-through - as on the PC Engine. buf: the byte of the picture's (0, 0) in the normal image. */
+ void bgx_over(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned set, const uint8_t *base, uint8_t *buf,
+-              unsigned thr, int x0, int y0, int x1, int y1)
++              unsigned thr, int x0, int y0, int x1, int y1, const uint8_t *rmap)   /* (rmap: Sapphire docs/108's rows, or 0) */
+ {
+     static const uint8_t wsh[4] = { 5, 6, 7, 7 };
+     const unsigned ws = wsh[mwr >> 4 & 3], mw = 1u << ws, ymask = (mwr & 0x40 ? 512u : 256u) - 1;
+@@ -139,7 +232,7 @@ void bgx_over(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigne
+     for (int y = y0; y < y1; y++) {
+         const unsigned X = lines[2 * y], Y = lines[2 * y + 1] & ymask;
+         const uint16_t *row = vram + ((Y >> 3) << ws);
+-        uint8_t *d = buf + y * 320;
++        uint8_t *d = buf + (rmap ? (unsigned)rmap[y] : (unsigned)y) * 320u;
+         for (int x = x0; x < x1; ) {
+             const unsigned sx = (unsigned)x + X, e = row[(sx >> 3) & (mw - 1)];
+             const int k0 = (int)(sx & 7);                     /* (the cell's first pixel here) */
+diff --git a/saeng/src/eng.c b/saeng/src/eng.c
+index 39d19ab..968bd6e 100644
+--- a/saeng/src/eng.c
++++ b/saeng/src/eng.c
+@@ -683,11 +683,11 @@ static void eng_ad_copy(void)
+     cdr_busy = 1;
+     bg2_take();
+     for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+-    {   volatile uint32_t *d = (volatile uint32_t *)(0x24000000u + BG2_LIST); const uint32_t *q = (const uint32_t *)eng_sec;
++    {   volatile uint32_t *d = (volatile uint32_t *)(0x24000000u + FB_LIST); const uint32_t *q = (const uint32_t *)eng_sec;
+         for (int i = 0; i < 512; i++) d[i] = q[i]; }
+     volatile uint8_t *fm = (volatile uint8_t *)0x20004000;
+     *fm = 0x00; while (MARS_SYS_INTMSK & 0x8000) { }          /* (the frame buffer to the 68000) */
+-    MARS_SYS_COMM2 = (uint16_t)(BG2_LIST >> 4); COMM8_32 = AD_MIR_CART + 2048u * (uint32_t)pg; COMM12_16 = 0xFFFF;
++    MARS_SYS_COMM2 = (uint16_t)(FB_LIST >> 4); COMM8_32 = AD_MIR_CART + 2048u * (uint32_t)pg; COMM12_16 = 0xFFFF;
+     const int ok = ed_cmd(101) && COMM12_16 == 0;
+     *fm = 0x80; while (!(MARS_SYS_INTMSK & 0x8000)) { }       /* (and back) */
+     cdr_busy = 0;
+@@ -1182,10 +1182,39 @@ static uint32_t eng_vs_sent;
+    cleared (16 lines of 16 or 32 pixels at a time), this picture's cells drawn (bgx.c), and the squares of both marked
+    changed - the sprites over them are drawn again, on top. */
+ static uint16_t bgx_sq[2][14];
++#ifdef SAP_RING
++uint8_t ring_rmap[224];                                       /* (docs/108: each display line's row this picture) */
++extern int spr_ring;
++/* (docs/108: each buffer's own, in its frame buffer past the list) */
++#define RING_RS 0x1C000u                                       /* (u32 x 256: bgx.c's rs) */
++#define RING_DMG 0x1C400u                                      /* (u16 x 256) */
++#define RING_SEG 0x1C600u                                      /* (u16: n, then n x {ya, yb, dl}) */
++#define RING_NUM 0x1C700u                                      /* (u8 x 256: the row's left column - 0 unknown, 1 plain, 2 a block) */
++#define RING_USED 0x1C800u                                     /* (u8 x 256: scratch) */
++extern int spr_nrng; extern int16_t spr_rng[8][2];
++extern uint32_t ring_crb[64], ring_crn;
++#define RCR(x) do { volatile uint32_t *c_ = (volatile uint32_t *)((uintptr_t)ring_crb | 0x20000000); volatile uint32_t *n_ = (volatile uint32_t *)((uintptr_t)&ring_crn | 0x20000000); \
++    uint32_t pr_; __asm__ volatile("sts pr,%0" : "=r"(pr_)); c_[*n_ & 63] = (uint32_t)(x); c_[(*n_ + 1) & 63] = pr_; *n_ = *n_ + 2; } while (0)
++
++#endif
+ uint32_t bgx_cells;                                           /* (the cells of the last picture: for the log) */
+ void spr_under(const V32 *v, int buf, const SprBuf *b, uint16_t *dirty)
+ {
+     uint16_t *sq = bgx_sq[buf & 1];
++#ifdef SAP_RING
++    if (spr_ring) {                                           /* (docs/108: the rows kept, the old boxes' columns and the
++                                                                 changed rows' cells drawn; every sprite is drawn again) */
++        volatile uint8_t *F8 = (volatile uint8_t *)0x24000000;
++        for (int r = 0; r < 14; r++) sq[r] = 0;
++        const unsigned set = (bgx_set && (v->t.CR & 0x80)) ? bgx_set : 0;
++        { extern uint32_t ring_sp_min; uint32_t sp; __asm__ volatile("mov r15,%0" : "=r"(sp)); if (sp < ring_sp_min) ring_sp_min = sp; }
++        RCR(0xC0000000u);
++        bgx_cells = (uint32_t)bgx_ring(v->vram, v->MWR, eng_lines, set, bgx_base, b->nrm, b->ovl, ring_rmap,
++                                       (volatile uint32_t *)(F8 + RING_RS), (volatile uint16_t *)(F8 + RING_DMG), rt_marks.v, sq, dirty);
++        RCR(0xC1000000u | bgx_cells);
++        return;
++    }
++#endif
+ #ifdef SAP_CELLSTAT
+     { extern int bgx_stat_buf; extern uint16_t bgx_stat_dirty[14]; extern uint32_t bgx_stat[10];
+       bgx_stat_buf = buf & 1; for (int r = 0; r < 14; r++) { bgx_stat_dirty[r] = dirty[r];
+@@ -1228,7 +1257,141 @@ static void bgx_after(const V32 *v, int buf)
+             for (int r = y0 >> 4; r <= (y1 - 1) >> 4; r++) hit |= sq[r] & m;
+             if (!hit) continue;
+         }
+-        bgx_over(v->vram, v->MWR, eng_lines, bgx_set, bgx_base, spr_buf[buf & 1].nrm, spr_thr, x0, y0, x1, y1);
++#ifdef SAP_RING
++        bgx_over(v->vram, v->MWR, eng_lines, bgx_set, bgx_base, spr_buf[buf & 1].nrm, spr_thr, x0, y0, x1, y1, spr_ring ? ring_rmap : 0);
++#else
++        bgx_over(v->vram, v->MWR, eng_lines, bgx_set, bgx_base, spr_buf[buf & 1].nrm, spr_thr, x0, y0, x1, y1, 0);
++#endif
++    }
++}
++#endif
++#ifdef SAP_RING
++/* Sapphire docs/108 (RING=1): the 32X's picture as a ring of 256 rows, one a map line (Y & 255), the line table
++   pointing each display line at its row - the cells drawn stay while the background scrolls (bgx.c bgx_ring). Each
++   buffer's own state in its own frame buffer, past the list (FB_LIST, 16,000 words at most: to 0x1BF00): the rows'
++   contents, their wiped columns, the last picture's segments (runs of lines on consecutive rows), the left column's
++   number blocks per row. A picture with the menu, a banner, the English lines or a wipe - or two lines on one row, or
++   over 16 segments - is drawn as before (rows = lines): the buffer cleared whole when it changes over. */
++typedef struct { int16_t ya, yb, dl; } RingSeg;
++static RingSeg ring_old[16], ring_new[16]; static int ring_nold, ring_nnew; static uint8_t ring_omap[224];
++static uint8_t ring_was[2];
++uint32_t ring_crb[64], ring_crn; uint32_t ring_badbox, ring_bb, ring_bad, ring_sp_min = 0xFFFFFFFF, ring_ssp_min = 0xFFFFFFFF; uint32_t ring_pics, ring_off, ring_swaps, ring_conf, ring_segx, ring_ovl, ring_conf_y, ring_conf_r;                     /* (counts: pictures as a ring, as before, change-overs) */
++extern int spr_nrr; extern int16_t spr_rr[24][2]; extern int32_t spr_rdl[24];
++static void ring_lt_identity(void)
++{
++    volatile uint16_t *F = (volatile uint16_t *)0x24000000;
++    for (int i = 0; i < 256; i++) F[i] = (uint16_t)(0x100 + (i < 224 ? i : 223) * 160);
++}
++void ring_inval(int buf) { ring_was[buf & 1] = 0; ring_lt_identity(); }   /* (the buffer drawn in: wiped whole by its caller) */
++extern uint32_t ring_badbox, ring_bb;
++/* rt_spr.c's old boxes (spr_frame step 1): cleared on the rows the buffer's last picture had those lines on, their
++   columns marked wiped */
++/* rt_spr.c: an entry as at this buffer's drawing before stays (it is not cleared and drawn again) only if its lines are
++   on the rows they were on */
++int spr_ring_rows_same(int y0, int y1)
++{
++    RCR(0xA0000000u | (uint32_t)(y0 & 0xFFF) << 12 | (uint32_t)(y1 & 0xFFF));
++    for (int y = y0; y < y1; y++) if (ring_omap[y] != ring_rmap[y]) return 0;
++    return 1;
++}
++void spr_ring_box(uint8_t *nrm, int x0, int y0, int x1, int y1, uint16_t m)
++{
++    volatile uint16_t *dmg = (volatile uint16_t *)(0x24000000u + RING_DMG);
++    RCR(0xB0000000u | (uint32_t)(x0 & 0x3FF) << 18 | (uint32_t)(x1 & 0x3FF) << 8 | (uint32_t)(y1 - y0));
++    if (x1 <= x0 || x1 - x0 > 34 || y0 < 0 || y1 > 224 || y0 >= y1) { ring_badbox++; ring_bb = (uint32_t)x0 << 24 | (uint32_t)(x1 & 0xFF) << 16 | (uint32_t)(y0 & 0xFF) << 8 | (uint32_t)(y1 & 0xFF); return; }
++    const uint32_t w = (uint32_t)(x1 - x0) / 2;
++    for (int s = 0; s < ring_nold; s++) {
++        const int a = y0 > ring_old[s].ya ? y0 : ring_old[s].ya, b = y1 < ring_old[s].yb ? y1 : ring_old[s].yb;
++        if (a >= b) continue;
++        const int dl = ring_old[s].dl;
++        RCR(0xB1000000u | (uint32_t)(a + dl) << 12 | (uint32_t)(b - a) << 4 | w); spr_clear(nrm + (a + dl) * SPR_LINE + x0, w, (uint32_t)(b - a));
++        RCR(0xB2000000u);
++        for (int y = a; y < b; y++) dmg[y + dl] |= m;
++    }
++}
++static int ring_frame(const V32 *v, int buf, int overlay)
++{
++    { uint32_t sp; __asm__ volatile("mov r15,%0" : "=r"(sp)); if (sp < ring_sp_min) ring_sp_min = sp; }
++    volatile uint8_t *F8 = (volatile uint8_t *)0x24000000; volatile uint16_t *F16 = (volatile uint16_t *)0x24000000;
++    const unsigned ymask = (v->MWR & 0x40 ? 512u : 256u) - 1;
++    int ok = !overlay; ring_ovl += (uint32_t)(overlay != 0);
++    if (ok) {
++        /* each line on its map line's row (Y & 255); a line whose row an earlier line has (the status bar's band showing
++           map lines the playfield shows too) on a row no line has, in order - so a band stays on consecutive rows */
++        volatile uint32_t *u = (volatile uint32_t *)(F8 + RING_USED);
++        for (int i = 0; i < 64; i++) u[i] = 0;
++        uint32_t pend[7] = { 0 }; int np = 0;
++        for (int y = 0; y < 224; y++) {
++            const unsigned r = (eng_lines[2 * y + 1] & ymask) & 255;
++            if (F8[RING_USED + r]) { pend[y >> 5] |= 0x80000000u >> (y & 31); np++; ring_rmap[y] = 0; continue; }
++            F8[RING_USED + r] = 1; ring_rmap[y] = (uint8_t)r;
++        }
++        if (np) {
++            ring_conf++;
++            unsigned fr = 0, last = 0x100;
++            for (int y = 0; y < 224; y++) {
++                if (!(pend[y >> 5] & (0x80000000u >> (y & 31)))) continue;
++                unsigned r = last + 1 < 256 && !F8[RING_USED + last + 1] ? last + 1 : fr;
++                while (r < 256 && F8[RING_USED + r]) r++;
++                if (r >= 256) { ok = 0; break; }             /* (cannot happen: 256 rows, 224 lines) */
++                F8[RING_USED + r] = 1; ring_rmap[y] = (uint8_t)r; last = r; if (r == fr) fr++;
++            }
++        }
++        ring_nnew = 0;
++        for (int y = 0; y < 224 && ok; y++) {
++            const unsigned r = ring_rmap[y];
++            if (y && r == (unsigned)ring_rmap[y - 1] + 1) ring_new[ring_nnew - 1].yb = (int16_t)(y + 1);
++            else if (ring_nnew == 16) { ok = 0; ring_segx++; }
++            else { ring_new[ring_nnew].ya = (int16_t)y; ring_new[ring_nnew].yb = (int16_t)(y + 1); ring_new[ring_nnew].dl = (int16_t)((int)r - y); ring_nnew++; }
++        }
++    }
++    if (!ok) {
++        if (ring_was[buf]) {                                  /* (from the ring to rows = lines: the picture cleared whole) */
++            for (int y = 0; y < 224; y++) bgx_row_clear(spr_buf[buf].nrm + y * SPR_LINE);
++            spr_last_clear(buf); for (int r = 0; r < 14; r++) bgx_sq[buf][r] = 0;
++            ring_lt_identity(); ring_was[buf] = 0; ring_swaps++;
++        }
++        spr_ring = 0; ring_off++;
++        return 0;
++    }
++    volatile uint16_t *sg = (volatile uint16_t *)(F8 + RING_SEG);
++    if (!ring_was[buf]) {                                     /* (from rows = lines: nothing known of the rows) */
++        volatile uint32_t *rs = (volatile uint32_t *)(F8 + RING_RS); volatile uint16_t *dm = (volatile uint16_t *)(F8 + RING_DMG);
++        for (int i = 0; i < 256; i++) { rs[i] = 0; dm[i] = 0; F8[RING_NUM + i] = 0; }
++        sg[0] = 1; sg[1] = 0; sg[2] = 224; sg[3] = 0;
++        ring_was[buf] = 1; ring_swaps++;
++    }
++    ring_nold = sg[0] > 16 ? 16 : sg[0];
++    for (int i = 0; i < ring_nold; i++) { ring_old[i].ya = (int16_t)sg[1 + 3 * i]; ring_old[i].yb = (int16_t)sg[2 + 3 * i]; ring_old[i].dl = (int16_t)sg[3 + 3 * i];
++        if (ring_old[i].ya < 0 || ring_old[i].yb > 224 || ring_old[i].ya >= ring_old[i].yb || ring_old[i].ya + ring_old[i].dl < 0 || ring_old[i].yb + ring_old[i].dl > 256) {
++            ring_bad++; ring_nold = 1; ring_old[0].ya = 0; ring_old[0].yb = 224; ring_old[0].dl = 0; break; } }   /* (never seen: a guard) */
++    for (int i = 0; i < ring_nold; i++) for (int y = ring_old[i].ya; y < ring_old[i].yb && y < 224; y++) ring_omap[y] = (uint8_t)(y + ring_old[i].dl);
++    sg[0] = (uint16_t)ring_nnew;
++    for (int i = 0; i < ring_nnew; i++) { sg[1 + 3 * i] = (uint16_t)ring_new[i].ya; sg[2 + 3 * i] = (uint16_t)ring_new[i].yb; sg[3 + 3 * i] = (uint16_t)ring_new[i].dl; }
++    for (int y = 0; y < 224; y++) F16[y] = (uint16_t)(0x100 + ring_rmap[y] * 160);
++    for (int y = 224; y < 256; y++) F16[y] = F16[223];
++    spr_nrr = 0;                                              /* (the sprites' line ranges cut at the segments) */
++    for (int q = 0; q < spr_nrng; q++) for (int i = 0; i < ring_nnew; i++) {
++        const int a = spr_rng[q][0] > ring_new[i].ya ? spr_rng[q][0] : ring_new[i].ya, b = spr_rng[q][1] < ring_new[i].yb ? spr_rng[q][1] : ring_new[i].yb;
++        if (a >= b || spr_nrr == 24) continue;
++        spr_rr[spr_nrr][0] = (int16_t)a; spr_rr[spr_nrr][1] = (int16_t)b; spr_rdl[spr_nrr] = ring_new[i].dl * SPR_LINE; spr_nrr++;
++    }
++    spr_ring = 1; ring_pics++;
++    return 1;
++}
++/* main.c pic_extras' number blocks (the left column, lines 0-143) on the rows: each row's left column written only when
++   what it should show changes */
++static void ring_num(uint32_t num)
++{
++    volatile uint8_t *F8 = (volatile uint8_t *)0x24000000;
++    for (int y = 0; y < 224; y++) {
++        const int bit = y >> 4; const int blk = bit < 9 && (y & 15) < 12;
++        const uint8_t want = (uint8_t)(blk && ((num >> bit) & 1) ? 2 : 1);
++        const unsigned r = ring_rmap[y];
++        if (F8[RING_NUM + r] == want) continue;
++        F8[RING_NUM + r] = want;
++        const uint16_t w = want == 2 ? 0x2020 : 0x1010;
++        for (int x = 2; x < 14; x++) FB[0x100 + r * 160 + x] = w;
+     }
+ }
+ #endif
+@@ -1521,11 +1684,11 @@ static void eng_restart(uint32_t f)
+     cdr_busy = 1;                                             /* (pace_vbi sends nothing meanwhile) */
+     bg2_take();                                               /* (a list or a commit under way: its end; the frame buffer) */
+     for (int n = 0; n < 4000000 && MARS_SYS_COMM0 != 0; n++) { }
+-    volatile uint16_t *d = (volatile uint16_t *)(0x24000000u + BG2_LIST);
++    volatile uint16_t *d = (volatile uint16_t *)(0x24000000u + FB_LIST);
+     d[0] = 0x4754; d[1] = 0x5253; for (int i = 2; i < 1024; i++) d[i] = 0;
+     volatile uint8_t *fm = (volatile uint8_t *)0x20004000;
+     *fm = 0x00; while (MARS_SYS_INTMSK & 0x8000) { }          /* (the frame buffer to the 68000) */
+-    MARS_SYS_COMM2 = (uint16_t)(BG2_LIST >> 4); COMM8_32 = ENG_W7_CART + 0x413FCu; COMM12_16 = 0xFFFF;
++    MARS_SYS_COMM2 = (uint16_t)(FB_LIST >> 4); COMM8_32 = ENG_W7_CART + 0x413FCu; COMM12_16 = 0xFFFF;
+     const int ok = ed_cmd(101) && COMM12_16 == 0;
+     *fm = 0x80; while (!(MARS_SYS_INTMSK & 0x8000)) { }       /* (and back) */
+     cdr_busy = 0;
+diff --git a/saeng/src/main.c b/saeng/src/main.c
+index 1640c98..fcb73d2 100644
+--- a/saeng/src/main.c
++++ b/saeng/src/main.c
+@@ -549,6 +549,12 @@ static void draw_hook(V32 *v) { const uint16_t a = frt_(); spr_frame(v, 0); spr_
+    border's black and the number's white. ares's screenshots against rt_pc RUN_SPR_DUMP: tools/m3_sprcheck.py */
+ #ifdef BG2_DRAW
+ #include "rt_bg2.h"
++#ifdef SAP_RING
++#define FB_LIST 0x14200u                                      /* (docs/108: past the ring's 256 rows - 0x200 + 256 x 320; to 0x1BF00 at
++                                                                 GOT_MORE_WORDS) */
++#else
++#define FB_LIST BG2_LIST
++#endif
+ /* BG=1 (docs/65): the background on the Genesis. rt_bg2 writes each picture's list into the frame buffer's spare
+    part; command 79 (FBVDP) runs it on the 68000 while the SH2 waits (the frame buffer is the 68000's then: FM), and
+    its kept runs - the scroll, the colours - are committed after the swap, from the vertical blank's interrupt
+@@ -606,7 +612,7 @@ static void sec_list_copy(uint32_t j, int n)
+ {
+     while (SEC_FBOK != j) { CDG_SPIN(0x121); for (int i = 0; i < 64; i++) __asm__ volatile(""); }   /* (docs/116: a read past the cache
+                                                      each 64 steps, not each step - the bus is the master's meanwhile) */
+-    const uint32_t *s = (const uint32_t *)bg2_sdlist; volatile uint32_t *d = (volatile uint32_t *)(0x24000000u + BG2_LIST);
++    const uint32_t *s = (const uint32_t *)bg2_sdlist; volatile uint32_t *d = (volatile uint32_t *)(0x24000000u + FB_LIST);
+     for (int i = 0; i < (n + 1) >> 1; i++) d[i] = s[i];
+ }
+ #endif
+@@ -664,7 +670,7 @@ static int sec_bg_more(const V32 *v, int n)
+     if (!in_run) { in_run = 1; t_run = now; }
+     else if (!free_run && now - t_run > GOT_MORE_RUN) { in_run = 0; in_rest = 1; t_rest = now; return n; }
+     TR(7, bg2.ndirty);
+-    const int m = bg2_more(&bg2, v, (uint16_t *)0x24000000, GOT_MORE_WORDS);
++    const int m = bg2_more(&bg2, v, (uint16_t *)0x24000000 + ((FB_LIST - BG2_LIST) >> 1), GOT_MORE_WORDS);
+     TR(8, m);
+     (*(volatile uint32_t *)((uintptr_t)&got_more_n | 0x20000000))++;
+     return (m & 0x3FFF) | (bg2.late ? 0x4000 : 0);
+@@ -676,7 +682,7 @@ static void bg2_setup(void)
+        scroll), the sprite table 0xF000 (sprite 0: off), the H scroll table 0xE000 (one value: full-screen), 64 x 64
+        cells, no window, the backdrop palette 0 colour 0 (black), H40, increment 2; then the display on. The 32X's
+        colour 0 see-through; its borders (x 0-31, 288-319: the PC Engine shows 256) black, in both buffers */
+-    volatile uint16_t *L = (volatile uint16_t *)(0x24000000 + BG2_LIST); int n = 0;
++    volatile uint16_t *L = (volatile uint16_t *)(0x24000000 + FB_LIST); int n = 0;
+     static const uint16_t regs[] = { 0x8134, 0x8230, 0x8406, 0x8578, 0x8D38, 0x8B00, 0x9011, 0x9100, 0x9200, 0x8700, 0x8C81, 0x8F02 };
+     L[n++] = (uint16_t)(0x1000 | (sizeof regs / 2)); for (unsigned i = 0; i < sizeof regs / 2; i++) L[n++] = regs[i];
+     L[n++] = 0x1002; L[n++] = 0x7000; L[n++] = 0x0003; L[n++] = 0x2004; L[n++] = 0; L[n++] = 0; L[n++] = 0; L[n++] = 0;   /* SAT 0xF000 */
+@@ -689,7 +695,7 @@ static void bg2_setup(void)
+     for (int i = 0; i < 2048; i++) L[n++] = 0;
+     L[n++] = 0x1001; L[n++] = 0x8174;                                                                                      /* display on */
+     L[n++] = 0;
+-    if (!bg2_run(BG2_LIST)) { bg2_fail++; cd_status(0x4EE8); while (1) { } }
++    if (!bg2_run(FB_LIST)) { bg2_fail++; cd_status(0x4EE8); while (1) { } }
+     volatile uint16_t *cram = (volatile uint16_t *)&MARS_CRAM;
+     MARS_VDP_DISPMODE = MARS_224_LINES | MARS_VDP_MODE_256 | MARS_VDP_PRIO_32X;   /* (the 32X in front: its colour 0
+                                                                                   see-through, the rest over the plane) */
+@@ -704,6 +710,9 @@ static void bg2_setup(void)
+         const int cur = MARS_VDP_FBCTL & MARS_VDP_FS;
+         for (int y = 0; y < 224; y++) for (int k = 0; k < 160; k++) FB[0x100 + y * 160 + k] = (k < 16 || k >= 144) ? 0x1010 : 0;
+         bg2_fill(&bg2, cur ^ 1); spr_last_clear(cur ^ 1);
++#ifdef SAP_RING
++        for (int y = 224; y < 256; y++) for (int k = 0; k < 160; k++) FB[0x100 + y * 160 + k] = (k < 16 || k >= 144) ? 0x1010 : 0;   /* (docs/108: the ring's rows past the picture's) */
++#endif
+         MARS_VDP_FBCTL = (uint16_t)(cur ^ 1); while ((MARS_VDP_FBCTL & MARS_VDP_FS) == cur) { }
+     }
+ }
+@@ -847,6 +856,9 @@ static void pic_ahead(const V32 *v)
+     }
+ }
+ #endif
++#ifdef SAP_RING
++static void ring_num(uint32_t num);                          /* (docs/108: eng.c) */
++#endif
+ static void pic_extras(const V32 *v, uint32_t num)
+ {
+     int pd = 0;
+@@ -892,10 +904,20 @@ static void pic_extras(const V32 *v, uint32_t num)
+ #endif
+     pal_dirty = pd;
+ #ifndef DX_CONDIAG
++#ifdef SAP_RING
++    {   extern int spr_ring;
++        if (spr_ring) ring_num(num); else {
+     for (int bit = 0; bit < 9; bit++) {                       /* (the number: blocks at x 4-27, 12 lines each) */
+         const uint16_t w = (num >> bit) & 1 ? 0x2020 : 0x1010;
+         for (int y = bit * 16; y < bit * 16 + 12; y++) for (int x = 2; x < 14; x++) FB[0x100 + y * 160 + x] = w;
+     }
++    } }
++#else
++    for (int bit = 0; bit < 9; bit++) {                       /* (the number: blocks at x 4-27, 12 lines each) */
++        const uint16_t w = (num >> bit) & 1 ? 0x2020 : 0x1010;
++        for (int y = bit * 16; y < bit * 16 + 12; y++) for (int x = 2; x < 14; x++) FB[0x100 + y * 160 + x] = w;
++    }
++#endif
+ #else
+     (void)num;                                                /* (docs/128: not over the diagnostic's text, x 8 on; the
+                                                                  state's PICS counts the pictures) */
+@@ -965,12 +987,15 @@ static void m_mid(int y, const char *t, uint8_t c) { m_text((160 - 4 * (int)strl
+ static void m_clear(void)                                     /* the buffer drawn in: no sprite, nothing remembered */
+ {
+     m_fill(32, 0, 288, 224, 0); spr_last_clear((MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1);
++#ifdef SAP_RING
++    { void ring_inval(int buf); ring_inval((MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1); }   /* (docs/108: rows = lines again) */
++#endif
+ }
+ static void m_show(void)                                      /* the buffer drawn in on screen at the next blank */
+ {
+     const int b = (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1;
+-    FB[BG2_LIST >> 1] = 0; bg2_pairs = 0;
+-    bg2_send(BG2_LIST, 2 + b); pace_req = b; pal_go = b;
++    FB[FB_LIST >> 1] = 0; bg2_pairs = 0;
++    bg2_send(FB_LIST, 2 + b); pace_req = b; pal_go = b;
+     pal_wait(0x12);
+     bg2_take();
+ }
+@@ -1073,6 +1098,9 @@ static void eng_bands_send(void);                             /* (docs/67: eng.c
+ static int eng_bands_list(volatile uint16_t *d);             /* (docs/103: eng.c) */
+ #endif
+ #endif
++#ifdef SAP_RING
++static int ring_frame(const V32 *v, int buf, int overlay);    /* (docs/108: eng.c) */
++#endif
+ static void draw_hook(V32 *v)
+ {
+ #ifdef SEC_TIMES
+@@ -1125,6 +1153,9 @@ static void draw_hook(V32 *v)
+         play_pad();
+ #endif
+     } else pace_last = gTicks;
++#ifdef SAP_RING
++    ring_frame(v, (MARS_VDP_FBCTL & MARS_VDP_FS) ^ 1, gm_open || gm_banner || gm_wipe_n || gm_sub1 || gm_sub2);   /* (docs/108) */
++#endif
+ #if !defined(SEC_BG) || defined(SEC_EARLY)
+     pic_extras(v, pace_n);
+ #endif
+@@ -1204,19 +1235,19 @@ static void draw_hook(V32 *v)
+ #endif
+ #endif
+         if (!gm_open && !gm_banner && (gm_sub1 || gm_sub2)) gm_subs();   /* (docs/78: the English lines last - the secondary's sprites are drawn by now; on the console v13's letters were wiped where its band crossed them) */
+-        if (n == 0) FB[BG2_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
++        if (n == 0) FB[FB_LIST >> 1] = 0;                    /* (no list this picture: an empty one, for the swap) */
+         SEC_T(3, ta);
+ #if defined(DX_ENGINE) && defined(SAP_LISTVS)
+         {   /* docs/103: this picture's V splits at the list's end, over its end word (the commands as before if that
+                word is not where it should be, or no room) */
+-            volatile uint16_t *L = FB + (BG2_LIST >> 1);
++            volatile uint16_t *L = FB + (FB_LIST >> 1);
+             const int e = n ? n - 1 : 0;                      /* (the end word: bg2_frame's count includes it) */
+             if (e < 15900 && L[e] == 0) { const int w = eng_bands_list(L + e); if (w) L[e + w] = 0; }
+             else eng_bands_send();
+         }
+ #endif
+         bg2_sent++; bg2_words += (uint32_t)n;
+-        bg2_send(BG2_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
++        bg2_send(FB_LIST, 2 + (cur ^ 1));                    /* (op 2 / 3, not waited for) */
+         TR(5, n);
+ #ifdef LIST_TIMES
+         lt_w = (uint32_t)n; lt_d = 0; lt_s = wdt_now();
+diff --git a/saeng/src/snd.c b/saeng/src/snd.c
+index 8da3a83..d2936e1 100644
+--- a/saeng/src/snd.c
++++ b/saeng/src/snd.c
+@@ -283,6 +283,9 @@ static void snd_mix(uint32_t *out)
+ /* the secondary's DMA channel 1 interrupt (crt0.s sec_dma_irq, every interrupt masked): the buffer has been played */
+ void sec_dma1_handler(void)
+ {
++#ifdef SAP_RING
++    { extern uint32_t ring_ssp_min; uint32_t sp; __asm__ volatile("mov r15,%0" : "=r"(sp)); if (sp < ring_ssp_min) ring_ssp_min = sp; }   /* (docs/108: the secondary's deepest stack, sampled) */
++#endif
+     (void)SH2_DMA_CHCR1; SH2_DMA_CHCR1 = 0;                   /* (TE read as 1, then cleared) */
+     snd_cur ^= 1;
+     SH2_DMA_SAR1 = (uint32_t)snd_buf[snd_cur]; SH2_DMA_TCR1 = SND_N; SH2_DMA_CHCR1 = 0x18E5;
+diff --git a/tools/saeng_disc.sh b/tools/saeng_disc.sh
+index 50f8a0b..b553430 100755
+--- a/tools/saeng_disc.sh
++++ b/tools/saeng_disc.sh
+@@ -78,6 +78,53 @@ PYE
+ [ "${COLNOW:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_bg5.patch"; RTX_COLNOW=1; }   # (docs/83: a new screen's colours before its entries; COLNOW=0 without)
+ [ "${BLACK:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_black.patch"; RTX_BLACK=1; }   # (docs/100: while every background colour is black, the Genesis colours nothing is placed on are set black; BLACK=0 without)
+ [ "${STABLE:-1}" = 1 ] && { patch -s -p1 -d "$B/tools/m3rt" < "$REPO/tools/sap_stable.patch"; RTX_STABLE=1; }   # (docs/102: a pack placed again keeps its old names - only what really moved is redrawn; STABLE=0 without)
++# docs/108 (RING=1; off by default): the 32X picture as a ring of map lines, the line table pointing each display line
++# at its row - the cells kept while the background scrolls (saeng's SAP_RING: eng.c ring_frame, bgx.c bgx_ring). Here
++# the build's rt_spr.c: every sprite drawn again a picture (it nearly was: 0.4 % skipped, docs/108), its old box
++# cleared on the rows its lines were on (eng.c spr_ring_box), its cells drawn by the segments' ranges (each its rows'
++# offset). Needs PADLESS's room (set here).
++if [ "${RING:-0}" = 1 ]; then
++  PADLESS=1; RTX="${RTX:+$RTX }-DSAP_RING"
++  python3 - "$B/tools/m3rt/rt_spr.c" <<'PYE'
++import sys
++p=sys.argv[1]; s=open(p).read()
++def one(a,b):
++    global s
++    assert s.count(a)==1, a
++    s=s.replace(a,b)
++one("#define SPR_YT spr_ytop\n", """#define SPR_YT spr_ytop
++#ifdef SAP_RING
++/* (Sapphire docs/108: the ring - eng.c ring_frame sets these a picture) */
++int spr_ring, spr_nrr; int16_t spr_rr[24][2]; int32_t spr_rdl[24]; static int32_t spr_dlt;
++void spr_ring_box(uint8_t *nrm, int x0, int y0, int x1, int y1, uint16_t m); int spr_ring_rows_same(int y0, int y1);
++#define RING_DLT spr_dlt
++#else
++#define RING_DLT 0
++#endif
++""")
++one("uint8_t *d = ovl + (py + r0) * SPR_LINE + x0;", "uint8_t *d = ovl + RING_DLT + (py + r0) * SPR_LINE + x0;")
++one("uint8_t *d = ovl + (py + y) * SPR_LINE + x0;", "uint8_t *d = ovl + RING_DLT + (py + y) * SPR_LINE + x0;")
++one("        if (same[i]) continue;\n        if (ls) {", """#ifdef SAP_RING
++        if (spr_ring && same[i] && !spr_ring_rows_same(g.y0, g.y1)) same[i] = 0;   /* (its lines on other rows now) */
++#endif
++        if (same[i]) continue;
++        if (ls) {""")
++one("""#ifdef __sh__
++            spr_clear(b->nrm + o.y0 * SPR_LINE + o.x0, (uint32_t)w, (uint32_t)(o.y1 - o.y0));
++#else""", """#ifdef __sh__
++#ifdef SAP_RING
++            if (spr_ring) spr_ring_box(b->nrm, o.x0, o.y0, o.x1, o.y1, cols(&o)); else
++#endif
++            spr_clear(b->nrm + o.y0 * SPR_LINE + o.x0, (uint32_t)w, (uint32_t)(o.y1 - o.y0));
++#else""")
++one("""              for (int r_ = 0; r_ < spr_nrng; r_++) draw_cell(src_, b->ovl, px, py, hf, vf, pal, spr_rng[r_][0], spr_rng[r_][1]); }""",
++"""#ifdef SAP_RING
++              if (spr_ring) { for (int r_ = 0; r_ < spr_nrr; r_++) { spr_dlt = spr_rdl[r_]; draw_cell(src_, b->ovl, px, py, hf, vf, pal, spr_rr[r_][0], spr_rr[r_][1]); } spr_dlt = 0; } else
++#endif
++              for (int r_ = 0; r_ < spr_nrng; r_++) draw_cell(src_, b->ovl, px, py, hf, vf, pal, spr_rng[r_][0], spr_rng[r_][1]); }""")
++open(p,'w').write(s)
++PYE
++fi
+ # docs/107 (PADLESS=0 without): the SDRAM docs/105 found empty - dxspeed.ld's ALIGN(1024) before the hot halves and the bss's
+ # ALIGN(1024) + PAD_RAM + PAD_RT for a base RAM and Rt the engine does not have (1,760 bytes) - left out, in the build's copy
+ [ "${PADLESS:-0}" = 1 ] && python3 - "$B/saeng/dxspeed.ld" <<'PYE'
