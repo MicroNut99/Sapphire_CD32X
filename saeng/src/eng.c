@@ -1186,6 +1186,11 @@ uint32_t bgx_cells;                                           /* (the cells of t
 void spr_under(const V32 *v, int buf, const SprBuf *b, uint16_t *dirty)
 {
     uint16_t *sq = bgx_sq[buf & 1];
+#ifdef SAP_CELLSTAT
+    { extern int bgx_stat_buf; extern uint16_t bgx_stat_dirty[14]; extern uint32_t bgx_stat[10];
+      bgx_stat_buf = buf & 1; for (int r = 0; r < 14; r++) { bgx_stat_dirty[r] = dirty[r];
+      for (unsigned k = sq[r]; k; k &= k - 1) bgx_stat[6]++; } }
+#endif
     for (int r = 0; r < 14; r++) { const unsigned m = sq[r]; if (!m) continue;
         dirty[r] |= (uint16_t)m; sq[r] = 0;
         uint8_t *row = b->nrm + 16 * r * SPR_LINE;

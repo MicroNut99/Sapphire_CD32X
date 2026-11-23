@@ -45,6 +45,13 @@ static inline __attribute__((always_inline)) void bgx_put(uint8_t *d, uint32_t h
    dst: the byte of the picture's (0, 0), 320 bytes a line (the SH2: in the overwrite image);
    sq[14]: bit c of sq[r] set for each 16 x 16 square written (columns 16 c on, lines 16 r on) - ORed in.
    Returns the cells drawn (a cell's part in a run of lines counts once). */
+#ifdef SAP_CELLSTAT
+/* (diagnostic, docs/106: how many cells are drawn as they already are in this buffer - its last picture's same line
+   run, same X, Y, entries and palettes; and of those, how many lie in no square the sprites' clearing touched) */
+uint32_t bgx_stat[10];                     /* pictures, cells, cells unchanged, unchanged + no sprite square, runs, runs same */
+int bgx_stat_buf; uint16_t bgx_stat_dirty[14];
+static uint16_t bgx_stat_h[2][224], bgx_stat_m[2][512];   /* (by screen line; by the map's line: a ring would keep those) */
+#endif
 int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned set, const uint8_t *base, uint8_t *dst, uint16_t *sq)
 {
     static const uint8_t wsh[4] = { 5, 6, 7, 7 };
@@ -61,9 +68,15 @@ int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned
         const uint16_t *row = vram + ((Y >> 3) << ws);
         const int fx = (int)(X & 7); unsigned cx = (X >> 3) & (mw - 1);
         uint8_t *line = dst + y * 320 - fx;
+#ifdef SAP_CELLSTAT
+        uint32_t hh = X * 977u + Y * 31u + (unsigned)n, hm = X * 977u; int rc = 0, rcn = 0;
+#endif
         for (int c = 0; c < 33; c++, cx = (cx + 1) & (mw - 1), line += 8) {
             const unsigned e = row[cx];
             if (!in[e >> 12]) continue;
+#ifdef SAP_CELLSTAT
+            hh = hh * 31u + e * 7u + (unsigned)c + base[e >> 12] * 131u; hm = hm * 31u + e * 7u + (unsigned)c + base[e >> 12] * 131u;
+#endif
             const int px = c * 8 - fx;
             if (px >= 256) break;
             const uint16_t *w = vram + (e & 0x7FF) * 16 + r0;
@@ -87,10 +100,27 @@ int bgx_draw(const uint16_t *vram, unsigned mwr, const uint16_t *lines, unsigned
             if (any) { cells++;
                 const int x0 = px < 0 ? 0 : px, x1 = px + 7 > 255 ? 255 : px + 7;
                 const uint16_t m = (uint16_t)(bit[(unsigned)x0 >> 4] | bit[(unsigned)x1 >> 4]);
+#ifdef SAP_CELLSTAT
+                rc++; if (!((bgx_stat_dirty[(unsigned)y >> 4] | bgx_stat_dirty[(unsigned)(y + n - 1) >> 4]) & m)) rcn++;
+#endif
                 sq[(unsigned)y >> 4] |= m; sq[(unsigned)(y + n - 1) >> 4] |= m;   /* (unsigned: a signed shift by 4 is a library call) */ }
         }
+#ifdef SAP_CELLSTAT
+        {   const uint16_t h16 = (uint16_t)(hh ^ hh >> 16) | 1;
+            if (rc) { bgx_stat[4]++; if (bgx_stat_h[bgx_stat_buf][y] == h16) { bgx_stat[5]++; bgx_stat[2] += rc; bgx_stat[3] += rcn; } }
+            bgx_stat_h[bgx_stat_buf][y] = rc ? h16 : 0;
+            for (int k = 1; k < n; k++) bgx_stat_h[bgx_stat_buf][y + k] = 0; }
+        /* (by the map: each of the run's n lines Y+k - the same X, entries and palettes as this buffer's last drawing of
+           that map line: a ring of the map's lines addressed by the line table would still hold it) */
+        {   const uint16_t m16 = (uint16_t)(hm ^ hm >> 16) | 1; int same = 0;
+            for (int k = 0; k < n; k++) { uint16_t *q = &bgx_stat_m[bgx_stat_buf][(Y + (unsigned)k) & 511]; if (rc && *q == m16) same++; *q = rc ? m16 : 0; }
+            if (rc) { bgx_stat[7] += (uint32_t)rc * (uint32_t)n; if (same == n) bgx_stat[8] += (uint32_t)rc * (uint32_t)n; } }
+#endif
         y += n;
     }
+#ifdef SAP_CELLSTAT
+    bgx_stat[0]++; bgx_stat[1] += cells;
+#endif
     return cells;
 }
 
