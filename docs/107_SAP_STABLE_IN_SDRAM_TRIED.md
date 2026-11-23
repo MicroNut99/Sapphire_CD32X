@@ -27,3 +27,15 @@ The sound interrupt (`sec_dma1_handler`, ROM, 20 % of the secondary): 61 % of it
 In this build the hot code already runs from the cache wherever it is; what is slow is work: the master's cells
 (`bgx_draw`, docs/106: the ring), the secondary's colour placement and its sound mixing (20 % of it, while the 68000
 is idle ~70 %).
+
+## The two levers left, sized (the owner: "Continue")
+- **The sound mixing off the secondary**: the master waits for the secondary 8.8 % of stage 1; the sound interrupt is
+  22.6 % of the secondary's time in those waits - **~2 % of the stage**. Halving the mixer would give ~1 %. Not worth
+  touching the sound for.
+- **The ring of map lines** (docs/106: 71 % of the cell-lines kept): `bgx_draw` is 16 % of the master (227 lines of a
+  slow picture's 1,153). What it needs, read from the code: the frame buffer is full - picture 0x200-0x11A00, the list
+  from 0x11A00 (up to 16,000 words with `BG2_MORE`), the sprites' tail at 0x1D000 (9 KB): a 256-row ring (80 KB) means
+  moving the list; maps 512 lines tall (`MWR & 0x40`) do not fit and would share rows. Every drawer that writes the
+  picture by `y * 320` must go through the line table instead: the sprites (`rt_spr.c`, `spr_rows.s`, `spr_clear`), the
+  menu (`gm_draw`, `gm_wipe`) and **the subtitles (`gm_subs`)**. Estimated (not measured): ~10 % of the master's time,
+  perhaps 23 -> 25-26 pictures a second in stage 1. The owner's call: it touches the subtitles and the menu.
